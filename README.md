@@ -44,8 +44,11 @@ Then open **Add-ons -> Video add-ons -> SiloKodiConnect -> Sign in to Silo**.
 ## Settings
 
 - **Playback -> Highest resolution / HDR this TV shows.** Defaults to 1080p SDR, so Silo converts 4K and
-  HDR titles for this device. Set what the TV and Kodi device really support (for an NVIDIA SHIELD on a 4K
-  HDR TV: 4K and "HDR10, HDR10+ and Dolby Vision") to direct-play everything.
+  HDR titles for this device. Set what the TV and Kodi device really support to direct-play everything. For
+  an NVIDIA SHIELD on a 4K Dolby Vision TV choose 4K and "Dolby Vision including profile 7", and turn on
+  Kodi's own **Settings -> Player -> Videos -> Dolby Vision compatibility mode**, which converts profile 7
+  (UHD Blu-ray remuxes) to 8.1. Without the profile 7 option Silo strips such files to HDR10 in a converted
+  4K stream, which the SHIELD can't hardware-decode in Kodi; the add-on refuses those with a message.
 - **Sync -> Choose libraries** limits which Silo libraries are synced.
 - **Sync -> Rewrite every item** re-fetches every title (use after changing the relay port).
 - **Sync -> Remove all Silo items** removes everything this add-on wrote to the Kodi library.

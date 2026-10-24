@@ -90,6 +90,10 @@ msgctxt "#30028"
 msgid "4K (2160p)"
 msgstr ""
 
+msgctxt "#30029"
+msgid "HDR10, HDR10+ and Dolby Vision including profile 7 (NVIDIA SHIELD)"
+msgstr ""
+
 msgctxt "#30030"
 msgid "Advanced"
 msgstr ""

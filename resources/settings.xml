@@ -85,6 +85,7 @@
               <option label="30023">sdr</option>
               <option label="30024">hdr10</option>
               <option label="30025">dv</option>
+              <option label="30029">dv7</option>
             </options>
           </constraints>
           <control type="list" format="string"/>

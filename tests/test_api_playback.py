@@ -227,3 +227,26 @@ def test_session_ended_by_admin_stops_reporting(store):
     assert mgr.active.stopped
     mgr.on_stopped(6)  # no DELETE is sent for an ended session
     assert not [s for s in client.session.sent if s[0] == 'DELETE']
+
+
+def test_dolby_vision_profile_7_option_declares_it():
+    client, context = playback.capabilities('0.1.0', '2160p', 'dv7')
+    assert client['hdr_details']['dolby_vision_profiles'] == [5, 7, 8]
+    assert 'client_managed_dynamic_range_v1' in context['deliveries']['original_http']['validated_claims']
+    client, context = playback.capabilities('0.1.0', '2160p', 'dv')
+    assert 7 not in client['hdr_details']['dolby_vision_profiles']
+    assert 'client_managed_dynamic_range_v1' not in context['deliveries']['original_http']['validated_claims']
+
+
+def test_a_4k_hls_plan_is_refused_and_released(store):
+    remux = plan('server_remux_hls', '/api/v2/playback/transcode/s1/master.m3u8?st=x')
+    remux['playback_plan']['effective_recipe'] = {'height': 2160, 'video_codec': 'hevc'}
+    remux['playback_plan']['transformations'] = [{'name': 'server_dv7_to_hdr10'}]
+    mgr, client = manager(store, [('GET', '/api/v2/catalog/items/movie-1', Response(200, movie())),
+                                  ('GET', '/api/v2/playback/capabilities', Response(200, CAPABILITY)),
+                                  ('POST', '/api/v2/playback/start', Response(201, remux)),
+                                  ('DELETE', '/api/v2/playback/s1', Response(200, {'outcome': 'stopped'}))])
+    with pytest.raises(playback.PlaybackError, match='profile 7'):
+        mgr.start('movie-1')
+    assert client.session.sent[-1][0] == 'DELETE'
+    assert mgr.pending is None

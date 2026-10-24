@@ -32,7 +32,15 @@ DYNAMIC_RANGE = {
     'sdr': {'hdr10': False, 'hdr10_plus': False, 'hlg': False, 'dolby_vision_profiles': []},
     'hdr10': {'hdr10': True, 'hdr10_plus': False, 'hlg': True, 'dolby_vision_profiles': []},
     'dv': {'hdr10': True, 'hdr10_plus': True, 'hlg': True, 'dolby_vision_profiles': [5, 8]},
+    # Kodi 21 on an NVIDIA SHIELD plays profile 7 (UHD Blu-ray) files itself.
+    # Without this Silo strips them to HDR10 in an HLS remux, which also
+    # turns TrueHD into AAC.
+    'dv7': {'hdr10': True, 'hdr10_plus': True, 'hlg': True, 'dolby_vision_profiles': [5, 7, 8]},
 }
+# A 4K stream remuxed to HLS reaches Kodi without its picture size, so the
+# SHIELD's hardware decoder refuses it and Kodi decodes 4K HEVC in software
+# until Android kills it for memory. Refuse such plans with an explanation.
+MAX_HLS_HEIGHT = 1080
 
 
 class PlaybackError(Exception):
@@ -57,8 +65,10 @@ def capabilities(version, max_resolution='1080p', dynamic_range='sdr'):
         'audio_decode_codecs': list(AUDIO_CODECS), 'audio_passthrough_codecs': [],
         'hdr_details': dict(hdr), 'auth_header_refresh': False, 'subtitles': text_subtitles,
         'features': [], 'transformations': [],
-        # Kodi plays whichever audio track it picks from the original file.
-        'validated_claims': ['client_selected_audio_track_v1'],
+        # Kodi plays whichever audio track it picks from the original file,
+        # and with dv7 handles Dolby Vision profile 7 itself.
+        'validated_claims': ['client_selected_audio_track_v1']
+        + (['client_managed_dynamic_range_v1'] if dynamic_range == 'dv7' else []),
     }
     hls = {
         'enabled': True, 'supported_on_device': True,
@@ -202,10 +212,22 @@ class PlaybackManager(object):
             raise PlaybackError(terminal.get('message') or terminal.get('reason') or 'Silo found no way to play this.')
         plan = decision.get('playback_plan') or {}
         stream = plan.get('stream') or {}
+        recipe = plan.get('effective_recipe') or {}
+        self.log('Silo plan for %s: %s, reason %s, %sp %s %s, audio %s; transformations %s; warnings %s' % (
+            content_id, plan.get('delivery'), plan.get('decision_reason'), recipe.get('height'),
+            recipe.get('video_codec'), recipe.get('dynamic_range'), recipe.get('audio_codec'),
+            [t.get('name') for t in plan.get('transformations') or []],
+            [w.get('code') for w in plan.get('degradation_warnings') or []]))
+        session_id = decision.get('session_id') or plan.get('session_id')
         if plan.get('delivery') not in PLAYABLE_DELIVERIES or not stream.get('url'):
+            self._release(body['installation_id'], session_id)
             raise PlaybackError('Silo offered a stream this add-on cannot play (%s).' % plan.get('delivery'))
-        session = Session(self.client, body['installation_id'], decision.get('session_id') or plan.get('session_id'),
-                          content_id, plan)
+        if plan.get('delivery') in HLS_DELIVERIES and (recipe.get('height') or 0) > MAX_HLS_HEIGHT:
+            self._release(body['installation_id'], session_id)
+            raise PlaybackError('Silo can only send this as a converted 4K stream, which this device would '
+                                'have to decode in software. If it is Dolby Vision from a UHD Blu-ray, set '
+                                'Playback > HDR to the profile 7 option.')
+        session = Session(self.client, body['installation_id'], session_id, content_id, plan)
         with self._lock:
             if self.pending:
                 self._safe_stop(self.pending)
@@ -226,6 +248,11 @@ class PlaybackManager(object):
             'subtitles': subtitles,
             'title': item.get('title') or '',
         }
+
+    def _release(self, installation_id, session_id):
+        """Stop a session Silo started but Kodi won't play."""
+        if session_id:
+            self._safe_stop(Session(self.client, installation_id, session_id, None, {}))
 
     def session_ids(self):
         return [s.session_id for s in (self.pending, self.active) if s and not s.stopped]

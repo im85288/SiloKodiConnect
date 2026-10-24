@@ -151,27 +151,30 @@ class Syncer(object):
 
     def sync_movies(self, library):
         library_id = str(library['id'])
-        cards = list(self.client.catalog(library_id, 'movie'))
+        # Read a page at a time and keep only ids and fingerprints: on a 2 GB
+        # SHIELD every MB the sync holds is one Kodi lacks when a film starts.
         seen, fetch, states = set(), [], []
-        for card in cards:
+        for card in self.client.catalog(library_id, 'movie'):
             content_id = card['content_id']
             seen.add(content_id)
             row = self.db.get(content_id)
-            if not row or row['fingerprint'] != mapping.fingerprint(card) or row['library_id'] != library_id:
-                fetch.append(card)
+            fingerprint = mapping.fingerprint(card)
+            if not row or row['fingerprint'] != fingerprint or row['library_id'] != library_id:
+                fetch.append((content_id, fingerprint))
             elif row['state'] != mapping.state_fingerprint(card):
-                states.append((row, card))
+                states.append((row, {'user_state': card.get('user_state'), 'runtime': card.get('runtime'),
+                                     'duration_seconds': card.get('duration_seconds')}))
         self.log('Library %s: %d movies, %d to write, %d watch-state updates'
-                 % (library.get('name'), len(cards), len(fetch), len(states)))
+                 % (library.get('name'), len(seen), len(fetch), len(states)))
         for number, batch in enumerate(chunks(fetch, BATCH)):
             self.check_stop()
             done = number * BATCH
             self.step(float(done) / len(fetch), '%s: %d / %d' % (library.get('name') or '', done, len(fetch)))
-            items = self.fetch_all(lambda card: self.client.item(card['content_id']), batch)
+            items = self.fetch_all(lambda pair: self.client.item(pair[0]), batch)
             with self.open_kodi() as kodi:
-                for card, item in zip(batch, items):
+                for (content_id, fingerprint), item in zip(batch, items):
                     if item:
-                        self.write_movie(kodi, item, library, card)
+                        self.write_movie(kodi, item, library, fingerprint)
         self.apply_states(states)
         gone = [row for row in self.db.items('movie', library_id) if row['content_id'] not in seen]
         for batch in chunks(gone, BATCH):
@@ -179,7 +182,7 @@ class Syncer(object):
                 for row in batch:
                     self._remove_movie(kodi, row)
 
-    def write_movie(self, kodi, item, library, card=None):
+    def write_movie(self, kodi, item, library, fingerprint=None):
         content_id = item['content_id']
         row = self.db.get(content_id) or {}
         fields = mapping.movie_fields(item)
@@ -207,8 +210,7 @@ class Syncer(object):
         count, resume, total, last = mapping.play_state(item)
         kodi.set_play_state(file_id, count, resume, total or fields['runtime'] or 0, last)
         self.db.put(content_id=content_id, kind='movie', library_id=str(library['id']), kodi_id=kodi_id,
-                    kodi_file_id=file_id, kodi_path_id=path_id,
-                    fingerprint=mapping.fingerprint(card) if card else None,
+                    kodi_file_id=file_id, kodi_path_id=path_id, fingerprint=fingerprint,
                     state=mapping.state_fingerprint(item))
         self.db.set_art(content_id, remote_art)
         self._save_person_art(item)
@@ -516,11 +518,16 @@ class Syncer(object):
         return the newest watch time seen, to pass as `since` next time."""
         latest = {}
         newest = None
+        seen = undated = 0
+        sources = {}
         for entry in self.client.history():
+            seen += 1
             watch = entry.get('watch') or {}
             stamp = watch.get('watched_at')
             if not stamp:
+                undated += 1
                 continue
+            sources[watch.get('source') or '?'] = sources.get(watch.get('source') or '?', 0) + 1
             if since and stamp <= since:
                 break
             newest = newest or stamp
@@ -538,7 +545,8 @@ class Syncer(object):
                     updated += kodi.set_last_played(file_id, last_played)
         if updated:
             self.changed = True
-        self.log('Watch history: %d titles, %d last-played dates updated' % (len(latest), updated))
+        self.log('Watch history: %d entries read (%d undated, sources %s), %d titles, %d last-played dates '
+                 'updated%s' % (seen, undated, sources, len(latest), updated, ' (full read)' if not since else ''))
         return newest or since
 
     # ----- helpers -----

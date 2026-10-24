@@ -13,7 +13,8 @@ import requests
 API_PREFIX = '/api/v2'
 CLIENT_NAME = 'SiloKodiConnect'
 TIMEOUT = 30
-PAGE_SIZE = 200
+# Smaller pages keep the sync's peak memory down on 2 GB devices.
+PAGE_SIZE = 100
 
 
 class ApiError(Exception):

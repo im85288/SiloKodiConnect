@@ -121,7 +121,7 @@ def test_pages_follow_cursors(store):
     ])
     assert [i['content_id'] for i in client.catalog('1', 'movie')] == ['a', 'b']
     assert client.session.sent[1][3]['cursor'] == 'c1'
-    assert client.session.sent[0][3]['type'] == 'movie' and client.session.sent[0][3]['limit'] == 200
+    assert client.session.sent[0][3]['type'] == 'movie' and client.session.sent[0][3]['limit'] == 100
 
 
 # ----- playback -----

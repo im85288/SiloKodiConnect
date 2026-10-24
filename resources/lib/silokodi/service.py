@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """The background service: owns the Silo session, keeps the library synced,
 listens for Silo's realtime events and reports playback."""
+import gc
 import json
 import queue
 import threading
@@ -23,6 +24,22 @@ PROGRESS_POLL = 300          # seconds between resume-point checks while the soc
 PROGRESS_POLL_OFFLINE = 120  # ... and while it is down
 ART_RETRY = 3600             # don't ask Silo for the same missing artwork more often
 ECHO_WINDOW = 90             # Kodi's own post-playback playcount update is not a user action
+
+
+def kind_of(task):
+    return task[0] if isinstance(task, tuple) else task
+
+
+def release_memory():
+    """Hand memory a sync freed back to Android. Python frees the objects,
+    but Android's allocator keeps the space unless asked; on a 2 GB SHIELD
+    the add-on otherwise left Kodi about 70 MB bigger after a sync."""
+    gc.collect()
+    try:
+        import ctypes
+        ctypes.CDLL(None).mallopt(-101, 0)  # M_PURGE, bionic (Android 10+)
+    except Exception:
+        pass  # not Android, or an older one
 
 
 class Player(xbmc.Player):
@@ -184,6 +201,8 @@ class Service(object):
                 kodi.log_warning('Task %s failed: %s' % (task, error))
             except Exception as error:
                 kodi.log_error('Task %s crashed: %s' % (task, error))
+            if kind_of(task) in ('sync', 'fullsync', 'library'):
+                release_memory()
             if self.tasks.empty() and self.syncer.changed:
                 self.syncer.changed = False
                 self.library_update_pending = not kodi.refresh_library_views()

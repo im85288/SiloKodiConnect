@@ -164,7 +164,7 @@ def test_start_builds_a_v3_request_and_returns_a_signed_url(store):
     assert 'header_authenticated_media_v1' not in body['client_features']
     caps = body['client_capabilities']
     assert caps['max_resolution'] == '2160p' and caps['hdr_details']['dolby_vision_profiles'] == [5, 8]
-    assert body['client_playback_context']['deliveries']['progressive']['enabled'] is False
+    assert sorted(body['client_playback_context']['deliveries']) == ['hls', 'original_http']
     assert answer['url'] == 'https://silo.test/api/v2/stream/s1?st=signed'
     assert answer['subtitles'] == ['https://silo.test/api/v2/stream/s1/subtitles/0.srt?st=x']
     assert answer['hls'] is False and answer['start_offset'] == 0

@@ -94,6 +94,16 @@ def test_watch_state_written(syncer, query):
     assert states == [('1', 1, None), ('2', None, 600.0)]
 
 
+def test_movie_resume_comes_from_item_details(silo, syncer, query):
+    silo.movies['movie-2']['user_data']['position_seconds'] = 900.0
+    syncer.sync()
+    resume = "SELECT b.timeInSeconds FROM bookmark b JOIN movie m ON m.idFile = b.idFile WHERE m.c00 = 'Thief'"
+    assert query(resume) == [(900.0,)]
+    # Cards have no positions: a later sync must not wipe the resume point.
+    syncer.sync()
+    assert query(resume) == [(900.0,)]
+
+
 def test_second_sync_fetches_nothing_when_unchanged(syncer, silo):
     syncer.sync()
     silo.calls = []

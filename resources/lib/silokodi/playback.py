@@ -2,9 +2,9 @@
 """Silo playback protocol v3 for Kodi's player.
 
 The service starts each session (it owns the sign-in tokens), reports
-progress while Kodi plays and stops the session when Kodi does. Media URLs are
-Silo's signed ones: this client does not opt into header-authenticated media,
-so Kodi can fetch them directly without the bearer token.
+progress while Kodi plays and stops the session when Kodi does. Silo's media
+routes need the sign-in header, so Kodi opens them through the service's
+loopback relay, which adds a fresh token to each request.
 """
 import platform
 import threading
@@ -72,10 +72,9 @@ def capabilities(version, max_resolution='1080p', dynamic_range='sdr'):
         'protocol_version': PROTOCOL, 'form_factor': 'tv', 'app_version': version, 'app_channel': 'stable',
         'device': {'platform': (platform.system() or 'Kodi')[:32], 'os_version': platform.release()[:128]},
         'output': {'hdr_details': dict(hdr)},
-        # Progressive remux cannot seek, which Kodi expects to do freely.
-        'deliveries': {'original_http': original, 'hls': hls,
-                       'progressive': {'enabled': False, 'supported_on_device': False,
-                                       'failure_reason': 'forward_only_stream'}},
+        # Progressive remux cannot seek, which Kodi expects to do freely; a
+        # class left out is unavailable.
+        'deliveries': {'original_http': original, 'hls': hls},
     }
     return client, context
 
@@ -141,9 +140,11 @@ class Session(object):
 
 
 class PlaybackManager(object):
-    def __init__(self, client, version, settings, log=None):
-        """settings: callable returning {'max_resolution', 'dynamic_range', 'quality'}."""
+    def __init__(self, client, version, settings, log=None, media_url=None):
+        """settings: callable returning {'max_resolution', 'dynamic_range', 'quality'}.
+        media_url: maps a Silo media URL to the address Kodi should open."""
         self.client = client
+        self.media_url = media_url or (lambda url: url)
         self.version = version
         self.settings = settings
         self.log = log or (lambda message: None)
@@ -210,12 +211,12 @@ class PlaybackManager(object):
                 self._safe_stop(self.pending)
             self.pending = session
         timeline = plan.get('timeline') or {}
-        subtitles = [self.client.url(entry['url']) for entry in (plan.get('subtitle') or {}).get('inventory') or []
+        subtitles = [self.media_url(self.client.url(entry['url'])) for entry in (plan.get('subtitle') or {}).get('inventory') or []
                      if entry.get('source') == 'external' and entry.get('url')
                      and entry.get('codec') in ('srt', 'subrip', 'vtt', 'webvtt', 'ass', 'ssa')]
         self.log('Playing %s as %s' % (content_id, plan.get('delivery')))
         return {
-            'url': self.client.url(stream['url']),
+            'url': self.media_url(self.client.url(stream['url'])),
             'mime_type': stream.get('mime_type') or '',
             'hls': plan.get('delivery') in HLS_DELIVERIES,
             # Where the stream starts relative to the title, for a converted stream.
@@ -225,6 +226,9 @@ class PlaybackManager(object):
             'subtitles': subtitles,
             'title': item.get('title') or '',
         }
+
+    def session_ids(self):
+        return [s.session_id for s in (self.pending, self.active) if s and not s.stopped]
 
     # ----- driven by the service's xbmc.Player -----
 

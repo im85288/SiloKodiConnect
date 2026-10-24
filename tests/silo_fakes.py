@@ -18,7 +18,6 @@ def movie(content_id='movie-1', title='Heat', **extra):
                  {'name': 'Robert De Niro', 'character': 'Neil McCauley', 'order': 1, 'person_id': '8'}],
         'crew': [{'name': 'Michael Mann', 'job': 'Director'}, {'name': 'Michael Mann', 'job': 'Writer'}],
         'user_state': {'played': False}, 'user_data': {'played': False, 'last_file_id': '120'},
-        'position_seconds': 0,
         'versions': [{'file_id': '120', 'resolution': '2160p', 'codec_video': 'hevc', 'hdr': True,
                       'video_tracks': [{'codec': 'hevc', 'width': 3840, 'height': 1600, 'aspect_ratio': '12:5',
                                         'dv_profile': 8}],
@@ -30,10 +29,11 @@ def movie(content_id='movie-1', title='Heat', **extra):
 
 
 def card_of(item):
-    """The catalog card for an item: the list form, without detail-only fields."""
+    """The catalog card for an item: the list form, without detail-only fields.
+    Like Silo's, cards carry watched state but no resume position."""
     keep = ('content_id', 'type', 'title', 'year', 'overview', 'genres', 'added_at', 'runtime',
-            'duration_seconds', 'poster_url', 'backdrop_url', 'user_state', 'position_seconds',
-            'progress_updated_at', 'series_id', 'season_number', 'episode_number', 'rating_imdb', 'studios')
+            'duration_seconds', 'poster_url', 'backdrop_url', 'user_state', 'series_id', 'season_number',
+            'episode_number', 'rating_imdb', 'studios')
     return {key: copy.deepcopy(item[key]) for key in keep if key in item}
 
 
@@ -59,7 +59,7 @@ def episode(series_id, season_number, number, played=False, position=0):
             'files': [{'file_id': 'f%d' % number, 'resolution': '2160p', 'codec_video': 'hevc', 'hdr': True,
                        'audio_channels': 6}],
             'user_data': {'played': played, 'position_seconds': position},
-            'user_state': {'played': played}, 'position_seconds': position}
+            'user_state': {'played': played}}
 
 
 class FakeSilo(object):

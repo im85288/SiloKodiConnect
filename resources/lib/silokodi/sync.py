@@ -176,13 +176,13 @@ class Syncer(object):
         kodi.set_art(kodi_id, 'movie', local_art)
         version = mapping.default_version(item)
         kodi.set_streams(file_id, mapping.stream_details(version), fields['runtime'])
-        state_source = card or item
-        count, resume, total, last = mapping.play_state(state_source)
+        # The item's details carry the resume position; catalog cards don't.
+        count, resume, total, last = mapping.play_state(item)
         kodi.set_play_state(file_id, count, resume, total or fields['runtime'] or 0, last)
         self.db.put(content_id=content_id, kind='movie', library_id=str(library['id']), kodi_id=kodi_id,
                     kodi_file_id=file_id, kodi_path_id=path_id,
                     fingerprint=mapping.fingerprint(card) if card else None,
-                    state=mapping.state_fingerprint(state_source))
+                    state=mapping.state_fingerprint(item))
         self.db.set_art(content_id, remote_art)
         self._save_person_art(item)
         self.changed = True
@@ -349,14 +349,14 @@ class Syncer(object):
             local_art, remote_art = mapping.artwork(episode, mapping.EPISODE_ART, self.port)
             kodi.set_art(kodi_id, 'episode', local_art)
             kodi.set_streams(file_id, mapping.episode_stream_details(episode), fields['runtime'])
-            state_source = card or episode
-            count, resume, total, last = mapping.play_state(state_source)
+            # The season listing carries the resume position; catalog cards don't.
+            count, resume, total, last = mapping.play_state(episode)
             kodi.set_play_state(file_id, count, resume, total or fields['runtime'] or 0, last)
             self.db.put(content_id=content_id, kind='episode', library_id=show['library_id'], parent_id=series_id,
                         season_number=season_number, kodi_id=kodi_id, kodi_file_id=file_id,
                         kodi_path_id=show['kodi_path_id'],
                         fingerprint=mapping.fingerprint(card) if card else None,
-                        state=mapping.state_fingerprint(state_source))
+                        state=mapping.state_fingerprint(episode))
             self.db.set_art(content_id, remote_art)
         self.changed = True
 
@@ -466,8 +466,9 @@ class Syncer(object):
                       'position_seconds': entry.get('position_seconds'),
                       'user_state': {'played': entry.get('completed')},
                       'progress_updated_at': entry.get('updated_at')}
-            if row['state'] != mapping.state_fingerprint(source):
-                pairs.append((row, source))
+            # The feed only holds changes since the last check, and positions
+            # aren't in the state comparison, so apply every entry.
+            pairs.append((row, source))
         self.apply_states(pairs)
 
     # ----- helpers -----

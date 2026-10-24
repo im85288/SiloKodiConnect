@@ -7,6 +7,11 @@
 /play?id=..&resume=1       The plugin asks the service to start a Silo
                            session, because only the service holds the tokens.
 /command/<name>            The plugin's menu actions (sync now, sign-in done).
+/media/<Silo path>?<query> Silo's media routes need the sign-in header even on
+                           signed URLs. Kodi plays through here and the relay
+                           adds a fresh token to every request, so a long film
+                           outlives the hourly token and no token reaches
+                           Kodi's log. Only sessions this add-on started pass.
 
 It listens on 127.0.0.1 only and never logs URLs, which carry signatures.
 """
@@ -25,11 +30,20 @@ import requests
 
 DEFAULT_PORT = 57578
 CHUNK = 64 * 1024
+MEDIA_CHUNK = 512 * 1024
+# Request headers Kodi's player sends that the media server needs to see.
+FORWARD_REQUEST = ('Range', 'If-Range', 'Accept', 'Accept-Encoding')
+FORWARD_RESPONSE = ('Content-Type', 'Content-Length', 'Content-Range', 'Accept-Ranges', 'ETag',
+                    'Last-Modified', 'Cache-Control')
 
 
 class ThreadingServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
     allow_reuse_address = True
+
+    def handle_error(self, request, client_address):
+        # Players drop connections whenever they seek; that is not an error.
+        pass
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -51,6 +65,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if len(segments) == 3 and segments[0] == 'art':
                 return self.art(relay, segments[1], segments[2], head)
+            if segments[0] == 'media':
+                return self.media(relay, parts, head)
             query = {k: v[0] for k, v in parse_qs(parts.query).items()}
             if segments == ['play']:
                 return self.json(200, relay.play(query))
@@ -94,6 +110,31 @@ class Handler(BaseHTTPRequestHandler):
             response.close()
 
 
+    def media(self, relay, parts, head):
+        path = parts.path[len('/media'):]
+        if not relay.media_allowed(path):
+            self.send_error(403)
+            return
+        headers = {key: self.headers[key] for key in FORWARD_REQUEST if self.headers.get(key)}
+        response = relay.fetch_media('HEAD' if head else 'GET', path, parts.query, headers)
+        try:
+            self.send_response(response.status_code)
+            for key in FORWARD_RESPONSE:
+                if response.headers.get(key):
+                    self.send_header(key, response.headers[key])
+            if not response.headers.get('Content-Length'):
+                self.send_header('Connection', 'close')
+                self.close_connection = True
+            self.end_headers()
+            if not head:
+                for chunk in response.iter_content(MEDIA_CHUNK):
+                    self.wfile.write(chunk)
+        except (socket.error, ConnectionError):
+            pass  # Kodi closes connections when it seeks
+        finally:
+            response.close()
+
+
 class Relay(object):
     """
     client:       SiloClient (for the server URL and auth headers)
@@ -101,14 +142,17 @@ class Relay(object):
     refresh_art:  callable(content_id) that re-reads the item's artwork from Silo
     play:         callable(query dict) -> dict for the plugin
     command:      callable(name, query dict) -> dict for the plugin
+    media_allowed: callable(Silo path) -> True for a session this add-on started
     """
 
-    def __init__(self, client, db, refresh_art, play, command, port=DEFAULT_PORT, log=None):
+    def __init__(self, client, db, refresh_art, play, command, port=DEFAULT_PORT, log=None,
+                 media_allowed=lambda path: False):
         self.client = client
         self.db = db
         self.refresh_art = refresh_art
         self.play = play
         self.command = command
+        self.media_allowed = media_allowed
         self.port = port
         self.log = log or (lambda message: None)
         self.session = requests.Session()
@@ -157,3 +201,26 @@ class Relay(object):
             return response
         response.close()
         return None
+
+    # ----- media -----
+
+    def media_url(self, url):
+        """Kodi's address for a Silo media URL on the API origin; others pass through."""
+        server = urlsplit(self.client.server_url)
+        target = urlsplit(url)
+        if (target.scheme, target.netloc) != (server.scheme, server.netloc):
+            return url
+        return 'http://127.0.0.1:%d/media%s%s' % (self.port, target.path, '?' + target.query if target.query else '')
+
+    def fetch_media(self, method, path, query, headers):
+        url = self.client.server_url + path + ('?' + query if query else '')
+        for attempt in (1, 2):
+            if attempt == 2:
+                self.client.refresh(force=True)
+            else:
+                self.client.ensure_fresh_token()
+            response = self.session.request(method, url, headers=dict(self.client.auth_headers(), **headers),
+                                            stream=True, timeout=(10, 60))
+            if response.status_code != 401 or attempt == 2:
+                return response
+            response.close()

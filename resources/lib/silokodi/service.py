@@ -89,9 +89,11 @@ class Service(object):
         self.port = kodi.setting_int('relay_port') or DEFAULT_PORT
         self.syncer = Syncer(self.client, self.db, self.open_kodi, self.port, log=kodi.log,
                              should_stop=self.monitor.abortRequested, progress=self.sync_progress)
-        self.playback = PlaybackManager(self.client, self.version, self.playback_settings, log=kodi.log)
+        self.relay = Relay(self.client, self.db, self.refresh_art, self.play, self.command, self.port, log=kodi.log,
+                           media_allowed=self.media_allowed)
+        self.playback = PlaybackManager(self.client, self.version, self.playback_settings, log=kodi.log,
+                                        media_url=self.relay.media_url)
         self.player = Player(self)
-        self.relay = Relay(self.client, self.db, self.refresh_art, self.play, self.command, self.port, log=kodi.log)
         self.tasks = queue.Queue()
         self.listener = None
         self.recently_played = {}
@@ -277,14 +279,14 @@ class Service(object):
         if time.time() - self.recently_played.get(content_id, 0) < ECHO_WINDOW:
             return
         watched = int(data['playcount'] or 0) > 0
-        if row['state'] and row['state'].startswith('1:' if watched else '0:'):
+        if row['state'] == ('1' if watched else '0'):
             return  # Kodi is only repeating what we wrote
         try:
             if watched:
                 self.client.mark_watched(content_id)
             else:
                 self.client.mark_unwatched(content_id)
-            self.db.set_state(content_id, '%d:0' % (1 if watched else 0))
+            self.db.set_state(content_id, '1' if watched else '0')
             kodi.log('Marked %s %s on Silo' % (content_id, 'watched' if watched else 'unwatched'))
         except (ApiError, requests.RequestException) as error:
             kodi.log_warning('Could not update watched state on Silo: %s' % error)
@@ -334,6 +336,9 @@ class Service(object):
         else:
             return {'error': 'unknown command'}
         return {'ok': True}
+
+    def media_allowed(self, path):
+        return any(session_id in path for session_id in self.playback.session_ids())
 
     def refresh_art(self, content_id):
         if time.time() - self.art_attempts.get(content_id, 0) < ART_RETRY:

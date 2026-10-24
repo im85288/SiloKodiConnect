@@ -211,11 +211,12 @@ class SiloClient(object):
         return self.get('/catalog/items/%s' % content_id, image_size='large')
 
     def seasons(self, series_id):
-        return list(self.pages('/catalog/series/%s/seasons' % series_id, image_size='large'))
+        # Not paged: one answer holds every season.
+        return self.get('/catalog/series/%s/seasons' % series_id, image_size='large').get('items') or []
 
     def season_episodes(self, series_id, season_number):
-        return list(self.pages('/catalog/series/%s/seasons/%s/episodes' % (series_id, season_number),
-                               image_size='large'))
+        return self.get('/catalog/series/%s/seasons/%s/episodes' % (series_id, season_number),
+                        image_size='large').get('items') or []
 
     def progress(self):
         """Watch progress, newest change first."""

@@ -267,8 +267,10 @@ def play_state(card):
 
 
 def state_fingerprint(card):
-    count, resume, _, _ = play_state(card)
-    return '%d:%d' % (count, int(resume))
+    """'1' watched, '0' not. Catalog cards carry no resume position, so
+    positions come from item details, season listings and Silo's progress
+    feed, and are not part of this comparison."""
+    return '1' if play_state(card)[0] else '0'
 
 
 # ----- the rows themselves -----

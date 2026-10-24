@@ -256,3 +256,9 @@ def test_last_played_comes_from_watch_history(silo, syncer, query):
     syncer.db.forget_fingerprints()
     syncer.sync()
     assert query(heat) == [(mapping.kodi_datetime('2026-10-01T19:00:00Z'),)]
+
+
+def test_a_running_sync_waits_between_batches(silo, open_kodi, tmp_path):
+    waits = []
+    Syncer(silo, SyncDB(str(tmp_path)), open_kodi, PORT, wait_while_busy=lambda: waits.append(1)).sync()
+    assert waits  # called between batches, so playback can pause it

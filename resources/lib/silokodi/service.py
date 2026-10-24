@@ -112,7 +112,8 @@ class Service(object):
         self.db = SyncDB(kodi.profile_dir())
         self.port = kodi.setting_int('relay_port') or DEFAULT_PORT
         self.syncer = Syncer(self.client, self.db, self.open_kodi, self.port, log=kodi.log,
-                             should_stop=self.monitor.abortRequested, progress=self.sync_progress)
+                             should_stop=self.monitor.abortRequested, progress=self.sync_progress,
+                             wait_while_busy=self.wait_while_playing)
         self.relay = Relay(self.client, self.db, self.refresh_art, self.play, self.command, self.port, log=kodi.log,
                            media_allowed=self.media_allowed)
         self.playback = PlaybackManager(self.client, self.version, self.playback_settings, log=kodi.log,
@@ -242,6 +243,17 @@ class Service(object):
             for library_id in self.db.libraries():
                 self.syncer.remove_library(library_id)
             self.db.clear()
+
+    def wait_while_playing(self):
+        """Pause a running sync while a video plays (it resumes afterwards)."""
+        paused = False
+        while self.playing() and not self.monitor.abortRequested():
+            if not paused:
+                kodi.log('Sync paused while a video plays')
+                paused = True
+            self.monitor.waitForAbort(5)
+        if paused:
+            kodi.log('Sync resumed')
 
     def playing(self):
         try:

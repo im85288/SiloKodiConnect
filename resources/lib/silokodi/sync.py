@@ -60,7 +60,7 @@ class Syncer(object):
     port:       the local artwork relay's port, baked into Kodi's art URLs
     """
 
-    def __init__(self, client, db, open_kodi, port, log=None, should_stop=None, progress=None):
+    def __init__(self, client, db, open_kodi, port, log=None, should_stop=None, progress=None, wait_while_busy=None):
         self.client = client
         self.db = db
         self.open_kodi = open_kodi
@@ -68,6 +68,9 @@ class Syncer(object):
         self.log = log or (lambda message: None)
         self.should_stop = should_stop or (lambda: False)
         self.progress = progress or (lambda percent, message: None)
+        # Called between batches; blocks while the device needs its memory
+        # (a video playing), so a sync that started first doesn't compete.
+        self.wait_while_busy = wait_while_busy or (lambda: None)
         self.changed = False
         self._base, self._span = 0.0, 100.0
 
@@ -76,6 +79,7 @@ class Syncer(object):
         self.progress(int(self._base + self._span * min(max(fraction, 0.0), 1.0)), message)
 
     def check_stop(self):
+        self.wait_while_busy()
         if self.should_stop():
             raise Stopped()
 

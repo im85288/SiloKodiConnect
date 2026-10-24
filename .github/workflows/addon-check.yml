@@ -11,9 +11,10 @@ jobs:
       matrix:
         kodi-branch: [nexus, omega]
     steps:
+    # The checker wants the folder named after the add-on id.
     - uses: actions/checkout@v4
       with:
-        path: ${{ github.repository }}
+        path: plugin.video.silokodiconnect
     - uses: actions/setup-python@v5
       with:
         python-version: '3.12'
@@ -21,6 +22,6 @@ jobs:
       run: pip install kodi-addon-checker
     - name: Remove files not shipped in the add-on
       run: awk '/export-ignore/ { print $1 }' .gitattributes | xargs rm -rf --
-      working-directory: ${{ github.repository }}
+      working-directory: plugin.video.silokodiconnect
     - name: Run kodi-addon-checker
-      run: kodi-addon-checker --branch=${{ matrix.kodi-branch }} ${{ github.repository }}/
+      run: kodi-addon-checker --branch=${{ matrix.kodi-branch }} plugin.video.silokodiconnect/

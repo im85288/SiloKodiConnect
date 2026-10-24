@@ -122,6 +122,10 @@ def test_event_frames_reach_the_handler():
 def test_times_and_dates():
     assert mapping.kodi_date('2026-01-02T03:04:05.678Z') == '2026-01-02'
     assert mapping.parse_time('2026-01-02T03:04:05.6789Z').microsecond == 678900
+    # Python 3.8 (Kodi 20 on Android) takes only 3 or 6 fraction digits.
+    for value, micro in (('2026-01-02T03:04:05.6Z', 600000), ('2026-01-02T03:04:05.123456789Z', 123456),
+                         ('2026-01-02T03:04:05.5+01:00', 500000), ('2026-01-02T03:04:05Z', 0)):
+        assert mapping.parse_time(value).microsecond == micro
     assert mapping.parse_time('nonsense') is None
 
 

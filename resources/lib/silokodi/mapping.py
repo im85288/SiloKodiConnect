@@ -5,6 +5,7 @@ Nothing here touches Kodi or the network, so it is covered by plain tests.
 """
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
 
 try:
@@ -29,6 +30,8 @@ SEASON_ART = (('poster_url', 'poster'),)
 EPISODE_ART = (('still_url', 'thumb'),)
 
 WRITER_JOBS = ('writer', 'screenplay', 'story', 'novel', 'teleplay', 'author')
+# The fraction of seconds in an ISO 8601 time, before any zone offset.
+FRACTION = re.compile(r'T\d\d:\d\d:\d\d\.(\d+)')
 # Fields of a catalog card that change with viewing, not with the title itself.
 STATE_FIELDS = ('position_seconds', 'progress_updated_at', 'user_state', 'sort_metrics', 'user_data',
                 'badges', 'upcoming_event', 'search_diagnostics')
@@ -75,11 +78,10 @@ def parse_time(value):
         return None
     try:
         text = value.replace('Z', '+00:00')
-        if '.' in text:
+        match = FRACTION.search(text)
+        if match:
             # Python before 3.11 accepts only 3 or 6 fraction digits.
-            head, tail = text.split('.', 1)
-            digits = ''.join(c for c in tail if c.isdigit())
-            text = head + '.' + (digits + '000000')[:6] + tail[len(digits):]
+            text = text[:match.start(1)] + (match.group(1) + '000000')[:6] + text[match.end(1):]
         moment = datetime.fromisoformat(text)
     except ValueError:
         return None

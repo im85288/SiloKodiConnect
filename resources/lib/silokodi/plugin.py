@@ -52,6 +52,8 @@ def run(argv):
         return sign_in()
     if mode == 'signout':
         return sign_out()
+    if mode == 'sections':
+        return sections(base, handle)
     if mode == 'widget':
         return widget(handle, params.get('section') or 'continue_watching')
     if mode in ('sync', 'fullsync', 'libraries', 'reset'):
@@ -146,6 +148,19 @@ def widget(handle, section):
     xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
 
 
+def sections(base, handle):
+    """Every row on the profile's Silo home screen, each usable as a widget."""
+    answer = ask_service('command/sections', timeout=20)
+    if answer.get('error'):
+        kodi.notify(answer['error'])
+    for section in answer.get('sections') or []:
+        item = xbmcgui.ListItem(section['title'], offscreen=True)
+        item.setArt({'icon': 'DefaultVideoPlaylists.png'})
+        xbmcplugin.addDirectoryItem(handle, '%s?%s' % (base, urlencode({'mode': 'widget', 'section': section['id']})),
+                                    item, isFolder=True)
+    xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
+
+
 def library_item(kind, kodi_id):
     if kind == 'movie':
         details = (kodi.jsonrpc('VideoLibrary.GetMovieDetails', movieid=kodi_id, properties=MOVIE_FIELDS)
@@ -196,6 +211,7 @@ def menu(base, handle):
         who = store.get('profile_name') or store.get('username') or ''
         entries.append((kodi.string(30130) % (who, store.get('server_url')), None))
         entries.append((kodi.string(30137), 'widget'))
+        entries.append((kodi.string(30138), 'sections'))
         entries.append((kodi.string(30131), 'sync'))
         entries.append((kodi.string(30132), 'libraries'))
         entries.append((kodi.string(30133), 'fullsync'))
@@ -206,5 +222,5 @@ def menu(base, handle):
     for label, mode in entries:
         item = xbmcgui.ListItem(label, offscreen=True)
         url = '%s?mode=%s' % (base, mode) if mode else ''
-        xbmcplugin.addDirectoryItem(handle, url, item, isFolder=mode == 'widget')
+        xbmcplugin.addDirectoryItem(handle, url, item, isFolder=mode in ('widget', 'sections'))
     xbmcplugin.endOfDirectory(handle, cacheToDisc=False)

@@ -41,6 +41,19 @@ Kodi installs `script.module.requests` and `script.module.websocket` from its of
 
 Then open **Add-ons -> Video add-ons -> SiloKodiConnect -> Sign in to Silo**.
 
+## Widgets
+
+Kodi's own "In progress TV shows" lists every show with some but not all episodes watched. To see Silo's
+rows instead, point skin widgets at the add-on:
+
+- **Continue Watching (as in Silo)**: `plugin://plugin.video.silokodiconnect/?mode=widget`
+- **Silo home rows**: every row on the profile's Silo home screen (Popular on IMDb, Recently added,
+  collections, recommendations...), each a folder usable as a widget
+  (`plugin://plugin.video.silokodiconnect/?mode=widget&section=<row id>`).
+
+Rows list the matching Kodi library items, so art, resume points and play behave as usual. In "what to watch
+next" rows a show stands for its next episode; elsewhere for the show. Titles not synced to Kodi are skipped.
+
 ## Settings
 
 - **Playback -> Highest resolution / HDR this TV shows.** Defaults to 1080p SDR, so Silo converts 4K and

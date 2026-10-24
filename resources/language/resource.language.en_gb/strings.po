@@ -206,6 +206,10 @@ msgctxt "#30137"
 msgid "Continue Watching (as in Silo)"
 msgstr ""
 
+msgctxt "#30138"
+msgid "Silo home rows"
+msgstr ""
+
 msgctxt "#30140"
 msgid "Syncing your Silo libraries"
 msgstr ""

@@ -214,3 +214,20 @@ def test_progress_moves_within_libraries(silo, open_kodi, tmp_path):
     assert percents == sorted(percents) and percents[-1] == 100
     assert 'Movies: 25 / 62' in [m for _, m in seen]
     assert any(m.startswith('TV: 0 / 2 seasons') for _, m in seen)
+
+
+def test_home_rows_map_to_library_items(syncer, query):
+    from resources.lib.silokodi.sync import home_row_items
+    syncer.sync()
+    movie_id = query("SELECT idMovie FROM movie WHERE c00 = 'Heat'")[0][0]
+    show_id = query('SELECT idShow FROM tvshow')[0][0]
+    next_episode = query("SELECT e.idEpisode FROM episode e JOIN files f ON f.idFile = e.idFile "
+                         "WHERE f.strFilename LIKE '%series-1-s1e2%'")[0][0]
+    cards = [{'content_id': 'movie-1', 'type': 'movie'},
+             {'content_id': 'series-1', 'type': 'series', 'play_content_id': 'series-1-s1e2'},
+             {'content_id': 'ebook-9', 'type': 'ebook'}]
+    # In "what next" rows a show card is its next episode; elsewhere it is the show.
+    assert home_row_items({'section_type': 'continue_watching', 'items': cards}, 'continue_watching', syncer.db) \
+        == [{'type': 'movie', 'kodi_id': movie_id}, {'type': 'episode', 'kodi_id': next_episode}]
+    assert home_row_items({'section_type': 'collection', 'items': cards}, 'popular-imdb', syncer.db) \
+        == [{'type': 'movie', 'kodi_id': movie_id}, {'type': 'tvshow', 'kodi_id': show_id}]

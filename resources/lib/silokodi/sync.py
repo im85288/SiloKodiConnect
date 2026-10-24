@@ -19,6 +19,25 @@ BATCH = 25
 FETCH_WORKERS = 4
 
 
+# Rows about what to watch next: a show card there means its next episode.
+NEXT_EPISODE_SECTIONS = ('continue_watching', 'next_up', 'next_in_series')
+
+
+def home_row_items(page, section, db):
+    """A Silo home row's cards as [{'type', 'kodi_id'}] in Silo's order. Titles
+    not synced to Kodi (other media types, excluded libraries) are left out."""
+    next_episode = (page.get('section_type') or section) in NEXT_EPISODE_SECTIONS
+    items = []
+    for card in page.get('items') or []:
+        row = None
+        if card.get('type') == 'series' and next_episode and card.get('play_content_id'):
+            row = db.get(card['play_content_id'])
+        row = row or db.get(card.get('content_id'))
+        if row and row['kind'] in ('movie', 'episode', 'tvshow') and row.get('kodi_id'):
+            items.append({'type': row['kind'], 'kodi_id': row['kodi_id']})
+    return items
+
+
 class Stopped(Exception):
     pass
 

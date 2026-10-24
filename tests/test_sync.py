@@ -203,3 +203,14 @@ def test_lost_bookkeeping_does_not_duplicate(syncer, silo, query, tmp_path, open
     assert query('SELECT COUNT(*) FROM movie')[0][0] == 2
     assert query('SELECT COUNT(*) FROM tvshow')[0][0] == 1
     assert query('SELECT COUNT(*) FROM episode')[0][0] == 3
+
+
+def test_progress_moves_within_libraries(silo, open_kodi, tmp_path):
+    for number in range(60):
+        silo.add_movie(movie('extra-%d' % number, 'Film %d' % number, cast=[], crew=[]))
+    seen = []
+    Syncer(silo, SyncDB(str(tmp_path)), open_kodi, PORT, progress=lambda p, m: seen.append((p, m))).sync()
+    percents = [p for p, _ in seen]
+    assert percents == sorted(percents) and percents[-1] == 100
+    assert 'Movies: 25 / 62' in [m for _, m in seen]
+    assert any(m.startswith('TV: 0 / 2 seasons') for _, m in seen)

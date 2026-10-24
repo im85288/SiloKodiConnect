@@ -207,7 +207,8 @@ class Service(object):
         return [value for value in (kodi.setting('excluded_libraries') or '').split(',') if value]
 
     def run_sync(self):
-        first = not self.db.libraries()
+        # Until one sync has finished, keep showing progress, even across restarts.
+        first = not self.db.meta('first_sync_done')
         show = first or kodi.setting_bool('show_sync_progress')
         if show:
             self.progress_dialog = xbmcgui.DialogProgressBG()
@@ -221,6 +222,7 @@ class Service(object):
                 self.progress_dialog = None
         kodi.log('Sync finished in %.0f s' % (time.time() - started))
         if first:
+            self.db.set_meta('first_sync_done', True)
             kodi.notify(kodi.string(30141))
 
     def sync_progress(self, percent, message):

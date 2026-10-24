@@ -50,6 +50,11 @@ class Syncer(object):
         self.should_stop = should_stop or (lambda: False)
         self.progress = progress or (lambda percent, message: None)
         self.changed = False
+        self._base, self._span = 0.0, 100.0
+
+    def step(self, fraction, message):
+        """Progress within the library being synced, fraction 0..1."""
+        self.progress(int(self._base + self._span * min(max(fraction, 0.0), 1.0)), message)
 
     def check_stop(self):
         if self.should_stop():
@@ -91,8 +96,9 @@ class Syncer(object):
                 self.remove_library(library_id)
         for index, library in enumerate(libraries):
             self.check_stop()
-            base = 100 * index // max(len(libraries), 1)
-            self.progress(base, library.get('name') or '')
+            self._span = 100.0 / max(len(libraries), 1)
+            self._base = index * self._span
+            self.progress(int(self._base), library.get('name') or '')
             self.sync_library(library)
         self.progress(100, '')
         return self.changed
@@ -138,8 +144,10 @@ class Syncer(object):
                 states.append((row, card))
         self.log('Library %s: %d movies, %d to write, %d watch-state updates'
                  % (library.get('name'), len(cards), len(fetch), len(states)))
-        for batch in chunks(fetch, BATCH):
+        for number, batch in enumerate(chunks(fetch, BATCH)):
             self.check_stop()
+            done = number * BATCH
+            self.step(float(done) / len(fetch), '%s: %d / %d' % (library.get('name') or '', done, len(fetch)))
             items = self.fetch_all(lambda card: self.client.item(card['content_id']), batch)
             with self.open_kodi() as kodi:
                 for card, item in zip(batch, items):
@@ -214,8 +222,12 @@ class Syncer(object):
         self.log('Library %s: %d shows (%d changed), %d episodes'
                  % (library.get('name'), len(series_cards), len(changed_series), len(episode_cards)))
         # Shows first: episodes need their show and season rows.
-        for batch in chunks(changed_series, BATCH):
+        # Shows are a fifth of the work, their seasons of episodes the rest.
+        for number, batch in enumerate(chunks(changed_series, BATCH)):
             self.check_stop()
+            done = number * BATCH
+            self.step(0.2 * done / len(changed_series),
+                      '%s: %d / %d' % (library.get('name') or '', done, len(changed_series)))
             details = self.fetch_all(self._fetch_show, batch)
             with self.open_kodi() as kodi:
                 for card, detail in zip(batch, details):
@@ -237,8 +249,11 @@ class Syncer(object):
         self.log('Library %s: %d seasons to write, %d watch-state updates'
                  % (library.get('name'), len(stale_seasons), len(states)))
         keys = list(stale_seasons)
-        for batch in chunks(keys, 10):
+        for number, batch in enumerate(chunks(keys, 10)):
             self.check_stop()
+            done = number * 10
+            self.step(0.2 + 0.8 * done / len(keys),
+                      '%s: %d / %d seasons' % (library.get('name') or '', done, len(keys)))
             listings = self.fetch_all(lambda key: self.client.season_episodes(key[0], key[1]), batch)
             with self.open_kodi() as kodi:
                 for key, episodes in zip(batch, listings):

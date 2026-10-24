@@ -71,6 +71,7 @@ class FakeSilo(object):
         self.seasons_of = {}  # series_id -> [season]
         self.episodes_of = {}  # (series_id, number) -> [episode]
         self.calls = []
+        self.history_entries = []  # newest first, like Silo
         self.store = None
         self.server_url = 'https://silo.test'
 
@@ -117,6 +118,10 @@ class FakeSilo(object):
     def season_episodes(self, series_id, number):
         self.calls.append(('season_episodes', series_id, number))
         return copy.deepcopy(self.episodes_of.get((series_id, number), []))
+
+    def history(self):
+        self.calls.append(('history',))
+        return iter(copy.deepcopy(self.history_entries))
 
     def url(self, path):
         return self.server_url + path if path.startswith('/') else path

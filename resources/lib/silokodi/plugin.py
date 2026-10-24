@@ -16,8 +16,11 @@ import xbmc
 import xbmcgui
 import xbmcplugin
 
-from . import auth, kodi
-from .relay import DEFAULT_PORT
+# Kept light: Kodi starts a fresh Python for every play and widget refresh,
+# and on a 2 GB device the ~7 MB that requests costs is worth saving. Sign-in
+# code (which needs requests) is imported only when used.
+from . import kodi
+from .mapping import RELAY_PORT as DEFAULT_PORT
 from .store import Store
 
 ADAPTIVE = 'inputstream.adaptive'
@@ -83,6 +86,7 @@ def play(handle, params, resume):
 
 
 def sign_in():
+    from . import auth
     store = Store(kodi.profile_dir())
     if auth.sign_in(store):
         ask_service('command/signed_in', timeout=10)

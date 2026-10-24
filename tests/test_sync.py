@@ -231,3 +231,28 @@ def test_home_rows_map_to_library_items(syncer, query):
         == [{'type': 'movie', 'kodi_id': movie_id}, {'type': 'episode', 'kodi_id': next_episode}]
     assert home_row_items({'section_type': 'collection', 'items': cards}, 'popular-imdb', syncer.db) \
         == [{'type': 'movie', 'kodi_id': movie_id}, {'type': 'tvshow', 'kodi_id': show_id}]
+
+
+def test_last_played_comes_from_watch_history(silo, syncer, query):
+    syncer.sync()
+    silo.history_entries = [
+        {'content_id': 'series-1', 'type': 'series',
+         'watch': {'media_item_id': 'series-1-s1e1', 'watched_at': '2026-10-20T20:00:00Z'}},
+        {'content_id': 'movie-1', 'type': 'movie', 'watch': {'media_item_id': 'movie-1', 'watched_at': '2026-10-01T19:00:00Z'}},
+        {'content_id': 'movie-1', 'type': 'movie', 'watch': {'media_item_id': 'movie-1', 'watched_at': '2025-01-01T19:00:00Z'}},
+    ]
+    since = syncer.sync_history()
+    assert since == '2026-10-20T20:00:00Z'
+    heat = "SELECT f.lastPlayed FROM files f JOIN movie m ON m.idFile = f.idFile WHERE m.c00 = 'Heat'"
+    assert query(heat) == [(mapping.kodi_datetime('2026-10-01T19:00:00Z'),)]  # the latest of the two
+    # Episodes get theirs too (Kodi derives a show's date from them).
+    assert query("SELECT f.lastPlayed FROM files f JOIN episode e ON e.idFile = f.idFile WHERE e.c12 = '1' AND e.c13 = '1'") \
+        == [(mapping.kodi_datetime('2026-10-20T20:00:00Z'),)]
+    # A later check reads only newer entries...
+    silo.history_entries.insert(0, {'content_id': 'movie-2', 'type': 'movie',
+                                    'watch': {'media_item_id': 'movie-2', 'watched_at': '2026-10-24T21:00:00Z'}})
+    assert syncer.sync_history(since) == '2026-10-24T21:00:00Z'
+    # ...and a full resync, whose cards have no dates, keeps them.
+    syncer.db.forget_fingerprints()
+    syncer.sync()
+    assert query(heat) == [(mapping.kodi_datetime('2026-10-01T19:00:00Z'),)]

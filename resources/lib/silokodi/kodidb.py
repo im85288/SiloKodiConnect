@@ -278,8 +278,9 @@ class KodiVideoDB(object):
 
     def set_play_state(self, file_id, playcount, resume, total, last_played):
         self.cursor.execute('DELETE FROM bookmark WHERE idFile = ? AND type = 1', (file_id,))
-        # Kodi expects NULL, not 0, for unwatched.
-        self.cursor.execute('UPDATE files SET playCount = ?, lastPlayed = ? WHERE idFile = ?',
+        # Kodi expects NULL, not 0, for unwatched. Silo's listings rarely carry
+        # a watch date, so keep the one from its history rather than blank it.
+        self.cursor.execute('UPDATE files SET playCount = ?, lastPlayed = COALESCE(?, lastPlayed) WHERE idFile = ?',
                             (playcount or None, last_played, file_id))
         if resume:
             self.cursor.execute('''
@@ -287,6 +288,12 @@ class KodiVideoDB(object):
                                      playerState, type)
                 VALUES (?, ?, ?, '', 'VideoPlayer', '', 1)
             ''', (file_id, resume, total))
+
+    def set_last_played(self, file_id, last_played):
+        """Move lastPlayed forward to Silo's latest watch, never back."""
+        self.cursor.execute('UPDATE files SET lastPlayed = ? WHERE idFile = ? AND (lastPlayed IS NULL OR lastPlayed < ?)',
+                            (last_played, file_id, last_played))
+        return self.cursor.rowcount
 
     def play_state(self, file_id):
         """(playcount, resume seconds) as Kodi has them."""

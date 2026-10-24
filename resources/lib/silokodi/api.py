@@ -222,6 +222,10 @@ class SiloClient(object):
         """Watch progress, newest change first."""
         return self.pages('/progress')
 
+    def history(self):
+        """Watch events, newest first."""
+        return self.pages('/history')
+
     def mark_watched(self, content_id):
         return self.post('/watched/%s' % content_id)
 

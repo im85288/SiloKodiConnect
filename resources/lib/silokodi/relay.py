@@ -29,7 +29,7 @@ except ImportError:  # pragma: no cover
 
 import requests
 
-DEFAULT_PORT = 57578
+from .mapping import RELAY_PORT as DEFAULT_PORT
 CHUNK = 64 * 1024
 MEDIA_CHUNK = 1024 * 1024
 STATS_EVERY = 30

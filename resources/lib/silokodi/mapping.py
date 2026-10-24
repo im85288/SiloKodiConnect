@@ -13,6 +13,8 @@ except ImportError:  # pragma: no cover
     from urllib import quote, urlencode
 
 ADDON_ID = 'plugin.video.silokodiconnect'
+# The service's loopback relay; Kodi's art URLs include it.
+RELAY_PORT = 57578
 PLUGIN_ROOT = 'plugin://%s/' % ADDON_ID
 MOVIES_PATH = PLUGIN_ROOT + 'movies/'
 SHOWS_PATH = PLUGIN_ROOT + 'tvshows/'

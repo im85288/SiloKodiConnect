@@ -240,6 +240,7 @@ class Service(object):
             if self.progress_dialog:
                 self.progress_dialog.close()
                 self.progress_dialog = None
+        self.db.set_meta('history_since', self.syncer.sync_history(self.db.meta('history_since')))
         kodi.log('Sync finished in %.0f s' % (time.time() - started))
         if first:
             self.db.set_meta('first_sync_done', True)
@@ -265,6 +266,8 @@ class Service(object):
             self.syncer.apply_progress(entries)
         if newest:
             self.db.set_meta('progress_since', newest)
+        if self.db.meta('history_since'):
+            self.db.set_meta('history_since', self.syncer.sync_history(self.db.meta('history_since')))
 
     def signed_out(self):
         if not self.signed_out_notice:

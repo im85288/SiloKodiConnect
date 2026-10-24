@@ -510,6 +510,37 @@ class Syncer(object):
             pairs.append((row, source))
         self.apply_states(pairs)
 
+    def sync_history(self, since=None):
+        """Kodi's "last played" dates from Silo's watch history, which comes
+        newest first: read back to `since` (all of it the first time) and
+        return the newest watch time seen, to pass as `since` next time."""
+        latest = {}
+        newest = None
+        for entry in self.client.history():
+            watch = entry.get('watch') or {}
+            stamp = watch.get('watched_at')
+            if not stamp:
+                continue
+            if since and stamp <= since:
+                break
+            newest = newest or stamp
+            content_id = watch.get('media_item_id') or entry.get('content_id')
+            latest.setdefault(content_id, stamp)  # the first one seen is the latest
+        pairs = []
+        for content_id, stamp in latest.items():
+            row = self.db.get(content_id)
+            if row and row['kind'] in ('movie', 'episode') and row.get('kodi_file_id'):
+                pairs.append((row['kodi_file_id'], mapping.kodi_datetime(stamp)))
+        updated = 0
+        for batch in chunks(pairs, 200):
+            with self.open_kodi() as kodi:
+                for file_id, last_played in batch:
+                    updated += kodi.set_last_played(file_id, last_played)
+        if updated:
+            self.changed = True
+        self.log('Watch history: %d titles, %d last-played dates updated' % (len(latest), updated))
+        return newest or since
+
     # ----- helpers -----
 
     def _existing(self, kodi, table, column, file_id):

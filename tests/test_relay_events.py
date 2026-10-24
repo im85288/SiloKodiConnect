@@ -129,3 +129,68 @@ def test_play_state_from_card():
     assert mapping.play_state({'user_state': {'played': True}, 'position_seconds': 50, 'runtime': 2})[:3] \
         == (1, 0.0, 120.0)
     assert mapping.play_state({'position_seconds': 50, 'duration_seconds': 3000})[:3] == (0, 50.0, 3000.0)
+
+
+def test_media_is_relayed_with_ranges_and_stats(tmp_path):
+    import functools
+    import threading
+    from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+
+    from resources.lib.silokodi import relay as relay_module
+
+    media = tmp_path / 'api' / 'v2' / 'stream'
+    media.mkdir(parents=True)
+    payload = bytes(range(256)) * 20000  # 5 MB
+    (media / 'sess-1').write_bytes(payload)
+
+    class RangeHandler(SimpleHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def send_head(self):
+            ranged = self.headers.get('Range')
+            if not ranged:
+                return SimpleHTTPRequestHandler.send_head(self)
+            start, end = [int(v) for v in ranged.split('=')[1].split('-')]
+            body = payload[start:end + 1]
+            self.send_response(206)
+            self.send_header('Content-Type', 'video/x-matroska')
+            self.send_header('Content-Range', 'bytes %d-%d/%d' % (start, end, len(payload)))
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            import io
+            return io.BytesIO(body)
+
+    upstream = ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(RangeHandler, directory=str(tmp_path)))
+    threading.Thread(target=upstream.serve_forever, daemon=True).start()
+
+    class LocalClient(Client):
+        server_url = 'http://127.0.0.1:%d' % upstream.server_address[1]
+
+        def ensure_fresh_token(self):
+            pass
+
+    logged = []
+    old_every = relay_module.STATS_EVERY
+    relay_module.STATS_EVERY = 0
+    server = Relay(LocalClient(), SyncDB(str(tmp_path)), lambda c: None, lambda q: {}, lambda n, q: {},
+                   port=free_port(), log=logged.append, media_allowed=lambda path: 'sess-1' in path)
+    server.start()
+    try:
+        url = server.media_url(LocalClient.server_url + '/api/v2/stream/sess-1?st=signed')
+        assert url == 'http://127.0.0.1:%d/media/api/v2/stream/sess-1?st=signed' % server.port
+        with urlopen(url, timeout=10) as response:
+            assert response.read() == payload
+        from urllib.request import Request
+        with urlopen(Request(url, headers={'Range': 'bytes=1000-1999'}), timeout=10) as response:
+            assert response.status == 206
+            assert response.headers['Content-Range'] == 'bytes 1000-1999/%d' % len(payload)
+            assert response.read() == payload[1000:2000]
+        with pytest.raises(Exception) as refused:
+            urlopen('http://127.0.0.1:%d/media/api/v2/stream/other' % server.port, timeout=5)
+        assert '403' in str(refused.value)
+        assert any(line.startswith('Relay: ') and 'waited on Silo' in line for line in logged)
+    finally:
+        relay_module.STATS_EVERY = old_every
+        server.stop()
+        upstream.shutdown()

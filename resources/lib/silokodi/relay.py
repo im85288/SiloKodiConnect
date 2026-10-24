@@ -18,6 +18,7 @@ It listens on 127.0.0.1 only and never logs URLs, which carry signatures.
 import json
 import socket
 import threading
+import time
 
 try:
     from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -30,7 +31,8 @@ import requests
 
 DEFAULT_PORT = 57578
 CHUNK = 64 * 1024
-MEDIA_CHUNK = 512 * 1024
+MEDIA_CHUNK = 1024 * 1024
+STATS_EVERY = 30
 # Request headers Kodi's player sends that the media server needs to see.
 FORWARD_REQUEST = ('Range', 'If-Range', 'Accept', 'Accept-Encoding')
 FORWARD_RESPONSE = ('Content-Type', 'Content-Length', 'Content-Range', 'Accept-Ranges', 'ETag',
@@ -127,12 +129,58 @@ class Handler(BaseHTTPRequestHandler):
                 self.close_connection = True
             self.end_headers()
             if not head:
-                for chunk in response.iter_content(MEDIA_CHUNK):
-                    self.wfile.write(chunk)
+                self.copy(relay, response)
         except (socket.error, ConnectionError):
             pass  # Kodi closes connections when it seeks
         finally:
             response.close()
+
+    def copy(self, relay, response):
+        """Copy the media body, timing where the waits are.
+
+        Raw reads skip requests' chunk iterator; the media is never
+        content-encoded. Every STATS_EVERY seconds the log says how fast the
+        relay sends and what share of the time it waited on Silo (network
+        or server slow), on Kodi (its buffer is full: the relay keeps up)
+        or on neither (Python itself is the limit).
+        """
+        raw = response.raw
+        stats = Stats(relay.log)
+        while True:
+            started = time.time()
+            data = raw.read(MEDIA_CHUNK, decode_content=False)
+            read_done = time.time()
+            if not data:
+                break
+            self.wfile.write(data)
+            stats.add(len(data), read_done - started, time.time() - read_done)
+        stats.report(final=True)
+
+
+class Stats(object):
+    def __init__(self, log):
+        self.log = log
+        self.start = self.window = time.time()
+        self.bytes = self.total = 0
+        self.upstream = self.downstream = 0.0
+
+    def add(self, size, upstream, downstream):
+        self.bytes += size
+        self.total += size
+        self.upstream += upstream
+        self.downstream += downstream
+        if time.time() - self.window >= STATS_EVERY:
+            self.report()
+
+    def report(self, final=False):
+        elapsed = max(time.time() - self.window, 0.001)
+        if self.bytes and (elapsed >= 5 or not final):
+            self.log('Relay: %.0f Mbit/s to Kodi over %.0f s; waited on Silo %.0f%%, on Kodi %.0f%%'
+                     % (self.bytes * 8 / elapsed / 1e6, elapsed, 100 * self.upstream / elapsed,
+                        100 * self.downstream / elapsed))
+        self.window = time.time()
+        self.bytes = 0
+        self.upstream = self.downstream = 0.0
 
 
 class Relay(object):

@@ -11,7 +11,7 @@ import threading
 import time
 import uuid
 
-from . import mapping
+from . import mapping, upnext
 from .api import ApiError
 
 PROTOCOL = 3
@@ -106,6 +106,7 @@ class Session(object):
         self.stopped = False
         self.last_report = 0
         self.started_at = time.time()
+        self.markers = []
 
     def source_position(self, player_seconds):
         return max(0.0, self.origin + float(player_seconds or 0))
@@ -228,6 +229,8 @@ class PlaybackManager(object):
                                 'have to decode in software. If it is Dolby Vision from a UHD Blu-ray, set '
                                 'Playback > HDR to the profile 7 option.')
         session = Session(self.client, body['installation_id'], session_id, content_id, plan)
+        # Intro, recap and credits ranges, for Up Next's Skip button and popup.
+        session.markers = upnext.markers(self._played_version(item, plan, version), item)
         with self._lock:
             if self.pending:
                 self._safe_stop(self.pending)
@@ -248,6 +251,15 @@ class PlaybackManager(object):
             'subtitles': subtitles,
             'title': item.get('title') or '',
         }
+
+    @staticmethod
+    def _played_version(item, plan, fallback):
+        """The file version Silo actually chose (it may pick another one)."""
+        chosen = str(plan.get('effective_media_file_id') or '')
+        for version in item.get('versions') or []:
+            if chosen and str(version.get('file_id')) == chosen:
+                return version
+        return fallback
 
     def _release(self, installation_id, session_id):
         """Stop a session Silo started but Kodi won't play."""

@@ -11,7 +11,7 @@ import requests
 import xbmc
 import xbmcgui
 
-from . import kodi, kodidb, mapping
+from . import kodi, kodidb, mapping, upnext
 from .api import ApiError, SignedOut, SiloClient
 from .events import EventListener
 from .playback import PlaybackError, PlaybackManager
@@ -53,6 +53,7 @@ class Player(xbmc.Player):
         if session:
             self.last_time = None
             self.service.recently_played[session.content_id] = time.time()
+            self.service.tell_upnext(session)
 
     def onPlayBackStopped(self):
         self._ended()
@@ -89,6 +90,12 @@ class Monitor(xbmc.Monitor):
         self.service = service
 
     def onNotification(self, sender, method, data):
+        if method.endswith(upnext.PLAY_ACTION):
+            # Up Next chose to play the next episode: open it as the library item.
+            info = upnext.decode(data) or {}
+            if info.get('episodeid'):
+                kodi.jsonrpc('Player.Open', item={'episodeid': info['episodeid']})
+            return
         if method == 'VideoLibrary.OnUpdate':
             try:
                 self.service.kodi_updated(json.loads(data))
@@ -308,6 +315,31 @@ class Service(object):
             content_id = data.get('content_id') or data.get('series_id')
             if content_id:
                 self.enqueue(('state', content_id))
+
+    # ----- Up Next -----
+
+    def tell_upnext(self, session):
+        """For a Silo episode, send Up Next the episode, the next one, when the
+        credits start and the intro and recap ranges to offer skipping."""
+        row = self.db.get(session.content_id)
+        if not row or row['kind'] != 'episode':
+            return
+        try:
+            current = (kodi.jsonrpc('VideoLibrary.GetEpisodeDetails', episodeid=row['kodi_id'],
+                                    properties=upnext.EPISODE_PROPERTIES) or {}).get('episodedetails')
+            if not current:
+                return
+            episodes = (kodi.jsonrpc('VideoLibrary.GetEpisodes', tvshowid=current['tvshowid'],
+                                     properties=upnext.EPISODE_PROPERTIES) or {}).get('episodes') or []
+            following = upnext.next_episode(episodes, current)
+            if not following:
+                return  # the last episode: nothing to offer
+            data = upnext.payload(current, following, session.markers, session.origin)
+            kodi.jsonrpc('JSONRPC.NotifyAll', sender=upnext.SENDER, message='upnext_data', data=upnext.encode(data))
+            kodi.log('Told Up Next about %s (credits at %s s, %d skippable ranges)'
+                     % (session.content_id, data.get('notification_offset'), len(data.get('skip_segments') or [])))
+        except Exception as error:  # Up Next is a nicety; never break playback for it
+            kodi.log_warning('Could not tell Up Next about %s: %s' % (session.content_id, error))
 
     # ----- Kodi -> Silo -----
 

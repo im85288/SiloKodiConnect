@@ -41,6 +41,14 @@ Kodi installs `script.module.requests` and `script.module.websocket` from its of
 
 Then open **Add-ons -> Video add-ons -> SiloKodiConnect -> Sign in to Silo**.
 
+## Up Next and skipping intros
+
+When a Silo episode starts, the add-on sends [Up Next](https://github.com/im85288/service.upnext) the
+episode, the next one, the credits start from Silo's markers (`notification_offset`, so the popup appears as
+the credits begin) and the intro and recap ranges (`skip_segments`, for Up Next's Skip button). Up Next hands
+the choice to play the next episode back, and the add-on opens it as the Kodi library item. Episodes Silo has
+no markers for keep Up Next's normal timing.
+
 ## Widgets
 
 Kodi's own "In progress TV shows" lists every show with some but not all episodes watched. To see Silo's
@@ -99,7 +107,7 @@ loopback relay to start playback.
 - PIN-protected profiles: if Silo expires the profile proof, sign in again.
 - Episodes get their HDR flag from Silo's season listing, which says only "HDR", so Dolby Vision and HLG
   episodes show as HDR10 in skins. Movies show the exact type.
-- Skip intro/credits markers and Up Next hand-off are not in this version.
+- Skip buttons and Up Next timing need Up Next (service.upnext) with `skip_segments` support.
 
 ## Measured against a real server
 

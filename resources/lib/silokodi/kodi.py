@@ -94,9 +94,23 @@ def jsonrpc(method, **params):
     return response.get('result')
 
 
-def refresh_library_views():
-    """Make open library lists and widgets show what was just written."""
-    if xbmc.getCondVisibility('Window.IsMedia') and not xbmc.Player().isPlaying():
-        xbmc.executebuiltin('Container.Refresh')
-    # Skins that cache widget content watch this property.
-    set_property('library_updated', str(int(time.time())))
+def refresh_library_views(refresh_list=True):
+    """Make Kodi show what was just written to its database. Returns False when
+    it has to wait (the viewer is in a library list or watching something).
+
+    Kodi caches whether the library has movies and TV shows (the home menu
+    hides TV shows until then) and only rechecks after a library update, so
+    like PlexKodiConnect this runs UpdateLibrary(video). Silo's add-on paths
+    are marked noUpdate, so the scan doesn't touch them. In a library list it
+    would move the cursor, so there it only refreshes the list for now.
+    """
+    if refresh_list:
+        set_property('library_updated', str(int(time.time())))
+    if xbmc.Player().isPlaying():
+        return False
+    if xbmc.getCondVisibility('Window.IsMedia'):
+        if refresh_list:
+            xbmc.executebuiltin('Container.Refresh')
+        return False
+    xbmc.executebuiltin('UpdateLibrary(video)')
+    return True

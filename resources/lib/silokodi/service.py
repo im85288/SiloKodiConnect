@@ -102,6 +102,7 @@ class Service(object):
         self.next_sync = 0
         self.next_progress = 0
         self.signed_out_notice = False
+        self.library_update_pending = False
 
     # ----- Kodi's database -----
 
@@ -139,6 +140,8 @@ class Service(object):
                 self.next_progress = now + (PROGRESS_POLL if connected else PROGRESS_POLL_OFFLINE)
                 self.enqueue('progress')
             self.player.tick()
+            if self.library_update_pending and self.tasks.empty():
+                self.library_update_pending = not kodi.refresh_library_views(refresh_list=False)
         kodi.log('Stopping SiloKodiConnect')
         self.playback.on_stopped(self.player.last_time)
         self.stop_listener()
@@ -178,7 +181,7 @@ class Service(object):
                 kodi.log_error('Task %s crashed: %s' % (task, error))
             if self.tasks.empty() and self.syncer.changed:
                 self.syncer.changed = False
-                kodi.refresh_library_views()
+                self.library_update_pending = not kodi.refresh_library_views()
 
     def do(self, task):
         if not self.store.signed_in:

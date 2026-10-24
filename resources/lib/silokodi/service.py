@@ -346,6 +346,11 @@ class Service(object):
             self.store.sign_out()
         elif name in ('sync', 'fullsync', 'reset'):
             self.enqueue(name)
+        elif name == 'widget':
+            try:
+                return {'items': self.widget_items(query.get('section') or 'continue_watching')}
+            except (ApiError, requests.RequestException) as error:
+                return {'error': str(error)}
         elif name == 'list_libraries':
             excluded = self.excluded()
             try:
@@ -358,6 +363,17 @@ class Service(object):
         else:
             return {'error': 'unknown command'}
         return {'ok': True}
+
+    def widget_items(self, section):
+        """A Silo home row (Continue Watching by default) as Kodi library ids, in
+        Silo's order. Titles not synced to Kodi are left out."""
+        page = self.client.get('/home/sections/%s/items' % section)
+        items = []
+        for card in page.get('items') or []:
+            row = self.db.get(card.get('play_content_id') or card.get('content_id')) or self.db.get(card.get('content_id'))
+            if row and row['kind'] in ('movie', 'episode', 'tvshow') and row.get('kodi_id'):
+                items.append({'type': row['kind'], 'kodi_id': row['kodi_id']})
+        return items
 
     def media_allowed(self, path):
         return any(session_id in path for session_id in self.playback.session_ids())

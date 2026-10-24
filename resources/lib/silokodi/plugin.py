@@ -52,6 +52,8 @@ def run(argv):
         return sign_in()
     if mode == 'signout':
         return sign_out()
+    if mode == 'widget':
+        return widget(handle, params.get('section') or 'continue_watching')
     if mode in ('sync', 'fullsync', 'libraries', 'reset'):
         return command(mode)
     return menu(base, handle)
@@ -120,12 +122,80 @@ def choose_libraries():
     ask_service('command/sync', timeout=10)
 
 
+MOVIE_FIELDS = ['title', 'plot', 'year', 'rating', 'runtime', 'genre', 'mpaa', 'art', 'resume', 'playcount',
+                'file', 'premiered', 'streamdetails', 'dateadded', 'lastplayed', 'tagline', 'studio']
+EPISODE_FIELDS = ['title', 'plot', 'rating', 'runtime', 'art', 'resume', 'playcount', 'file', 'firstaired',
+                  'showtitle', 'season', 'episode', 'tvshowid', 'streamdetails', 'dateadded', 'lastplayed']
+SHOW_FIELDS = ['title', 'plot', 'year', 'rating', 'genre', 'mpaa', 'art', 'file', 'premiered', 'studio',
+               'episode', 'watchedepisodes']
+
+
+def widget(handle, section):
+    """Silo's own home row (Continue Watching by default) for a skin widget,
+    as the matching Kodi library items so art, resume and play behave as usual."""
+    answer = ask_service('command/widget', timeout=20, section=section)
+    kinds = set()
+    for entry in answer.get('items') or []:
+        item = library_item(entry['type'], entry['kodi_id'])
+        if item:
+            url, listitem, folder = item
+            kinds.add(entry['type'])
+            xbmcplugin.addDirectoryItem(handle, url, listitem, isFolder=folder)
+    xbmcplugin.setContent(handle, 'movies' if kinds == {'movie'} else 'episodes' if kinds == {'episode'}
+                          else 'videos')
+    xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
+
+
+def library_item(kind, kodi_id):
+    if kind == 'movie':
+        details = (kodi.jsonrpc('VideoLibrary.GetMovieDetails', movieid=kodi_id, properties=MOVIE_FIELDS)
+                   or {}).get('moviedetails')
+    elif kind == 'episode':
+        details = (kodi.jsonrpc('VideoLibrary.GetEpisodeDetails', episodeid=kodi_id, properties=EPISODE_FIELDS)
+                   or {}).get('episodedetails')
+    else:
+        details = (kodi.jsonrpc('VideoLibrary.GetTVShowDetails', tvshowid=kodi_id, properties=SHOW_FIELDS)
+                   or {}).get('tvshowdetails')
+    if not details:
+        return None
+    listitem = xbmcgui.ListItem(details.get('title') or '', offscreen=True)
+    listitem.setArt(details.get('art') or {})
+    tag = listitem.getVideoInfoTag()
+    tag.setDbId(kodi_id)
+    tag.setMediaType(kind)
+    tag.setTitle(details.get('title') or '')
+    tag.setPlot(details.get('plot') or '')
+    if details.get('rating'):
+        tag.setRating(float(details['rating']))
+    if details.get('playcount'):
+        tag.setPlaycount(int(details['playcount']))
+    if kind == 'tvshow':
+        listitem.setProperty('TotalEpisodes', str(details.get('episode') or 0))
+        listitem.setProperty('WatchedEpisodes', str(details.get('watchedepisodes') or 0))
+        return 'videodb://tvshows/titles/%d/' % kodi_id, listitem, True
+    if details.get('year'):
+        tag.setYear(int(details['year']))
+    if details.get('runtime'):
+        tag.setDuration(int(details['runtime']))
+    resume = details.get('resume') or {}
+    if resume.get('position'):
+        tag.setResumePoint(float(resume['position']), float(resume.get('total') or 0))
+    if kind == 'episode':
+        tag.setTvShowTitle(details.get('showtitle') or '')
+        tag.setSeason(int(details.get('season') or 0))
+        tag.setEpisode(int(details.get('episode') or 0))
+        tag.setFirstAired(details.get('firstaired') or '')
+    listitem.setProperty('IsPlayable', 'true')
+    return details['file'], listitem, False
+
+
 def menu(base, handle):
     store = Store(kodi.profile_dir())
     entries = []
     if store.signed_in:
         who = store.get('profile_name') or store.get('username') or ''
         entries.append((kodi.string(30130) % (who, store.get('server_url')), None))
+        entries.append((kodi.string(30137), 'widget'))
         entries.append((kodi.string(30131), 'sync'))
         entries.append((kodi.string(30132), 'libraries'))
         entries.append((kodi.string(30133), 'fullsync'))
@@ -136,5 +206,5 @@ def menu(base, handle):
     for label, mode in entries:
         item = xbmcgui.ListItem(label, offscreen=True)
         url = '%s?mode=%s' % (base, mode) if mode else ''
-        xbmcplugin.addDirectoryItem(handle, url, item, isFolder=False)
+        xbmcplugin.addDirectoryItem(handle, url, item, isFolder=mode == 'widget')
     xbmcplugin.endOfDirectory(handle, cacheToDisc=False)

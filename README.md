@@ -124,6 +124,20 @@ python3 -m venv .venv && .venv/bin/pip install pytest requests websocket-client
 The tests run the sync against Kodi 21's real video database schema (`tests/fixtures/MyVideos131.sql`,
 extracted from Kodi's `VideoDatabase.cpp`) and a fake Silo server.
 
+## Changes
+
+### v0.9.0 (2026-10-24)
+First release, tested on an NVIDIA SHIELD (Kodi 21) against a library of 1,079 movies and 28,342 episodes.
+- Movies and TV synced into Kodi's library, kept current by Silo's live events; a first sync takes about
+  6 minutes on a SHIELD, later checks about 30 seconds.
+- Sign in with a TV code; household profiles, PIN profiles included.
+- Playback through Silo's playback protocol v3: the original file when Kodi can play it (Dolby Vision
+  profiles 5, 7 and 8, TrueHD and DTS passthrough), a converted stream otherwise.
+- Watched state and resume points both ways.
+- Continue Watching and every Silo home row as Kodi widgets.
+- Skip intro and recap, and the Up Next popup at the credits, through Up Next 1.3.0 or later.
+- Gentle on small devices: syncs pause while a video plays and hand memory back afterwards.
+
 ## Licence
 
 GPL-2.0-or-later. The Kodi database code is adapted from

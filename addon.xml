@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<addon id="plugin.video.silokodiconnect" name="SiloKodiConnect" version="0.1.0" provider-name="im85288">
+  <requires>
+    <import addon="xbmc.python" version="3.0.1"/>
+    <import addon="script.module.requests" version="2.22.0"/>
+    <import addon="script.module.websocket" version="0.58.0"/>
+    <import addon="inputstream.adaptive" version="20.0.0" optional="true"/>
+  </requires>
+  <extension point="xbmc.python.pluginsource" library="default.py">
+    <provides>video</provides>
+  </extension>
+  <extension point="xbmc.service" library="service.py" start="login"/>
+  <extension point="xbmc.addon.metadata">
+    <summary lang="en_GB">Sync your Silo movies and TV shows into the Kodi library</summary>
+    <description lang="en_GB">SiloKodiConnect writes the movies and TV shows on your Silo server into Kodi's own video library, so every skin, widget and library feature treats them like local media. Watched state and resume points stay in step both ways, and playback streams from Silo: the original file when Kodi can play it, a converted stream otherwise. Community project: not made or endorsed by the Silo team.</description>
+    <disclaimer lang="en_GB">Do not run Kodi's "Clean library" on Silo items; SiloKodiConnect manages them itself.</disclaimer>
+    <platform>all</platform>
+    <license>GPL-2.0-or-later</license>
+    <source>https://github.com/im85288/SiloKodiConnect</source>
+    <assets>
+      <icon>icon.png</icon>
+    </assets>
+    <news>0.1.0: first version. Movies and TV sync, code sign-in, streaming playback, two-way watched and resume sync.</news>
+  </extension>
+</addon>

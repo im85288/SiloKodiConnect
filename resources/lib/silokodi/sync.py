@@ -1,0 +1,487 @@
+# -*- coding: utf-8 -*-
+"""Keeps Kodi's video library in step with Silo's movie and TV libraries.
+
+A sync pages each library's catalog cards (cheap: up to 200 per request) and
+compares each card's fingerprint with the one stored when it was last written.
+Only new or changed titles are fetched in full; a card whose title is
+unchanged but whose watch state moved only updates Kodi's playcount and
+resume point. Titles that left Silo are removed from Kodi.
+"""
+from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
+
+from . import mapping
+from .api import ApiError
+
+MOVIE_LIBRARY_TYPES = ('movies', 'mixed')
+SHOW_LIBRARY_TYPES = ('series', 'tv', 'tvshows', 'mixed')
+BATCH = 25
+FETCH_WORKERS = 4
+
+
+class Stopped(Exception):
+    pass
+
+
+def season_key(series_id, number):
+    return 'season:%s:%s' % (series_id, number)
+
+
+def chunks(values, size):
+    values = list(values)
+    for start in range(0, len(values), size):
+        yield values[start:start + size]
+
+
+class Syncer(object):
+    """
+    client:     SiloClient
+    db:         SyncDB
+    open_kodi:  callable returning a context manager that yields a KodiVideoDB
+    port:       the local artwork relay's port, baked into Kodi's art URLs
+    """
+
+    def __init__(self, client, db, open_kodi, port, log=None, should_stop=None, progress=None):
+        self.client = client
+        self.db = db
+        self.open_kodi = open_kodi
+        self.port = port
+        self.log = log or (lambda message: None)
+        self.should_stop = should_stop or (lambda: False)
+        self.progress = progress or (lambda percent, message: None)
+        self.changed = False
+
+    def check_stop(self):
+        if self.should_stop():
+            raise Stopped()
+
+    def fetch_all(self, function, args):
+        """Fetch in parallel, keeping order; a failed fetch yields None."""
+        def guarded(arg):
+            try:
+                return function(arg)
+            except ApiError as error:
+                self.log('Could not fetch %s: %s' % (arg, error))
+                return None
+        with ThreadPoolExecutor(FETCH_WORKERS) as pool:
+            return list(pool.map(guarded, args))
+
+    # ----- whole sync -----
+
+    def libraries(self, excluded=()):
+        wanted = []
+        for library in self.client.libraries():
+            kind = (library.get('type') or '').lower()
+            if not library.get('enabled', True) or str(library['id']) in excluded:
+                continue
+            if kind in MOVIE_LIBRARY_TYPES or kind in SHOW_LIBRARY_TYPES:
+                wanted.append(library)
+        return wanted
+
+    def sync(self, excluded=()):
+        """Sync every chosen library. Returns True if Kodi's library changed."""
+        self.changed = False
+        with self.open_kodi() as kodi:
+            kodi.setup_root_paths()
+        libraries = self.libraries(excluded)
+        wanted = set(str(library['id']) for library in libraries)
+        for library_id in self.db.libraries():
+            if library_id not in wanted:
+                self.log('Removing library %s from Kodi' % library_id)
+                self.remove_library(library_id)
+        for index, library in enumerate(libraries):
+            self.check_stop()
+            base = 100 * index // max(len(libraries), 1)
+            self.progress(base, library.get('name') or '')
+            self.sync_library(library)
+        self.progress(100, '')
+        return self.changed
+
+    def sync_library(self, library):
+        kind = (library.get('type') or '').lower()
+        if kind in MOVIE_LIBRARY_TYPES:
+            self.sync_movies(library)
+        if kind in SHOW_LIBRARY_TYPES:
+            self.sync_shows(library)
+
+    def library_by_id(self, library_id):
+        for library in self.client.libraries():
+            if str(library['id']) == str(library_id):
+                return library
+        return None
+
+    def remove_library(self, library_id):
+        movies = self.db.items('movie', library_id)
+        shows = self.db.items('tvshow', library_id)
+        for batch in chunks(movies, BATCH):
+            with self.open_kodi() as kodi:
+                for row in batch:
+                    self._remove_movie(kodi, row)
+        for show in shows:
+            with self.open_kodi() as kodi:
+                self._remove_show(kodi, show)
+        self.changed = True
+
+    # ----- movies -----
+
+    def sync_movies(self, library):
+        library_id = str(library['id'])
+        cards = list(self.client.catalog(library_id, 'movie'))
+        seen, fetch, states = set(), [], []
+        for card in cards:
+            content_id = card['content_id']
+            seen.add(content_id)
+            row = self.db.get(content_id)
+            if not row or row['fingerprint'] != mapping.fingerprint(card) or row['library_id'] != library_id:
+                fetch.append(card)
+            elif row['state'] != mapping.state_fingerprint(card):
+                states.append((row, card))
+        self.log('Library %s: %d movies, %d to write, %d watch-state updates'
+                 % (library.get('name'), len(cards), len(fetch), len(states)))
+        for batch in chunks(fetch, BATCH):
+            self.check_stop()
+            items = self.fetch_all(lambda card: self.client.item(card['content_id']), batch)
+            with self.open_kodi() as kodi:
+                for card, item in zip(batch, items):
+                    if item:
+                        self.write_movie(kodi, item, library, card)
+        self.apply_states(states)
+        gone = [row for row in self.db.items('movie', library_id) if row['content_id'] not in seen]
+        for batch in chunks(gone, BATCH):
+            with self.open_kodi() as kodi:
+                for row in batch:
+                    self._remove_movie(kodi, row)
+
+    def write_movie(self, kodi, item, library, card=None):
+        content_id = item['content_id']
+        row = self.db.get(content_id) or {}
+        fields = mapping.movie_fields(item)
+        path_id = kodi.add_path(mapping.MOVIES_PATH, content='movies', scraper='metadata.local')
+        filename = mapping.play_url(mapping.MOVIES_PATH, content_id, 'movie')
+        file_id = kodi.add_file(filename, path_id, fields['date_added'])
+        if row.get('kodi_file_id') and row['kodi_file_id'] != file_id:
+            kodi.remove_file(row['kodi_file_id'])
+        kodi_id = row.get('kodi_id') or self._existing(kodi, 'movie', 'idMovie', file_id) \
+            or kodi.new_id('movie', 'idMovie')
+        people = mapping.people(item, self.port)
+        rating_id = kodi.set_rating(kodi_id, 'movie', mapping.rating(item))
+        unique_id = kodi.set_unique_ids(kodi_id, 'movie', mapping.unique_ids(item))
+        kodi.write_movie(kodi_id, file_id, fields, rating_id, unique_id, people, path_id)
+        kodi.set_people(kodi_id, 'movie', people)
+        kodi.set_genres(kodi_id, 'movie', fields['genres'])
+        kodi.set_studios(kodi_id, 'movie', fields['studios'])
+        kodi.set_countries(kodi_id, 'movie', fields['countries'])
+        kodi.set_tags(kodi_id, 'movie', [library.get('name')])
+        local_art, remote_art = mapping.artwork(item, mapping.MOVIE_ART, self.port)
+        kodi.set_art(kodi_id, 'movie', local_art)
+        version = mapping.default_version(item)
+        kodi.set_streams(file_id, mapping.stream_details(version), fields['runtime'])
+        state_source = card or item
+        count, resume, total, last = mapping.play_state(state_source)
+        kodi.set_play_state(file_id, count, resume, total or fields['runtime'] or 0, last)
+        self.db.put(content_id=content_id, kind='movie', library_id=str(library['id']), kodi_id=kodi_id,
+                    kodi_file_id=file_id, kodi_path_id=path_id,
+                    fingerprint=mapping.fingerprint(card) if card else None,
+                    state=mapping.state_fingerprint(state_source))
+        self.db.set_art(content_id, remote_art)
+        self._save_person_art(item)
+        self.changed = True
+
+    def _remove_movie(self, kodi, row):
+        if row.get('kodi_id'):
+            kodi.remove_movie(row['kodi_id'], row['kodi_file_id'])
+        self.db.remove(row['content_id'])
+        self.changed = True
+
+    # ----- TV -----
+
+    def sync_shows(self, library):
+        library_id = str(library['id'])
+        series_cards = list(self.client.catalog(library_id, 'series'))
+        episode_cards = list(self.client.catalog(library_id, 'episode'))
+        by_series = OrderedDict()
+        for card in episode_cards:
+            if card.get('series_id'):
+                by_series.setdefault(card['series_id'], []).append(card)
+        seen_series = set()
+        changed_series, states = [], []
+        for card in series_cards:
+            series_id = card['content_id']
+            seen_series.add(series_id)
+            row = self.db.get(series_id)
+            if not row or row['fingerprint'] != mapping.fingerprint(card) or row['library_id'] != library_id:
+                changed_series.append(card)
+        self.log('Library %s: %d shows (%d changed), %d episodes'
+                 % (library.get('name'), len(series_cards), len(changed_series), len(episode_cards)))
+        # Shows first: episodes need their show and season rows.
+        for batch in chunks(changed_series, BATCH):
+            self.check_stop()
+            details = self.fetch_all(self._fetch_show, batch)
+            with self.open_kodi() as kodi:
+                for card, detail in zip(batch, details):
+                    if detail:
+                        self.write_show(kodi, detail[0], detail[1], library, card)
+        # Then the seasons whose episodes are new or changed.
+        stale_seasons = OrderedDict()
+        seen_episodes = set()
+        for series_id, cards in by_series.items():
+            if series_id not in seen_series:
+                continue
+            for card in cards:
+                seen_episodes.add(card['content_id'])
+                row = self.db.get(card['content_id'])
+                if not row or row['fingerprint'] != mapping.fingerprint(card):
+                    stale_seasons.setdefault((series_id, card.get('season_number')), {})[card['content_id']] = card
+                elif row['state'] != mapping.state_fingerprint(card):
+                    states.append((row, card))
+        self.log('Library %s: %d seasons to write, %d watch-state updates'
+                 % (library.get('name'), len(stale_seasons), len(states)))
+        keys = list(stale_seasons)
+        for batch in chunks(keys, 10):
+            self.check_stop()
+            listings = self.fetch_all(lambda key: self.client.season_episodes(key[0], key[1]), batch)
+            with self.open_kodi() as kodi:
+                for key, episodes in zip(batch, listings):
+                    if episodes is not None:
+                        self.write_episodes(kodi, key[0], key[1], episodes, stale_seasons[key])
+        self.apply_states(states)
+        # Remove what left Silo.
+        with self.open_kodi() as kodi:
+            for row in self.db.items('episode', library_id):
+                if row['content_id'] not in seen_episodes:
+                    self._remove_episode(kodi, row)
+        for row in self.db.items('tvshow', library_id):
+            if row['content_id'] not in seen_series:
+                with self.open_kodi() as kodi:
+                    self._remove_show(kodi, row)
+
+    def _fetch_show(self, card):
+        series_id = card['content_id']
+        return self.client.item(series_id), self.client.seasons(series_id)
+
+    def write_show(self, kodi, item, seasons, library, card=None):
+        series_id = item['content_id']
+        library_id = str(library['id'])
+        row = self.db.get(series_id) or {}
+        fields = mapping.show_fields(item)
+        path = mapping.show_path(series_id)
+        path_id = kodi.add_path(path, date_added=fields['date_added'])
+        kodi_id = row.get('kodi_id') or self._show_for_path(kodi, path_id) or kodi.new_id('tvshow', 'idShow')
+        people = mapping.people(item, self.port)
+        rating_id = kodi.set_rating(kodi_id, 'tvshow', mapping.rating(item))
+        unique_id = kodi.set_unique_ids(kodi_id, 'tvshow', mapping.unique_ids(item))
+        kodi.write_show(kodi_id, fields, rating_id, unique_id, path_id)
+        kodi.set_people(kodi_id, 'tvshow', people)
+        kodi.set_genres(kodi_id, 'tvshow', fields['genres'])
+        kodi.set_studios(kodi_id, 'tvshow', fields['studios'])
+        kodi.set_tags(kodi_id, 'tvshow', [library.get('name')])
+        local_art, remote_art = mapping.artwork(item, mapping.SHOW_ART, self.port)
+        kodi.set_art(kodi_id, 'tvshow', local_art)
+        self.db.put(content_id=series_id, kind='tvshow', library_id=library_id, kodi_id=kodi_id,
+                    kodi_path_id=path_id, fingerprint=mapping.fingerprint(card) if card else None,
+                    state=None)
+        self.db.set_art(series_id, remote_art)
+        self._save_person_art(item)
+        wanted = set()
+        for season in seasons:
+            number = season.get('season_number')
+            if number is None:
+                continue
+            key = season.get('content_id') or season_key(series_id, number)
+            wanted.add(key)
+            season_row = self.db.get(key) or {}
+            season_id = kodi.write_season(season_row.get('kodi_id'), kodi_id, number, mapping.season_name(season))
+            local_art, remote_art = mapping.artwork(season, mapping.SEASON_ART, self.port, key)
+            kodi.set_art(season_id, 'season', local_art)
+            self.db.put(content_id=key, kind='season', library_id=library_id, parent_id=series_id,
+                        season_number=number, kodi_id=season_id)
+            self.db.set_art(key, remote_art)
+        for season_row in self.db.children(series_id, 'season'):
+            if season_row['content_id'] not in wanted and not self._season_has_episodes(season_row):
+                kodi.remove_season(season_row['kodi_id'])
+                self.db.remove(season_row['content_id'])
+        self.changed = True
+
+    def _season_has_episodes(self, season_row):
+        return any(row['season_number'] == season_row['season_number']
+                   for row in self.db.children(season_row['parent_id'], 'episode'))
+
+    def _season_id(self, kodi, series_id, number):
+        for row in self.db.children(series_id, 'season'):
+            if row['season_number'] == number:
+                return row['kodi_id']
+        show = self.db.get(series_id)
+        if not show:
+            return None
+        key = season_key(series_id, number)
+        season_id = kodi.write_season(None, show['kodi_id'], number,
+                                      mapping.season_name({'season_number': number}))
+        self.db.put(content_id=key, kind='season', library_id=show['library_id'], parent_id=series_id,
+                    season_number=number, kodi_id=season_id)
+        return season_id
+
+    def write_episodes(self, kodi, series_id, season_number, episodes, cards=None):
+        """Write the episodes of one season listing; cards limits it to those changed."""
+        show = self.db.get(series_id)
+        if not show:
+            return
+        path = mapping.show_path(series_id)
+        season_id = self._season_id(kodi, series_id, season_number)
+        for episode in episodes:
+            content_id = episode['content_id']
+            if cards is not None and content_id not in cards:
+                continue
+            card = (cards or {}).get(content_id)
+            row = self.db.get(content_id) or {}
+            fields = mapping.episode_fields(episode, card.get('added_at') if card else None)
+            filename = mapping.play_url(path, content_id, 'episode')
+            file_id = kodi.add_file(filename, show['kodi_path_id'], fields['date_added'])
+            if row.get('kodi_file_id') and row['kodi_file_id'] != file_id:
+                kodi.remove_file(row['kodi_file_id'])
+            kodi_id = row.get('kodi_id') or self._existing(kodi, 'episode', 'idEpisode', file_id) \
+                or kodi.new_id('episode', 'idEpisode')
+            people = mapping.people(episode, self.port)
+            rating_id = kodi.set_rating(kodi_id, 'episode', mapping.rating(episode))
+            unique_id = kodi.set_unique_ids(kodi_id, 'episode', mapping.unique_ids(episode))
+            kodi.write_episode(kodi_id, file_id, fields, rating_id, unique_id, people, show['kodi_id'],
+                               season_id, filename, show['kodi_path_id'])
+            kodi.set_people(kodi_id, 'episode', people)
+            local_art, remote_art = mapping.artwork(episode, mapping.EPISODE_ART, self.port)
+            kodi.set_art(kodi_id, 'episode', local_art)
+            kodi.set_streams(file_id, mapping.episode_stream_details(episode), fields['runtime'])
+            state_source = card or episode
+            count, resume, total, last = mapping.play_state(state_source)
+            kodi.set_play_state(file_id, count, resume, total or fields['runtime'] or 0, last)
+            self.db.put(content_id=content_id, kind='episode', library_id=show['library_id'], parent_id=series_id,
+                        season_number=season_number, kodi_id=kodi_id, kodi_file_id=file_id,
+                        kodi_path_id=show['kodi_path_id'],
+                        fingerprint=mapping.fingerprint(card) if card else None,
+                        state=mapping.state_fingerprint(state_source))
+            self.db.set_art(content_id, remote_art)
+        self.changed = True
+
+    def _remove_episode(self, kodi, row):
+        if row.get('kodi_id'):
+            kodi.remove_episode(row['kodi_id'], row['kodi_file_id'])
+        self.db.remove(row['content_id'])
+        self.changed = True
+
+    def _remove_show(self, kodi, row):
+        for child in self.db.children(row['content_id']):
+            if child['kind'] == 'episode' and child.get('kodi_id'):
+                kodi.remove_episode(child['kodi_id'], child['kodi_file_id'])
+            self.db.remove(child['content_id'])
+        if row.get('kodi_id'):
+            kodi.remove_show(row['kodi_id'], row.get('kodi_path_id'))
+        self.db.remove(row['content_id'])
+        self.changed = True
+
+    # ----- single items, from realtime events -----
+
+    def resync_item(self, content_id, library_id=None):
+        """Rewrite one title after Silo reports it changed."""
+        try:
+            item = self.client.item(content_id)
+        except ApiError as error:
+            if error.status == 404:
+                self.remove_item(content_id)
+                return
+            raise
+        kind = item.get('type')
+        row = self.db.get(content_id) or {}
+        if kind == 'movie':
+            library = self.library_by_id(library_id or row.get('library_id'))
+            if library:
+                with self.open_kodi() as kodi:
+                    self.write_movie(kodi, item, library)
+        elif kind == 'series':
+            library = self.library_by_id(library_id or row.get('library_id'))
+            if library:
+                seasons = self.client.seasons(content_id)
+                with self.open_kodi() as kodi:
+                    self.write_show(kodi, item, seasons, library)
+                for season in seasons:
+                    if season.get('season_number') is not None:
+                        self.resync_season(content_id, season['season_number'])
+        elif kind == 'episode' and item.get('series_id'):
+            if not self.db.get(item['series_id']):
+                self.resync_item(item['series_id'], library_id)
+            else:
+                self.resync_season(item['series_id'], item.get('season_number'))
+
+    def resync_season(self, series_id, season_number):
+        episodes = self.client.season_episodes(series_id, season_number)
+        with self.open_kodi() as kodi:
+            self.write_episodes(kodi, series_id, season_number, episodes)
+
+    def remove_item(self, content_id):
+        row = self.db.get(content_id)
+        if not row:
+            return
+        with self.open_kodi() as kodi:
+            if row['kind'] == 'movie':
+                self._remove_movie(kodi, row)
+            elif row['kind'] == 'tvshow':
+                self._remove_show(kodi, row)
+            elif row['kind'] == 'episode':
+                self._remove_episode(kodi, row)
+
+    # ----- watch state -----
+
+    def apply_states(self, pairs):
+        """pairs: [(sync row, card or item)] whose watch state changed."""
+        for batch in chunks(pairs, 100):
+            with self.open_kodi() as kodi:
+                for row, source in batch:
+                    count, resume, total, last = mapping.play_state(source)
+                    if row.get('kodi_file_id'):
+                        kodi.set_play_state(row['kodi_file_id'], count, resume, total, last)
+                    self.db.set_state(row['content_id'], mapping.state_fingerprint(source))
+                    self.changed = True
+
+    def refresh_state(self, content_id):
+        """Re-read one title's watch state after Silo reports a change."""
+        row = self.db.get(content_id)
+        if not row:
+            return
+        if row['kind'] in ('movie', 'episode'):
+            self.apply_states([(row, self.client.item(content_id))])
+        elif row['kind'] == 'tvshow':
+            pairs = []
+            for season in set(child['season_number'] for child in self.db.children(content_id, 'episode')):
+                for episode in self.client.season_episodes(content_id, season):
+                    episode_row = self.db.get(episode['content_id'])
+                    if episode_row and episode_row['state'] != mapping.state_fingerprint(episode):
+                        pairs.append((episode_row, episode))
+            self.apply_states(pairs)
+
+    def apply_progress(self, entries):
+        """Progress list entries (from /progress) -> Kodi resume points."""
+        pairs = []
+        for entry in entries:
+            row = self.db.get(entry.get('media_item_id'))
+            if not row or row['kind'] not in ('movie', 'episode'):
+                continue
+            source = {'duration_seconds': entry.get('duration_seconds'),
+                      'position_seconds': entry.get('position_seconds'),
+                      'user_state': {'played': entry.get('completed')},
+                      'progress_updated_at': entry.get('updated_at')}
+            if row['state'] != mapping.state_fingerprint(source):
+                pairs.append((row, source))
+        self.apply_states(pairs)
+
+    # ----- helpers -----
+
+    def _existing(self, kodi, table, column, file_id):
+        kodi.cursor.execute('SELECT %s FROM %s WHERE idFile = ?' % (column, table), (file_id,))
+        found = kodi.cursor.fetchone()
+        return found[0] if found else None
+
+    def _show_for_path(self, kodi, path_id):
+        kodi.cursor.execute('SELECT idShow FROM tvshowlinkpath WHERE idPath = ?', (path_id,))
+        found = kodi.cursor.fetchone()
+        return found[0] if found else None
+
+    def _save_person_art(self, item):
+        for key, url in mapping.person_art(item).items():
+            self.db.set_art(key, {'thumb': url})

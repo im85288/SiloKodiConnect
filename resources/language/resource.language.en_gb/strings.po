@@ -1,0 +1,207 @@
+# Kodi Media Center language file
+# Addon Name: SiloKodiConnect
+# Addon id: plugin.video.silokodiconnect
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: en_GB\n"
+
+msgctxt "#30000"
+msgid "Account"
+msgstr ""
+
+msgctxt "#30001"
+msgid "Sign in to Silo"
+msgstr ""
+
+msgctxt "#30002"
+msgid "Sign out"
+msgstr ""
+
+msgctxt "#30010"
+msgid "Sync"
+msgstr ""
+
+msgctxt "#30011"
+msgid "Check for changes every (minutes)"
+msgstr ""
+
+msgctxt "#30012"
+msgid "Show sync progress"
+msgstr ""
+
+msgctxt "#30013"
+msgid "Choose libraries to sync"
+msgstr ""
+
+msgctxt "#30014"
+msgid "Sync now"
+msgstr ""
+
+msgctxt "#30015"
+msgid "Rewrite every item (full resync)"
+msgstr ""
+
+msgctxt "#30016"
+msgid "Remove all Silo items from the Kodi library"
+msgstr ""
+
+msgctxt "#30017"
+msgid "Library ids not synced"
+msgstr ""
+
+msgctxt "#30018"
+msgid "Silo also tells Kodi about changes as they happen; this is the fallback check."
+msgstr ""
+
+msgctxt "#30020"
+msgid "Playback"
+msgstr ""
+
+msgctxt "#30021"
+msgid "Highest resolution this TV shows"
+msgstr ""
+
+msgctxt "#30022"
+msgid "HDR this TV shows"
+msgstr ""
+
+msgctxt "#30023"
+msgid "None (SDR)"
+msgstr ""
+
+msgctxt "#30024"
+msgid "HDR10 and HLG"
+msgstr ""
+
+msgctxt "#30025"
+msgid "HDR10, HDR10+ and Dolby Vision (profiles 5 and 8)"
+msgstr ""
+
+msgctxt "#30026"
+msgid "Silo converts anything above this for this device. Choose only what your TV and Kodi device really support."
+msgstr ""
+
+msgctxt "#30027"
+msgid "1080p"
+msgstr ""
+
+msgctxt "#30028"
+msgid "4K (2160p)"
+msgstr ""
+
+msgctxt "#30030"
+msgid "Advanced"
+msgstr ""
+
+msgctxt "#30031"
+msgid "Local relay port"
+msgstr ""
+
+msgctxt "#30032"
+msgid "Kodi loads Silo artwork through this port on 127.0.0.1. Changing it needs a full resync."
+msgstr ""
+
+msgctxt "#30100"
+msgid "Silo server address"
+msgstr ""
+
+msgctxt "#30101"
+msgid "Could not reach %s:[CR]%s"
+msgstr ""
+
+msgctxt "#30102"
+msgid "On your phone or computer, open[CR][B]%s[/B][CR]and enter the code[CR][B]%s[/B]"
+msgstr ""
+
+msgctxt "#30103"
+msgid "Sign-in was not approved. Try again."
+msgstr ""
+
+msgctxt "#30104"
+msgid "Who is watching?"
+msgstr ""
+
+msgctxt "#30105"
+msgid "PIN for %s"
+msgstr ""
+
+msgctxt "#30106"
+msgid "Wrong PIN"
+msgstr ""
+
+msgctxt "#30107"
+msgid "Signed in as %s"
+msgstr ""
+
+msgctxt "#30108"
+msgid "Sign out of Silo? Your Silo items stay in the Kodi library."
+msgstr ""
+
+msgctxt "#30109"
+msgid "Remove every Silo movie and TV show from the Kodi library?"
+msgstr ""
+
+msgctxt "#30110"
+msgid "This Silo server has no movie or TV libraries you can see."
+msgstr ""
+
+msgctxt "#30111"
+msgid "Libraries to sync"
+msgstr ""
+
+msgctxt "#30120"
+msgid "The SiloKodiConnect service is not running. Restart Kodi."
+msgstr ""
+
+msgctxt "#30121"
+msgid "Port %d is in use, so Silo artwork will not load. Change it in the add-on settings."
+msgstr ""
+
+msgctxt "#30122"
+msgid "Signed out of Silo. Sign in again in the add-on settings."
+msgstr ""
+
+msgctxt "#30123"
+msgid "Sign in to Silo first."
+msgstr ""
+
+msgctxt "#30124"
+msgid "Silo could not start this video. See the Kodi log."
+msgstr ""
+
+msgctxt "#30130"
+msgid "Signed in as %s on %s"
+msgstr ""
+
+msgctxt "#30131"
+msgid "Sync now"
+msgstr ""
+
+msgctxt "#30132"
+msgid "Choose libraries"
+msgstr ""
+
+msgctxt "#30133"
+msgid "Rewrite every item (full resync)"
+msgstr ""
+
+msgctxt "#30134"
+msgid "Sign out"
+msgstr ""
+
+msgctxt "#30135"
+msgid "Remove all Silo items from the Kodi library"
+msgstr ""
+
+msgctxt "#30136"
+msgid "Sign in to Silo"
+msgstr ""
+
+msgctxt "#30140"
+msgid "Syncing your Silo libraries"
+msgstr ""
+
+msgctxt "#30141"
+msgid "Your Silo library is in Kodi"
+msgstr ""

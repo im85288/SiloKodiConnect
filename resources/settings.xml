@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<settings version="1">
+  <section id="plugin.video.silokodiconnect">
+    <category id="account" label="30000">
+      <group id="1">
+        <setting id="signin" type="action" label="30001">
+          <level>0</level>
+          <data>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=signin)</data>
+          <constraints><allowempty>true</allowempty></constraints>
+          <control type="button" format="action"><close>true</close></control>
+        </setting>
+        <setting id="signout" type="action" label="30002">
+          <level>0</level>
+          <data>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=signout)</data>
+          <constraints><allowempty>true</allowempty></constraints>
+          <control type="button" format="action"><close>true</close></control>
+        </setting>
+      </group>
+    </category>
+    <category id="sync" label="30010">
+      <group id="1">
+        <setting id="sync_interval" type="integer" label="30011" help="30018">
+          <level>0</level>
+          <default>60</default>
+          <constraints><minimum>5</minimum><step>5</step><maximum>1440</maximum></constraints>
+          <control type="spinner" format="integer"/>
+        </setting>
+        <setting id="show_sync_progress" type="boolean" label="30012">
+          <level>0</level>
+          <default>false</default>
+          <control type="toggle"/>
+        </setting>
+        <setting id="excluded_libraries" type="string" label="30017">
+          <level>3</level>
+          <default/>
+          <constraints><allowempty>true</allowempty></constraints>
+          <control type="edit" format="string"/>
+        </setting>
+      </group>
+      <group id="2">
+        <setting id="sync_now" type="action" label="30014">
+          <level>0</level>
+          <data>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=sync)</data>
+          <constraints><allowempty>true</allowempty></constraints>
+          <control type="button" format="action"><close>true</close></control>
+        </setting>
+        <setting id="choose_libraries" type="action" label="30013">
+          <level>0</level>
+          <data>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=libraries)</data>
+          <constraints><allowempty>true</allowempty></constraints>
+          <control type="button" format="action"><close>true</close></control>
+        </setting>
+        <setting id="full_sync" type="action" label="30015">
+          <level>1</level>
+          <data>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=fullsync)</data>
+          <constraints><allowempty>true</allowempty></constraints>
+          <control type="button" format="action"><close>true</close></control>
+        </setting>
+        <setting id="reset" type="action" label="30016">
+          <level>2</level>
+          <data>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=reset)</data>
+          <constraints><allowempty>true</allowempty></constraints>
+          <control type="button" format="action"><close>true</close></control>
+        </setting>
+      </group>
+    </category>
+    <category id="playback" label="30020">
+      <group id="1">
+        <setting id="max_resolution" type="string" label="30021" help="30026">
+          <level>0</level>
+          <default>1080p</default>
+          <constraints>
+            <options>
+              <option label="30027">1080p</option>
+              <option label="30028">2160p</option>
+            </options>
+          </constraints>
+          <control type="list" format="string"/>
+        </setting>
+        <setting id="dynamic_range" type="string" label="30022" help="30026">
+          <level>0</level>
+          <default>sdr</default>
+          <constraints>
+            <options>
+              <option label="30023">sdr</option>
+              <option label="30024">hdr10</option>
+              <option label="30025">dv</option>
+            </options>
+          </constraints>
+          <control type="list" format="string"/>
+        </setting>
+      </group>
+    </category>
+    <category id="advanced" label="30030">
+      <group id="1">
+        <setting id="relay_port" type="integer" label="30031" help="30032">
+          <level>3</level>
+          <default>57578</default>
+          <constraints><minimum>1024</minimum><maximum>65535</maximum></constraints>
+          <control type="edit" format="integer"/>
+        </setting>
+      </group>
+    </category>
+  </section>
+</settings>

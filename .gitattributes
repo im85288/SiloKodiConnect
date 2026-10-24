@@ -4,3 +4,4 @@
 .gitignore export-ignore
 requirements-dev.txt export-ignore
 tests export-ignore
+tools export-ignore

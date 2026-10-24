@@ -1,0 +1,24 @@
+name: CI
+on:
+- pull_request
+- push
+jobs:
+  tests:
+    name: Tests on Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.8 is Kodi 20 on Android; 3.11 Kodi 21.
+        python-version: ['3.8', '3.11', '3.14']
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: pip install -r requirements-dev.txt
+    - name: Lint
+      run: python -m pyflakes resources tests default.py service.py
+    - name: Test
+      run: python -m pytest -q tests

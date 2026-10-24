@@ -103,6 +103,7 @@ class Service(object):
         self.next_progress = 0
         self.signed_out_notice = False
         self.library_update_pending = False
+        self.deferred = []
 
     # ----- Kodi's database -----
 
@@ -140,6 +141,10 @@ class Service(object):
                 self.next_progress = now + (PROGRESS_POLL if connected else PROGRESS_POLL_OFFLINE)
                 self.enqueue('progress')
             self.player.tick()
+            if self.deferred and not self.playing():
+                for task in self.deferred:
+                    self.enqueue(task)
+                self.deferred = []
             if self.library_update_pending and self.tasks.empty():
                 self.library_update_pending = not kodi.refresh_library_views(refresh_list=False)
         kodi.log('Stopping SiloKodiConnect')
@@ -187,6 +192,12 @@ class Service(object):
         if not self.store.signed_in:
             return
         kind = task[0] if isinstance(task, tuple) else task
+        if kind in ('sync', 'fullsync', 'library') and self.playing():
+            # A big sync during playback can starve a small device of memory
+            # (Android killed Kodi mid-film on a 2 GB SHIELD). Wait until it stops.
+            if task not in self.deferred:
+                self.deferred.append(task)
+            return
         if kind in ('sync', 'fullsync'):
             if kind == 'fullsync':
                 self.db.forget_fingerprints()
@@ -205,6 +216,12 @@ class Service(object):
             for library_id in self.db.libraries():
                 self.syncer.remove_library(library_id)
             self.db.clear()
+
+    def playing(self):
+        try:
+            return self.player.isPlayingVideo()
+        except RuntimeError:
+            return False
 
     def excluded(self):
         return [value for value in (kodi.setting('excluded_libraries') or '').split(',') if value]

@@ -206,21 +206,37 @@ class Syncer(object):
     def sync_shows(self, library):
         library_id = str(library['id'])
         series_cards = list(self.client.catalog(library_id, 'series'))
-        episode_cards = list(self.client.catalog(library_id, 'episode'))
-        by_series = OrderedDict()
-        for card in episode_cards:
-            if card.get('series_id'):
-                by_series.setdefault(card['series_id'], []).append(card)
         seen_series = set()
-        changed_series, states = [], []
+        changed_series = []
         for card in series_cards:
             series_id = card['content_id']
             seen_series.add(series_id)
             row = self.db.get(series_id)
             if not row or row['fingerprint'] != mapping.fingerprint(card) or row['library_id'] != library_id:
                 changed_series.append(card)
+        # A big library has tens of thousands of episode cards, over 100 MB
+        # as Python objects, which got Kodi killed for memory on a 2 GB
+        # SHIELD. Read them a page at a time and keep only what's needed.
+        stale_seasons = OrderedDict()
+        seen_episodes = set()
+        states = []
+        episodes = 0
+        for card in self.client.catalog(library_id, 'episode'):
+            episodes += 1
+            if card.get('series_id') not in seen_series:
+                continue
+            content_id = card['content_id']
+            seen_episodes.add(content_id)
+            row = self.db.get(content_id)
+            fingerprint = mapping.fingerprint(card)
+            if not row or row['fingerprint'] != fingerprint:
+                stale_seasons.setdefault((card['series_id'], card.get('season_number')), {})[content_id] = {
+                    'added_at': card.get('added_at'), 'fingerprint': fingerprint}
+            elif row['state'] != mapping.state_fingerprint(card):
+                states.append((row, {'user_state': card.get('user_state'), 'runtime': card.get('runtime'),
+                                     'duration_seconds': card.get('duration_seconds')}))
         self.log('Library %s: %d shows (%d changed), %d episodes'
-                 % (library.get('name'), len(series_cards), len(changed_series), len(episode_cards)))
+                 % (library.get('name'), len(series_cards), len(changed_series), episodes))
         # Shows first: episodes need their show and season rows.
         # Shows are a fifth of the work, their seasons of episodes the rest.
         for number, batch in enumerate(chunks(changed_series, BATCH)):
@@ -234,18 +250,6 @@ class Syncer(object):
                     if detail:
                         self.write_show(kodi, detail[0], detail[1], library, card)
         # Then the seasons whose episodes are new or changed.
-        stale_seasons = OrderedDict()
-        seen_episodes = set()
-        for series_id, cards in by_series.items():
-            if series_id not in seen_series:
-                continue
-            for card in cards:
-                seen_episodes.add(card['content_id'])
-                row = self.db.get(card['content_id'])
-                if not row or row['fingerprint'] != mapping.fingerprint(card):
-                    stale_seasons.setdefault((series_id, card.get('season_number')), {})[card['content_id']] = card
-                elif row['state'] != mapping.state_fingerprint(card):
-                    states.append((row, card))
         self.log('Library %s: %d seasons to write, %d watch-state updates'
                  % (library.get('name'), len(stale_seasons), len(states)))
         keys = list(stale_seasons)
@@ -336,7 +340,8 @@ class Syncer(object):
         return season_id
 
     def write_episodes(self, kodi, series_id, season_number, episodes, cards=None):
-        """Write the episodes of one season listing; cards limits it to those changed."""
+        """Write the episodes of one season listing. cards ({content_id: {'added_at',
+        'fingerprint'}}) limits it to those changed."""
         show = self.db.get(series_id)
         if not show:
             return
@@ -370,7 +375,7 @@ class Syncer(object):
             self.db.put(content_id=content_id, kind='episode', library_id=show['library_id'], parent_id=series_id,
                         season_number=season_number, kodi_id=kodi_id, kodi_file_id=file_id,
                         kodi_path_id=show['kodi_path_id'],
-                        fingerprint=mapping.fingerprint(card) if card else None,
+                        fingerprint=card['fingerprint'] if card else None,
                         state=mapping.state_fingerprint(episode))
             self.db.set_art(content_id, remote_art)
         self.changed = True

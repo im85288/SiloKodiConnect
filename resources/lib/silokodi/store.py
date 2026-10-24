@@ -61,7 +61,9 @@ class Store(object):
 
     @property
     def signed_in(self):
-        return bool(self.get('server_url') and self.get('refresh_token'))
+        # Sign-in saves the tokens before the profile is chosen; Silo's
+        # library and progress routes need the profile, so wait for both.
+        return bool(self.get('server_url') and self.get('refresh_token') and self.get('profile_id'))
 
     def _write(self):
         temp = self.path + '.tmp'

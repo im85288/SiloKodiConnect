@@ -43,6 +43,14 @@ class SyncDB(object):
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(self.path, timeout=30, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        # A sync commits tens of thousands of small writes. With the default
+        # journal each one waits for the disk, which on a SHIELD's flash
+        # storage made a first sync crawl at about one movie a second. In WAL
+        # mode with synchronous=NORMAL a commit doesn't wait for the disk;
+        # a power cut can lose the last few commits, which the next sync
+        # rewrites without duplicating Kodi rows.
+        self._conn.execute('PRAGMA journal_mode=WAL')
+        self._conn.execute('PRAGMA synchronous=NORMAL')
         with self._lock:
             self._conn.executescript(SCHEMA)
             self._conn.commit()

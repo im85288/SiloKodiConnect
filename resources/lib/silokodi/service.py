@@ -63,6 +63,7 @@ class Player(xbmc.Player):
             self.last_time = None
             self.service.recently_played[session.content_id] = time.time()
             self.service.tell_upnext(session)
+            self.show_markers(session)
 
     def onPlayBackStopped(self):
         self._ended()
@@ -73,7 +74,20 @@ class Player(xbmc.Player):
     def onPlayBackError(self):
         self._ended()
 
+    def show_markers(self, session):
+        """Silo's intro, recap, credits and preview markers for the skin's
+        seek bar (silokodi.markers.<kind>), as Silo's players colour them."""
+        try:
+            total = self.getTotalTime()
+        except RuntimeError:
+            total = 0
+        ranges = upnext.marker_ranges(session.markers or [], total, session.origin)
+        for kind in upnext.MARKER_KINDS:
+            kodi.set_property('markers.' + kind, ranges.get(kind, ''))
+
     def _ended(self):
+        for kind in upnext.MARKER_KINDS:
+            kodi.clear_property('markers.' + kind)
         session = self.service.playback.on_stopped(self.last_time)
         if session:
             self.service.recently_played[session.content_id] = time.time()

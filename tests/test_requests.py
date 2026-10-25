@@ -41,3 +41,14 @@ def test_search_words_may_hold_ampersands(monkeypatch):
     plugin.run(['plugin://x/', '1', '?mode=requests&search=dune%20part&refresh=5'])
     plugin.run(['plugin://x/', '1', '?mode=requests&row=trending'])
     assert rows == ['search:tom & jerry=1', 'search:dune part', 'trending']
+
+
+def test_marker_ranges_are_percent_of_the_player_timeline():
+    from resources.lib.silokodi import upnext
+    found = [('intro', 60.0, 120.0), ('credits', 2700.0, 3000.0), ('recap', 0.0, 30.0), ('intro', 3500.0, 3600.0)]
+    assert upnext.marker_ranges(found, 3000.0) == {'intro': '2.00,4.00', 'credits': '90.00,100.00',
+                                                    'recap': '0.00,1.00'}
+    # A converted stream that starts 30 s in: the recap is gone, the rest shift.
+    assert upnext.marker_ranges(found, 2970.0, origin=30.0)['intro'] == '1.01,3.03'
+    assert 'recap' not in upnext.marker_ranges(found, 2970.0, origin=30.0)
+    assert upnext.marker_ranges(found, 0) == {}

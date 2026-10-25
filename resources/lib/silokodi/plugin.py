@@ -134,10 +134,11 @@ def choose_libraries():
 
 MOVIE_FIELDS = ['title', 'plot', 'year', 'rating', 'ratings', 'runtime', 'genre', 'mpaa', 'art', 'resume',
                 'playcount', 'file', 'premiered', 'streamdetails', 'dateadded', 'lastplayed', 'tagline', 'studio',
-                'cast']
+                'cast', 'director']
 EPISODE_FIELDS = ['title', 'plot', 'rating', 'ratings', 'runtime', 'art', 'resume', 'playcount', 'file',
                   'firstaired', 'showtitle', 'season', 'episode', 'tvshowid', 'streamdetails', 'dateadded',
-                  'lastplayed', 'cast']
+                  'lastplayed', 'cast', 'director']
+CAST_LIMIT = 20
 SHOW_FIELDS = ['title', 'plot', 'year', 'rating', 'ratings', 'genre', 'mpaa', 'art', 'file', 'premiered',
                'studio', 'episode', 'watchedepisodes', 'cast']
 
@@ -215,6 +216,14 @@ def library_item(kind, kodi_id, shows=None):
         tag.setMpaa(details['mpaa'])
     if details.get('genre'):
         tag.setGenres(details['genre'])
+    # The info page's cast list and credit line.
+    if details.get('cast'):
+        tag.setCast([xbmc.Actor(person.get('name') or '', person.get('role') or '', person.get('order') or 0,
+                                person.get('thumbnail') or '') for person in details['cast'][:CAST_LIMIT]])
+    if details.get('director'):
+        tag.setDirectors(details['director'])
+    if details.get('studio'):
+        tag.setStudios(details['studio'])
     if kind == 'tvshow':
         listitem.setProperty('TotalEpisodes', str(details.get('episode') or 0))
         listitem.setProperty('WatchedEpisodes', str(details.get('watchedepisodes') or 0))

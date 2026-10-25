@@ -8,7 +8,7 @@ import json
 import time
 
 try:
-    from urllib.parse import parse_qsl, urlencode
+    from urllib.parse import parse_qsl, unquote, urlencode
     from urllib.request import urlopen
 except ImportError:  # pragma: no cover
     raise
@@ -68,10 +68,16 @@ def run(argv):
         return widget(handle, params.get('section') or 'continue_watching', params.get('library'),
                       params.get('collection'), params.get('title'))
     if mode == 'requests':
-        row = 'search:' + params['search'] if params.get('search') else params.get('row') or 'mine'
+        # The skin can't URL-encode the search words, so take them as written
+        # (they may hold & or =), up to the refresh suffix.
+        query = argv[2] if len(argv) > 2 else ''
+        words = unquote(query.split('search=', 1)[1].rsplit('&refresh=', 1)[0]) if 'search=' in query else ''
+        row = 'search:' + words if words else params.get('row') or 'mine'
         return request_row(base, handle, row)
+    if mode == 'request_info':
+        return request_info(base, params.get('type') or 'movie', params.get('tmdb') or '')
     if mode == 'request':
-        return make_request(params.get('type') or 'movie', params.get('tmdb') or '', params.get('title') or '')
+        return make_request(params.get('type') or 'movie', params.get('tmdb') or '')
     if mode == 'collections':
         return collections(base, handle, params.get('libraries') or '')
     if mode in ('sync', 'fullsync', 'libraries', 'reset'):
@@ -196,31 +202,76 @@ def request_row(base, handle, row):
                 item[1].setProperty('silo.request.label', card.get('label') or '')
                 xbmcplugin.addDirectoryItem(handle, item[0], item[1], isFolder=item[2])
             continue
-        listitem = xbmcgui.ListItem(card['title'], offscreen=True)
-        listitem.setArt({'poster': card['poster'], 'thumb': card['poster'], 'fanart': card['backdrop']})
-        tag = listitem.getVideoInfoTag()
-        tag.setTitle(card['title'])
-        tag.setPlot(card['overview'])
-        if card.get('year'):
-            tag.setYear(int(card['year']))
-        if card.get('rating'):
-            tag.setRating(float(card['rating']))
-        listitem.setProperties({'silo.request.type': card['type'], 'silo.request.tmdb': str(card['tmdb']),
-                                'silo.request.label': card['label'], 'silo.request.state': card['state'],
-                                'silo.request.requestable': 'true' if card['requestable'] else 'false',
-                                'silo.rating': 'TMDB %.1f' % card['rating'] if card.get('rating') else ''})
-        url = '%s?%s' % (base, urlencode({'mode': 'request', 'type': card['type'], 'tmdb': card['tmdb'],
-                                          'title': card['title']}))
-        xbmcplugin.addDirectoryItem(handle, url, listitem, isFolder=False)
+        url = '%s?%s' % (base, urlencode({'mode': 'request', 'type': card['type'], 'tmdb': card['tmdb']}))
+        xbmcplugin.addDirectoryItem(handle, url, request_listitem(card), isFolder=False)
     xbmcplugin.setContent(handle, 'videos')
     xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
 
 
-def make_request(media_type, tmdb_id, title):
-    """Ask, then request a title from Silo; the skin's rows reload after."""
-    if not xbmcgui.Dialog().yesno('Silo', 'Request %s?' % (title or 'this title')):
+def request_listitem(card):
+    """A title Silo can request as a Kodi item: TMDB art and info, and the
+    silo.request.* properties a Silo-style skin draws and requests from."""
+    listitem = xbmcgui.ListItem(card['title'], offscreen=True)
+    listitem.setArt({'poster': card['poster'], 'thumb': card['poster'], 'fanart': card['backdrop']})
+    tag = listitem.getVideoInfoTag()
+    tag.setTitle(card['title'])
+    tag.setPlot(card['overview'])
+    if card.get('year'):
+        tag.setYear(int(card['year']))
+    if card.get('rating'):
+        tag.setRating(float(card['rating']))
+    listitem.setProperties({'silo.request.type': card['type'], 'silo.request.tmdb': str(card['tmdb']),
+                            'silo.request.label': card['label'], 'silo.request.state': card['state'],
+                            'silo.request.requestable': 'true' if card['requestable'] else 'false',
+                            'silo.rating': 'TMDB %.1f' % card['rating'] if card.get('rating') else ''})
+    return listitem
+
+
+def request_info(base, media_type, tmdb_id):
+    """Open a requestable title's info page with Silo's full details: cast,
+    genres, network or studio, and its recommendations as More Like This."""
+    summary = ask_service('command/request_detail', timeout=30, type=media_type, tmdb=tmdb_id)
+    if summary.get('error') or not summary.get('card'):
+        return kodi.notify(summary.get('error') or 'Not found on Silo')
+    listitem = request_listitem(summary['card'])
+    tag = listitem.getVideoInfoTag()
+    tag.setMediaType('tvshow' if media_type == 'series' else 'movie')
+    tag.setGenres(summary.get('genres') or [])
+    tag.setStudios(summary.get('studios') or [])
+    tag.setDirectors(summary.get('directors') or [])
+    tag.setTagLine(summary.get('tagline') or '')
+    tag.setTvShowStatus(summary.get('status') or '')
+    tag.setMpaa(summary.get('mpaa') or '')
+    if summary.get('runtime'):
+        tag.setDuration(summary['runtime'] * 60)
+    tag.setCast([xbmc.Actor(person['name'], person['role'], index, person['thumbnail'])
+                 for index, person in enumerate(summary.get('cast') or [])])
+    if summary.get('season_count'):
+        listitem.setProperty('silo.request.seasons', str(summary['season_count']))
+    similar = urlencode({'mode': 'requests', 'row': 'similar:%s:%s' % (media_type, tmdb_id)})
+    listitem.setProperty('silo.similar', '%s?%s' % (base, similar))
+    xbmcgui.Dialog().info(listitem)
+
+
+def make_request(media_type, tmdb_id):
+    """Ask, then request a title from Silo: for a series with several seasons
+    still to get, choose which. The skin's rows reload after."""
+    summary = ask_service('command/request_detail', timeout=30, type=media_type, tmdb=tmdb_id)
+    if summary.get('error') or not summary.get('requestable'):
+        return kodi.notify(summary.get('error') or summary.get('reason') or 'Not available to request')
+    title, seasons = summary.get('title') or '', summary.get('seasons') or []
+    chosen = []
+    if media_type == 'series' and len(seasons) > 1:
+        picked = xbmcgui.Dialog().multiselect('Request %s: which seasons?' % title,
+                                              [season['label'] for season in seasons],
+                                              preselect=list(range(len(seasons))))
+        if not picked:
+            return
+        chosen = [seasons[index]['number'] for index in picked]
+    elif not xbmcgui.Dialog().yesno('Silo', 'Request %s?' % title):
         return
-    answer = ask_service('command/request', timeout=30, type=media_type, tmdb=tmdb_id)
+    answer = ask_service('command/request', timeout=30, type=media_type, tmdb=tmdb_id,
+                         seasons=','.join(str(number) for number in chosen))
     if answer.get('error'):
         return kodi.notify(answer['error'])
     kodi.notify('%s: %s' % (answer.get('title') or title, answer.get('state') or 'Requested'))

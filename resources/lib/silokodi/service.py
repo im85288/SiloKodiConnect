@@ -453,9 +453,16 @@ class Service(object):
                 return {'cards': self.request_cards(query.get('row') or 'mine')}
             except (ApiError, requests.RequestException) as error:
                 return {'error': str(error)}
+        elif name == 'request_detail':
+            try:
+                return mapping.request_summary(self.client.request_detail(query.get('type') or 'movie',
+                                                                          query.get('tmdb') or ''))
+            except (ApiError, requests.RequestException) as error:
+                return {'error': str(error)}
         elif name == 'request':
             try:
-                return self.make_request(query.get('type') or 'movie', query.get('tmdb') or '')
+                seasons = [int(n) for n in (query.get('seasons') or '').split(',') if n.strip().isdigit()]
+                return self.make_request(query.get('type') or 'movie', query.get('tmdb') or '', seasons)
             except (ApiError, requests.RequestException) as error:
                 return {'error': str(error)}
         elif name == 'collections':
@@ -632,13 +639,18 @@ class Service(object):
                        for section in sections if section.get('key') and section.get('results')]
 
     def request_cards(self, row):
-        """A Requests row as cards (row: mine, a discovery key, or search:<words>);
+        """A Requests row as cards (row: mine, a discovery key, search:<words>
+        or similar:<type>:<tmdb id>);
         a title already in the library carries its Kodi item, so it opens and
         plays as usual."""
         if row.startswith('search:'):
             # Search: only what isn't in the library, which the skin lists itself.
             items = [item for item in self.client.request_search(row[len('search:'):])
                      if item.get('availability') != 'available']
+        elif row.startswith('similar:'):
+            # A request title's More Like This: Silo's recommendations for it.
+            media_type, _, tmdb_id = row[len('similar:'):].partition(':')
+            items = self.client.request_detail(media_type, tmdb_id).get('recommendations') or []
         else:
             items = self.client.my_requests() if row == 'mine' else self.client.discover_section(row)
         cards = []
@@ -652,15 +664,17 @@ class Service(object):
             cards.append(card)
         return cards
 
-    def make_request(self, media_type, tmdb_id):
-        """Request a title, with every aired season of a series not yet in
-        the library (Silo's default)."""
+    def make_request(self, media_type, tmdb_id, seasons=None):
+        """Request a title: for a series the given seasons, or every aired
+        season not yet in the library (Silo's default)."""
         detail = self.client.request_detail(media_type, tmdb_id)
         state = detail.get('request') or {}
         if not state.get('requestable'):
-            return {'error': mapping.REQUEST_STATES.get(state.get('state'), '') or
-                    (state.get('reason') or 'not requestable').replace('_', ' ').capitalize()}
-        answer = self.client.create_request(mapping.request_body(detail))
+            return {'error': mapping.request_summary(detail)['reason']}
+        body = mapping.request_body(detail)
+        if seasons and media_type == 'series':
+            body['seasons'] = seasons
+        answer = self.client.create_request(body)
         return {'state': mapping.REQUEST_STATES.get(answer.get('state'), 'Requested'), 'title': detail.get('title')}
 
     def media_allowed(self, path):

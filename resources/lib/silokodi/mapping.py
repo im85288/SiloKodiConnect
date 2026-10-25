@@ -499,3 +499,30 @@ def request_body(detail):
         if detail.get(key):
             body[key] = int(detail[key])
     return body
+
+
+def request_summary(detail):
+    """A title's request detail for the plugin: its card and the facts its
+    info page shows, whether it can be requested (if not, why) and a series'
+    aired seasons still to get."""
+    state = detail.get('request') or {}
+    seasons = [{'number': season['season_number'],
+                'label': season.get('name') or 'Season %d' % season['season_number']}
+               for season in detail.get('seasons') or []
+               if season.get('season_number') and season.get('availability') != 'available'
+               and not season.get('requested') and (season.get('episode_count') or 0) > 0]
+    reason = '' if state.get('requestable') else (
+        REQUEST_STATES.get(state.get('state'), '') or
+        (state.get('reason') or 'not requestable').replace('_', ' ').capitalize())
+    cast = [{'name': person.get('name') or '', 'role': person.get('character') or '',
+             'thumbnail': TMDB_IMAGES + 'w185' + person['profile_path'] if person.get('profile_path') else ''}
+            for person in (detail.get('cast') or [])[:20] if person.get('name')]
+    director = detail.get('director')
+    return {'title': detail.get('title') or '', 'requestable': bool(state.get('requestable')), 'reason': reason,
+            'seasons': seasons, 'card': request_card(detail), 'cast': cast,
+            'genres': list(detail.get('genres') or []), 'tagline': detail.get('tagline') or '',
+            'status': detail.get('status') or '', 'mpaa': detail.get('content_rating') or '',
+            'runtime': int(detail.get('runtime') or 0),
+            'studios': list(detail.get('networks') or detail.get('production_companies') or [])[:3],
+            'directors': [director] if isinstance(director, str) and director else list(director or []),
+            'season_count': int(detail.get('number_of_seasons') or 0)}

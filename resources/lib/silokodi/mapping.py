@@ -428,9 +428,10 @@ def skyline_properties(kind, details, show=None):
         props['silo.code'] = 'S%02dE%02d' % (details.get('season') or 0, details.get('episode') or 0)
         props['silo.aired'] = aired_label(details.get('firstaired'))
         if details.get('tvshowid') is not None:
-            # The episode's season in Kodi's library, for an episode page's rail.
-            props['silo.season_path'] = 'videodb://tvshows/titles/%d/%d/' % (details['tvshowid'],
-                                                                           details.get('season') or 0)
+            # The episode's show and season in Kodi's library, for an episode
+            # page's season pills and episode rail.
+            props['silo.show_path'] = 'videodb://tvshows/titles/%d/' % details['tvshowid']
+            props['silo.season_path'] = '%s%d/' % (props['silo.show_path'], details.get('season') or 0)
     props['silo.mpaa'] = details.get('mpaa') or (show or {}).get('mpaa') or ''
     genres = details.get('genre') or (show or {}).get('genre') or []
     props['silo.genre'] = genres[0] if genres else ''

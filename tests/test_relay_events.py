@@ -236,6 +236,7 @@ def test_skyline_properties_for_an_episode_and_a_show():
     props = mapping.skyline_properties('episode', episode, {'mpaa': 'TV-MA', 'genre': ['Crime', 'Drama']})
     assert props['silo.code'] == 'S02E02'
     assert props['silo.aired'] == 'Aired Sep 25, 2026'
+    assert props['silo.show_path'] == 'videodb://tvshows/titles/41/'
     assert props['silo.season_path'] == 'videodb://tvshows/titles/41/2/'
     assert props['silo.mpaa'] == 'TV-MA' and props['silo.genre'] == 'Crime'
     assert props['silo.rating'] == 'IMDb 8.4'

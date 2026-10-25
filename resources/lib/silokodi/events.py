@@ -116,3 +116,37 @@ class EventListener(threading.Thread):
             raise RuntimeError('access changed; reconnecting')
         elif kind == 'error':
             self.log('Event socket error frame: %s' % (frame.get('message') or frame.get('code')))
+
+
+class Debouncer(object):
+    """Hold back repeated work until things go quiet.
+
+    During a library scan Silo sends a library-changed event after each step,
+    and one full TV sync per event meant ten in 25 minutes. A key is released
+    once `quiet` seconds pass with no new event for it, or `limit` seconds
+    after its first event while events keep coming.
+    """
+
+    def __init__(self, quiet, limit, clock=time.time):
+        self.quiet = quiet
+        self.limit = limit
+        self.clock = clock
+        self._lock = threading.Lock()
+        self._pending = {}  # key -> (first seen, last seen)
+
+    def add(self, key):
+        now = self.clock()
+        with self._lock:
+            first = self._pending.get(key, (now, now))[0]
+            self._pending[key] = (first, now)
+
+    def due(self):
+        """Keys ready to act on, removed from the pending set."""
+        now = self.clock()
+        ready = []
+        with self._lock:
+            for key, (first, last) in list(self._pending.items()):
+                if now - last >= self.quiet or now - first >= self.limit:
+                    ready.append(key)
+                    del self._pending[key]
+        return ready

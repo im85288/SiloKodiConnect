@@ -13,7 +13,7 @@ import xbmcgui
 
 from . import kodi, kodidb, mapping, upnext
 from .api import ApiError, SignedOut, SiloClient
-from .events import EventListener
+from .events import Debouncer, EventListener
 from .playback import PlaybackError, PlaybackManager
 from .relay import DEFAULT_PORT, Relay
 from .store import Store
@@ -24,6 +24,10 @@ PROGRESS_POLL = 300          # seconds between resume-point checks while the soc
 PROGRESS_POLL_OFFLINE = 120  # ... and while it is down
 ART_RETRY = 3600             # don't ask Silo for the same missing artwork more often
 ECHO_WINDOW = 90             # Kodi's own post-playback playcount update is not a user action
+LIBRARY_QUIET = 120          # sync a library once Silo has sent no change for it this long...
+LIBRARY_LIMIT = 900          # ...or this long after the first, during a long scan
+ITEM_QUIET = 10
+ITEM_LIMIT = 60
 
 
 def kind_of(task):
@@ -129,6 +133,8 @@ class Service(object):
         self.signed_out_notice = False
         self.library_update_pending = False
         self.deferred = []
+        self.library_events = Debouncer(quiet=LIBRARY_QUIET, limit=LIBRARY_LIMIT)
+        self.item_events = Debouncer(quiet=ITEM_QUIET, limit=ITEM_LIMIT)
 
     # ----- Kodi's database -----
 
@@ -166,6 +172,8 @@ class Service(object):
                 self.next_progress = now + (PROGRESS_POLL if connected else PROGRESS_POLL_OFFLINE)
                 self.enqueue('progress')
             self.player.tick()
+            for task in self.library_events.due() + self.item_events.due():
+                self.enqueue(task)
             if self.deferred and not self.playing():
                 for task in self.deferred:
                     self.enqueue(task)
@@ -316,11 +324,14 @@ class Service(object):
     # ----- realtime events -----
 
     def on_event(self, channel, event, data):
+        # Changes are held until Silo goes quiet: a scan sends many events, and
+        # Silo publishes each library change twice (this name and the legacy
+        # "library.changed", which is ignored).
         if channel == 'catalog' and event == 'catalog.item.changed' and data.get('content_id'):
-            self.enqueue(('item', data['content_id'], data.get('library_id')))
-        elif channel == 'catalog' and event in ('catalog.library.changed', 'library.changed'):
+            self.item_events.add(('item', data['content_id'], data.get('library_id')))
+        elif channel == 'catalog' and event == 'catalog.library.changed':
             if data.get('library_id'):
-                self.enqueue(('library', str(data['library_id'])))
+                self.library_events.add(('library', str(data['library_id'])))
         elif channel == 'user_state' and event == 'user_state.changed':
             if data.get('profile_id') and data['profile_id'] != self.store.get('profile_id'):
                 return

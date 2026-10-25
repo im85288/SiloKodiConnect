@@ -198,3 +198,29 @@ def test_media_is_relayed_with_ranges_and_stats(tmp_path):
         relay_module.STATS_EVERY = old_every
         server.stop()
         upstream.shutdown()
+
+
+def test_scan_events_are_held_until_silo_goes_quiet():
+    now = [0.0]
+    debouncer = events.Debouncer(quiet=120, limit=900, clock=lambda: now[0])
+    for second in range(0, 300, 27):  # a scan: an event every 27 s for 5 minutes
+        now[0] = second
+        debouncer.add(('library', '2'))
+        debouncer.add(('library', '2'))  # Silo sends some changes twice
+        assert debouncer.due() == []
+    now[0] = 297 + 119
+    assert debouncer.due() == []
+    now[0] = 297 + 120
+    assert debouncer.due() == [('library', '2')]  # one sync for the whole scan
+    assert debouncer.due() == []
+
+
+def test_a_long_scan_still_syncs_every_limit():
+    now = [0.0]
+    debouncer = events.Debouncer(quiet=120, limit=900, clock=lambda: now[0])
+    released = []
+    for second in range(0, 2000, 30):
+        now[0] = second
+        debouncer.add('library')
+        released += [second for _ in debouncer.due()]
+    assert released == [900, 1830]  # each window starts at the first event after the last sync

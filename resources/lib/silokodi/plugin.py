@@ -59,6 +59,8 @@ def run(argv):
         # For skin development: reload the skin's XML without restarting Kodi.
         xbmcplugin.setResolvedUrl(handle, False, xbmcgui.ListItem(offscreen=True))
         return xbmc.executebuiltin('ReloadSkin()')
+    if mode == 'info':
+        return info(params.get('type'), params.get('dbid'))
     if mode == 'sections':
         return sections(base, handle)
     if mode == 'widget':
@@ -179,6 +181,19 @@ def sections(base, handle):
         xbmcplugin.addDirectoryItem(handle, '%s?%s' % (base, urlencode({'mode': 'widget', 'section': section['id']})),
                                     item, isFolder=True)
     xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
+
+
+def info(kind, dbid):
+    """Open a library title's info page, with the details a Silo-style skin
+    shows. A skin's info page can't open another one itself (its More Like
+    This rail closes the page and asks for the next one here)."""
+    if kind not in ('movie', 'tvshow', 'episode') or not str(dbid or '').isdigit():
+        return
+    item = library_item(kind, int(dbid))
+    if item:
+        url, listitem, _ = item
+        listitem.setPath(url)
+        xbmcgui.Dialog().info(listitem)
 
 
 def library_item(kind, kodi_id, shows=None):

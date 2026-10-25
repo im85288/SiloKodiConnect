@@ -426,4 +426,21 @@ def skyline_properties(kind, details, show=None):
     props['silo.cast'] = ', '.join(person['name'] for person in cast[:3] if person.get('name'))
     for index, badge in enumerate(quality_badges(details.get('streamdetails'))[:3], 1):
         props['silo.badge%d' % index] = badge
+    if kind in ('movie', 'tvshow') and genres:
+        props['silo.similar'] = similar_path(kind, genres[0], details.get('title') or '')
     return props
+
+
+SIMILAR_LIMIT = 20
+
+
+def similar_path(kind, genre, title):
+    """A Kodi library query for the detail page's More Like This rail: other
+    titles of the same kind sharing the first genre, best rated first. Built
+    here so the genre is URL-encoded (TV genres such as "Action & Adventure"
+    would break a query a skin builds)."""
+    rules = {'type': kind + 's', 'order': {'method': 'rating', 'direction': 'descending'}, 'limit': SIMILAR_LIMIT,
+             'rules': {'and': [{'field': 'genre', 'operator': 'is', 'value': [genre]},
+                               {'field': 'title', 'operator': 'isnot', 'value': [title]}]}}
+    folder = 'videodb://movies/titles/' if kind == 'movie' else 'videodb://tvshows/titles/'
+    return folder + '?xsp=' + quote(json.dumps(rules, separators=(',', ':')), safe='')

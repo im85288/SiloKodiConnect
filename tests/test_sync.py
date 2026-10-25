@@ -319,3 +319,15 @@ def test_only_added_or_removed_titles_ask_for_a_library_update(silo, syncer):
     silo.episodes_of[('series-1', 2)].append(episode('series-1', 2, 2))
     syncer.sync()
     assert syncer.added_or_removed
+
+
+def test_similar_path_encodes_the_genre_and_leaves_the_title_out():
+    import json as json_module
+    from urllib.parse import unquote
+    from resources.lib.silokodi.mapping import similar_path
+    path = similar_path('tvshow', 'Action & Adventure', 'Vigil')
+    assert path.startswith('videodb://tvshows/titles/?xsp=') and '&' not in path and ' ' not in path
+    rules = json_module.loads(unquote(path.split('=', 1)[1]))
+    assert rules['type'] == 'tvshows' and rules['rules']['and'] == [
+        {'field': 'genre', 'operator': 'is', 'value': ['Action & Adventure']},
+        {'field': 'title', 'operator': 'isnot', 'value': ['Vigil']}]

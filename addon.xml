@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="plugin.video.silokodiconnect" name="SiloKodiConnect" version="0.9.0" provider-name="im85288">
+<addon id="plugin.video.silokodiconnect" name="SiloKodiConnect" version="0.9.1" provider-name="im85288">
   <requires>
     <import addon="xbmc.python" version="3.0.1"/>
     <import addon="script.module.requests" version="2.22.0"/>
@@ -20,6 +20,8 @@
     <assets>
       <icon>icon.png</icon>
     </assets>
-    <news>0.9.0: first release. Movies and TV synced into the Kodi library, sign-in with a TV code, streaming playback with Dolby Vision (including profile 7) and TrueHD passthrough, watched state and resume points both ways, Silo home rows as widgets, and skip intro plus credits timing through Up Next.</news>
+    <news>0.9.1: sync once per Silo library scan instead of once per scan step (Silo also sent each change twice).
+
+0.9.0: first release. Movies and TV synced into the Kodi library, sign-in with a TV code, streaming playback with Dolby Vision (including profile 7) and TrueHD passthrough, watched state and resume points both ways, Silo home rows as widgets, and skip intro plus credits timing through Up Next.</news>
   </extension>
 </addon>

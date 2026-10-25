@@ -126,6 +126,10 @@ extracted from Kodi's `VideoDatabase.cpp`) and a fake Silo server.
 
 ## Changes
 
+### v0.9.1 (2026-10-25)
+- Sync once per Silo library scan, after Silo goes quiet, instead of a full sync for every scan step: one
+  scan on a real server caused ten in 25 minutes. Silo's duplicate legacy `library.changed` event is ignored.
+
 ### v0.9.0 (2026-10-24)
 First release, tested on an NVIDIA SHIELD (Kodi 21) against a library of 1,079 movies and 28,342 episodes.
 - Movies and TV synced into Kodi's library, kept current by Silo's live events; a first sync takes about

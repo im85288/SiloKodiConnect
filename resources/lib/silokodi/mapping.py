@@ -10,9 +10,10 @@ import re
 from datetime import datetime, timezone
 
 try:
-    from urllib.parse import quote, urlencode
+    from urllib.parse import parse_qsl, quote, unquote, urlencode
 except ImportError:  # pragma: no cover
-    from urllib import quote, urlencode
+    from urllib import quote, unquote, urlencode
+    from urlparse import parse_qsl
 
 ADDON_ID = 'plugin.video.silokodiconnect'
 # The service's loopback relay; Kodi's art URLs include it.
@@ -41,6 +42,18 @@ URL_FIELDS_SUFFIX = ('_url', '_urls')
 
 
 # ----- identity and paths -----
+
+def content_id_from_path(path):
+    """The Silo content id in a Kodi path SiloKodiConnect wrote: a play URL's
+    id, or a show folder's last segment; None for anything else."""
+    if not path.startswith(PLUGIN_ROOT):
+        return None
+    query = dict(parse_qsl(path.partition('?')[2]))
+    if query.get('id'):
+        return query['id']
+    segment = path.partition('?')[0].rstrip('/').rpartition('/')[2]
+    return unquote(segment) if path.startswith(SHOWS_PATH) and segment else None
+
 
 def play_url(path, content_id, kind):
     return '%s?%s' % (path, urlencode({'mode': 'play', 'id': content_id, 'type': kind}))

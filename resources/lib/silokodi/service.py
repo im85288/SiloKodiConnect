@@ -435,6 +435,13 @@ class Service(object):
             self.store.sign_out()
         elif name in ('sync', 'fullsync', 'reset'):
             self.enqueue(name)
+        elif name == 'tint':
+            # A title's ambient page tint, for an info page opened by the plugin.
+            try:
+                item = self.client.item(query.get('id') or '')
+            except (ApiError, requests.RequestException):
+                return {'tint': ''}
+            return {'tint': mapping.ambient_tint(item.get('poster_thumbhash') or '')}
         elif name == 'sections':
             try:
                 return {'sections': self.home_sections()}

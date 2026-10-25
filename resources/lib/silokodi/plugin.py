@@ -193,6 +193,9 @@ def info(kind, dbid):
     if item:
         url, listitem, _ = item
         listitem.setPath(url)
+        content_id = mapping.content_id_from_path(url)
+        if content_id:
+            listitem.setProperty('silo.tint', ask_service('command/tint', timeout=5, id=content_id).get('tint') or '')
         xbmcgui.Dialog().info(listitem)
 
 

@@ -331,3 +331,10 @@ def test_similar_path_encodes_the_genre_and_leaves_the_title_out():
     assert rules['type'] == 'tvshows' and rules['rules']['and'] == [
         {'field': 'genre', 'operator': 'is', 'value': ['Action & Adventure']},
         {'field': 'title', 'operator': 'isnot', 'value': ['Vigil']}]
+
+
+def test_content_id_comes_from_play_urls_and_show_folders():
+    from resources.lib.silokodi.mapping import SHOWS_PATH, content_id_from_path, play_url
+    assert content_id_from_path(play_url(SHOWS_PATH + 'series-1/', 'episode-1-3-3', 'episode')) == 'episode-1-3-3'
+    assert content_id_from_path(SHOWS_PATH + 'series-tvdb-384968/') == 'series-tvdb-384968'
+    assert content_id_from_path('videodb://movies/titles/') is None

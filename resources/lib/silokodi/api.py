@@ -239,6 +239,28 @@ class SiloClient(object):
     def events_ticket(self):
         return self.post('/events/ws-ticket')
 
+    # ----- requests -----
+
+    def my_requests(self):
+        """The profile's requests, newest first (one page of up to 50)."""
+        return self.get('/requests/mine', limit=50).get('items') or []
+
+    def discover_sections(self):
+        """Silo's request discovery rows (trending, popular, upcoming...)."""
+        return self.get('/requests/discover').get('items') or []
+
+    def discover_section(self, key):
+        return self.get('/requests/discover/%s' % key).get('results') or []
+
+    def request_search(self, query):
+        return self.get('/requests/search', q=query, media_type='all').get('results') or []
+
+    def request_detail(self, media_type, tmdb_id):
+        return self.get('/requests/detail/%s/%s' % (media_type, tmdb_id))
+
+    def create_request(self, body):
+        return self.post('/requests', body)
+
     # ----- playback -----
 
     def playback_capabilities(self):

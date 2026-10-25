@@ -448,6 +448,16 @@ class Service(object):
                 return {'sections': self.home_sections()}
             except (ApiError, requests.RequestException) as error:
                 return {'error': str(error)}
+        elif name == 'requests':
+            try:
+                return {'cards': self.request_cards(query.get('row') or 'mine')}
+            except (ApiError, requests.RequestException) as error:
+                return {'error': str(error)}
+        elif name == 'request':
+            try:
+                return self.make_request(query.get('type') or 'movie', query.get('tmdb') or '')
+            except (ApiError, requests.RequestException) as error:
+                return {'error': str(error)}
         elif name == 'collections':
             try:
                 return {'collections': self.library_collections(query.get('libraries') or '')}
@@ -605,9 +615,53 @@ class Service(object):
                     self.client.get('/library/%s/sections' % library['id']).get('sections') or [])
             except ApiError as error:
                 kodi.log_warning('No rows for library %s: %s' % (library.get('name'), error))
-        for key, value in skin_layout(home, libraries, library_sections).items():
+        for key, value in skin_layout(home, libraries, library_sections, self.request_rows()).items():
             xbmcgui.Window(10000).setProperty(key, value)
         kodi.set_property('layout_updated', str(int(time.time())))
+
+    def request_rows(self):
+        """The Requests page's rows, or None when the profile can't request."""
+        try:
+            sections = self.client.discover_sections()
+            mine = self.client.my_requests()
+        except (ApiError, requests.RequestException) as error:
+            kodi.log('No Requests page: %s' % error)
+            return None
+        rows = [('mine', 'Your requests')] if mine else []
+        return rows + [(section['key'], section.get('title') or section['key'])
+                       for section in sections if section.get('key') and section.get('results')]
+
+    def request_cards(self, row):
+        """A Requests row as cards (row: mine, a discovery key, or search:<words>);
+        a title already in the library carries its Kodi item, so it opens and
+        plays as usual."""
+        if row.startswith('search:'):
+            # Search: only what isn't in the library, which the skin lists itself.
+            items = [item for item in self.client.request_search(row[len('search:'):])
+                     if item.get('availability') != 'available']
+        else:
+            items = self.client.my_requests() if row == 'mine' else self.client.discover_section(row)
+        cards = []
+        for item in items:
+            if item.get('media_type') not in ('movie', 'series'):
+                continue
+            card = mapping.request_card(item)
+            library = self.db.get(card['content_id']) if card['content_id'] else None
+            if library and library.get('kodi_id') and library['kind'] in ('movie', 'tvshow'):
+                card['kind'], card['kodi_id'] = library['kind'], library['kodi_id']
+            cards.append(card)
+        return cards
+
+    def make_request(self, media_type, tmdb_id):
+        """Request a title, with every aired season of a series not yet in
+        the library (Silo's default)."""
+        detail = self.client.request_detail(media_type, tmdb_id)
+        state = detail.get('request') or {}
+        if not state.get('requestable'):
+            return {'error': mapping.REQUEST_STATES.get(state.get('state'), '') or
+                    (state.get('reason') or 'not requestable').replace('_', ' ').capitalize()}
+        answer = self.client.create_request(mapping.request_body(detail))
+        return {'state': mapping.REQUEST_STATES.get(answer.get('state'), 'Requested'), 'title': detail.get('title')}
 
     def media_allowed(self, path):
         return any(session_id in path for session_id in self.playback.session_ids())

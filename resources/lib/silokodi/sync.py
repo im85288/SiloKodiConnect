@@ -78,12 +78,13 @@ def row_entry(section, library_id=None):
             'style': 'landscape' if section.get('section_type') in WIDE_SECTIONS else 'poster'}
 
 
-def skin_layout(home_sections, libraries, library_sections):
+def skin_layout(home_sections, libraries, library_sections, request_rows=None):
     """The pages and rows a Silo-style skin shows, as Home window properties.
 
     home_sections:     Silo's home rows, in order
     libraries:         the synced movie and series libraries, in Silo's order
     library_sections:  {library id: that library's rows, in order}
+    request_rows:      [(row key, title)] for the Requests page, or None
 
     Pages are Home plus one per library type present, as in Silo's top bar;
     a type with several libraries shows their rows one library after another.
@@ -101,10 +102,15 @@ def skin_layout(home_sections, libraries, library_sections):
         # The page's libraries' collections, as Silo's Collections section.
         collections[page] = '%s?%s' % (PLUGIN, urlencode({'mode': 'collections', 'libraries': ','.join(ids)})) \
             if ids else ''
+    if request_rows:
+        # Silo's Requests: the profile's requests, then the discovery rows.
+        pages['requests'] = [{'title': title, 'style': 'poster',
+                              'path': '%s?%s' % (PLUGIN, urlencode({'mode': 'requests', 'row': key}))}
+                             for key, title in request_rows]
     properties = {'silo.pages': ','.join(pages)}
     for page, path in collections.items():
         properties['silo.%s.collections' % page] = path
-    for page in ('home', 'movies', 'series'):
+    for page in ('home', 'movies', 'series', 'requests'):
         rows = pages.get(page, [])[:MAX_ROWS]
         properties['silo.%s.count' % page] = str(len(rows))
         for index in range(1, MAX_ROWS + 1):

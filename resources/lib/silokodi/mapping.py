@@ -462,3 +462,40 @@ def similar_path(kind, genre, title):
                                {'field': 'title', 'operator': 'isnot', 'value': [title]}]}}
     folder = 'videodb://movies/titles/' if kind == 'movie' else 'videodb://tvshows/titles/'
     return folder + '?xsp=' + quote(json.dumps(rules, separators=(',', ':')), safe='')
+
+
+# ----- requests -----
+
+TMDB_IMAGES = 'https://image.tmdb.org/t/p/'
+REQUEST_STATES = {'pending': 'Requested', 'approved': 'Approved', 'processing': 'Downloading',
+                  'partially_available': 'Partly available', 'available': 'Available', 'declined': 'Declined',
+                  'cancelled': 'Cancelled', 'failed': 'Failed'}
+
+
+def request_card(item):
+    """A request, or a title Silo can request, as a card for a skin: TMDB
+    artwork, Silo's one state to show and whether it can be requested now."""
+    request = item.get('request') or {}
+    state = item.get('state') or request.get('state') or ''
+    if item.get('availability') == 'available' or (item.get('library_content_id') and not state):
+        state = state or 'available'
+    poster, backdrop = item.get('poster_path') or '', item.get('backdrop_path') or ''
+    return {'type': item.get('media_type') or 'movie', 'tmdb': item.get('tmdb_id'),
+            'title': item.get('title') or '', 'year': item.get('year') or 0, 'overview': item.get('overview') or '',
+            'poster': TMDB_IMAGES + 'w500' + poster if poster else '',
+            'backdrop': TMDB_IMAGES + 'w1280' + backdrop if backdrop else '',
+            'rating': round(float(item.get('vote_average') or 0), 1),
+            'state': state, 'label': REQUEST_STATES.get(state, ''), 'requestable': bool(request.get('requestable')),
+            'content_id': item.get('library_content_id') or ''}
+
+
+def request_body(detail):
+    """The createRequest body for a title, from its request detail."""
+    body = {'media_type': detail['media_type'], 'tmdb_id': detail['tmdb_id'], 'title': detail.get('title') or ''}
+    for key in ('imdb_id', 'overview', 'poster_path', 'backdrop_path'):
+        if detail.get(key):
+            body[key] = detail[key]
+    for key in ('year', 'tvdb_id'):
+        if detail.get(key):
+            body[key] = int(detail[key])
+    return body

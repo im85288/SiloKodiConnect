@@ -5,6 +5,7 @@ The plugin runs in a short-lived process per call. Everything that needs the
 Silo session goes through the service's loopback relay.
 """
 import json
+import time
 
 try:
     from urllib.parse import parse_qsl, urlencode
@@ -66,6 +67,11 @@ def run(argv):
     if mode == 'widget':
         return widget(handle, params.get('section') or 'continue_watching', params.get('library'),
                       params.get('collection'), params.get('title'))
+    if mode == 'requests':
+        row = 'search:' + params['search'] if params.get('search') else params.get('row') or 'mine'
+        return request_row(base, handle, row)
+    if mode == 'request':
+        return make_request(params.get('type') or 'movie', params.get('tmdb') or '', params.get('title') or '')
     if mode == 'collections':
         return collections(base, handle, params.get('libraries') or '')
     if mode in ('sync', 'fullsync', 'libraries', 'reset'):
@@ -175,6 +181,50 @@ def widget(handle, section, library=None, collection=None, title=None):
     xbmcplugin.setContent(handle, 'movies' if kinds == {'movie'} else 'episodes' if kinds == {'episode'}
                           else 'videos')
     xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
+
+
+def request_row(base, handle, row):
+    """A Requests row: titles in the library as their Kodi items, the rest
+    as cards a Silo-style skin can request from (silo.request.* properties)."""
+    answer = ask_service('command/requests', timeout=30, row=row)
+    if answer.get('error'):
+        kodi.notify(answer['error'])
+    for card in answer.get('cards') or []:
+        if card.get('kodi_id'):
+            item = library_item(card['kind'], card['kodi_id'])
+            if item:
+                item[1].setProperty('silo.request.label', card.get('label') or '')
+                xbmcplugin.addDirectoryItem(handle, item[0], item[1], isFolder=item[2])
+            continue
+        listitem = xbmcgui.ListItem(card['title'], offscreen=True)
+        listitem.setArt({'poster': card['poster'], 'thumb': card['poster'], 'fanart': card['backdrop']})
+        tag = listitem.getVideoInfoTag()
+        tag.setTitle(card['title'])
+        tag.setPlot(card['overview'])
+        if card.get('year'):
+            tag.setYear(int(card['year']))
+        if card.get('rating'):
+            tag.setRating(float(card['rating']))
+        listitem.setProperties({'silo.request.type': card['type'], 'silo.request.tmdb': str(card['tmdb']),
+                                'silo.request.label': card['label'], 'silo.request.state': card['state'],
+                                'silo.request.requestable': 'true' if card['requestable'] else 'false',
+                                'silo.rating': 'TMDB %.1f' % card['rating'] if card.get('rating') else ''})
+        url = '%s?%s' % (base, urlencode({'mode': 'request', 'type': card['type'], 'tmdb': card['tmdb'],
+                                          'title': card['title']}))
+        xbmcplugin.addDirectoryItem(handle, url, listitem, isFolder=False)
+    xbmcplugin.setContent(handle, 'videos')
+    xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
+
+
+def make_request(media_type, tmdb_id, title):
+    """Ask, then request a title from Silo; the skin's rows reload after."""
+    if not xbmcgui.Dialog().yesno('Silo', 'Request %s?' % (title or 'this title')):
+        return
+    answer = ask_service('command/request', timeout=30, type=media_type, tmdb=tmdb_id)
+    if answer.get('error'):
+        return kodi.notify(answer['error'])
+    kodi.notify('%s: %s' % (answer.get('title') or title, answer.get('state') or 'Requested'))
+    kodi.set_property('library_updated', str(int(time.time())))
 
 
 def collections(base, handle, library_ids):

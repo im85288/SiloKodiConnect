@@ -357,3 +357,34 @@ def test_skin_layout_links_each_page_to_its_collections():
     assert props['silo.movies.collections'] == \
         'plugin://plugin.video.silokodiconnect/?mode=collections&libraries=1%2C4'
     assert props['silo.series.collections'] == ''
+
+
+def test_request_cards_show_silos_state_and_tmdb_art():
+    from resources.lib.silokodi.mapping import request_card
+    result = {'media_type': 'movie', 'tmdb_id': 949, 'title': 'Heat', 'year': 1995, 'poster_path': '/p.jpg',
+              'backdrop_path': '/b.jpg', 'vote_average': 7.94, 'availability': 'missing',
+              'request': {'requestable': True}}
+    card = request_card(result)
+    assert card['poster'] == 'https://image.tmdb.org/t/p/w500/p.jpg' and card['rating'] == 7.9
+    assert card['requestable'] and card['state'] == '' and card['label'] == ''
+    mine = {'media_type': 'series', 'tmdb_id': 1, 'title': 'Vigil', 'state': 'processing'}
+    assert request_card(mine)['label'] == 'Downloading' and not request_card(mine)['requestable']
+    held = dict(result, availability='available', library_content_id='movie-1', request={})
+    assert request_card(held)['label'] == 'Available' and request_card(held)['content_id'] == 'movie-1'
+
+
+def test_request_body_carries_the_title_as_silo_needs_it():
+    from resources.lib.silokodi.mapping import request_body
+    detail = {'media_type': 'series', 'tmdb_id': 5, 'title': 'Vigil', 'year': '2021', 'tvdb_id': 9, 'imdb_id': '',
+              'poster_path': '/p.jpg', 'seasons': [{'season_number': 1}]}
+    assert request_body(detail) == {'media_type': 'series', 'tmdb_id': 5, 'title': 'Vigil', 'year': 2021,
+                                    'tvdb_id': 9, 'poster_path': '/p.jpg'}
+
+
+def test_skin_layout_adds_a_requests_page_when_the_profile_can_request():
+    from resources.lib.silokodi.sync import skin_layout
+    props = skin_layout([], [], {}, [('mine', 'Your requests'), ('trending_movies', 'Trending Movies')])
+    assert props['silo.pages'] == 'home,requests' and props['silo.requests.count'] == '2'
+    assert props['silo.requests.2.title'] == 'Trending Movies'
+    assert props['silo.requests.2.path'] == 'plugin://plugin.video.silokodiconnect/?mode=requests&row=trending_movies'
+    assert 'requests' not in skin_layout([], [], {})['silo.pages']

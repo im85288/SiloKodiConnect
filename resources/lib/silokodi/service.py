@@ -136,6 +136,7 @@ class Service(object):
         self.next_progress = 0
         self.signed_out_notice = False
         self.published_signed_in = None
+        self.home_rows = []  # the profile's Silo home rows, as last published
         self.library_update_pending = False
         self.deferred = []
         self.library_events = Debouncer(quiet=LIBRARY_QUIET, limit=LIBRARY_LIMIT)
@@ -441,8 +442,9 @@ class Service(object):
                 return {'error': str(error)}
         elif name == 'widget':
             try:
-                return {'items': self.widget_items(query.get('section') or 'continue_watching',
-                                                   query.get('library'))}
+                section = query.get('section') or 'continue_watching'
+                return {'items': self.widget_items(section, query.get('library')),
+                        'title': self.row_title(section, query.get('library'))}
             except (ApiError, requests.RequestException) as error:
                 return {'error': str(error)}
         elif name == 'list_libraries':
@@ -463,6 +465,14 @@ class Service(object):
         sections = self.client.get('/home/sections').get('sections') or []
         return [{'id': section['id'], 'title': section.get('title') or section['id'],
                  'type': section.get('section_type') or ''} for section in sections if section.get('id')]
+
+    def row_title(self, section, library_id=None):
+        """A home row's title in Silo, from the rows last published (no extra
+        request: skins load many widgets at once); '' when not known."""
+        if library_id:
+            return ''
+        return next((row.get('title') or '' for row in self.home_rows
+                     if str(row.get('id')) == str(section) or row.get('section_type') == section), '')
 
     def widget_items(self, section, library_id=None):
         """One Silo row (a home row, or a library's own) as Kodi library ids, in Silo's order."""
@@ -546,6 +556,7 @@ class Service(object):
         """Tell a Silo-style skin which pages and rows to show (Home window
         properties silo.*), following the profile's Silo home and libraries."""
         home = self.client.get('/home/sections').get('sections') or []
+        self.home_rows = home
         libraries = self.syncer.libraries(self.excluded())
         library_sections = {}
         for library in libraries:

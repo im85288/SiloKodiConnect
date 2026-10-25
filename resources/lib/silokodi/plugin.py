@@ -151,6 +151,9 @@ def widget(handle, section, library=None):
     if library:
         query['library'] = library
     answer = ask_service('command/widget', timeout=20, **query)
+    if answer.get('title'):
+        # Names the folder when the row is browsed rather than used as a widget.
+        xbmcplugin.setPluginCategory(handle, answer['title'])
     kinds = set()
     shows = {}  # an episode's show, read once per row
     for entry in answer.get('items') or []:

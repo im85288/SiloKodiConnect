@@ -52,6 +52,12 @@ def release_memory():
         pass  # not Android, or an older one
 
 
+# After Kodi starts, how long the sync and the check of the saved details
+# wait, so Home's rows load first on a small device.
+STARTUP_QUIET = 60
+DETAILS_SAVE_INTERVAL = 30
+
+
 class Player(xbmc.Player):
     def __init__(self, service):
         xbmc.Player.__init__(self)
@@ -158,6 +164,8 @@ class Service(object):
         self.published_signed_in = None
         self.home_rows = []  # the profile's Silo home rows, as last published
         self.details = DetailsCache()  # library details for rows, until they change
+        self.next_recheck = None  # when to confirm the details loaded from disk
+        self.next_save = 0
         # The skin's layout as last published, and the pages viewed so far:
         # a page's rows load only once it has been opened (Home always).
         self.layout = {}
@@ -184,6 +192,7 @@ class Service(object):
         except OSError as error:
             kodi.log_error('Cannot listen on 127.0.0.1:%d: %s' % (self.port, error))
             kodi.notify(kodi.string(30121) % self.port)
+        self.start_quickly()
         worker = threading.Thread(target=self.work, name='silokodi-worker')
         worker.daemon = True
         worker.start()
@@ -205,6 +214,12 @@ class Service(object):
                 self.enqueue('progress')
             self.player.tick()
             self.note_viewed_page()
+            if self.next_recheck and now >= self.next_recheck and not self.playing():
+                self.next_recheck = None
+                self.enqueue('recheck')
+            if now >= self.next_save and self.details.dirty:
+                self.next_save = now + DETAILS_SAVE_INTERVAL
+                self.save_details()
             for task in self.library_events.due() + self.item_events.due():
                 self.enqueue(task)
             if self.deferred and not self.playing():
@@ -214,12 +229,39 @@ class Service(object):
             if self.library_update_pending and self.tasks.empty():
                 self.library_update_pending = not kodi.refresh_library_views(refresh_list=False)
         kodi.log('Stopping SiloKodiConnect')
+        self.save_details()
         self.playback.on_stopped(self.player.last_time)
         self.stop_listener()
         self.relay.stop()
         self.tasks.put(None)
         worker.join(10)
         self.db.close()
+
+    def start_quickly(self):
+        """Give Home its rows as soon as Kodi starts: the last layout and the
+        saved library details at once, then Silo's current layout before the
+        sync, which waits a minute so it doesn't compete with Home loading on a
+        small device (the first sync ever runs at once)."""
+        loaded = self.details.load(self.details_path())
+        if loaded:
+            self.next_recheck = time.time() + STARTUP_QUIET
+        self.layout = self.db.meta('layout') or {}
+        if self.layout:
+            self.apply_layout()
+        kodi.log('Started with %d saved titles and %s saved layout' % (loaded, 'a' if self.layout else 'no'))
+        if self.store.signed_in:
+            self.enqueue('layout')
+            if self.db.meta('first_sync_done'):
+                self.next_sync = time.time() + STARTUP_QUIET
+
+    def details_path(self):
+        return os.path.join(kodi.profile_dir(), 'details.json')
+
+    def save_details(self):
+        try:
+            self.details.save(self.details_path())
+        except (IOError, OSError) as error:
+            kodi.log_warning('Could not save the library details: %s' % error)
 
     def start_listener(self):
         if self.listener is None or not self.listener.is_alive():
@@ -280,6 +322,15 @@ class Service(object):
             self.run_sync()
         elif kind == 'progress':
             self.poll_progress()
+        elif kind == 'layout':
+            self.publish_layout_safely()
+        elif kind == 'recheck':
+            started = time.time()
+            if self.details.recheck(lambda: not self.playing() and not self.monitor.abortRequested()):
+                kodi.set_property('library_updated', str(int(time.time())))
+            if self.playing():
+                self.next_recheck = time.time() + STARTUP_QUIET  # interrupted: again after playback
+            kodi.log('Checked the saved library details in %.0f s' % (time.time() - started))
         elif kind == 'item':
             self.syncer.resync_item(task[1], task[2])
         elif kind == 'library':
@@ -661,6 +712,7 @@ class Service(object):
                 kodi.log_warning('No rows for library %s: %s' % (library.get('name'), error))
         self.layout = skin_layout(home, libraries, library_sections, self.request_rows())
         self.apply_layout()
+        self.db.set_meta('layout', self.layout)
         kodi.set_property('layout_updated', str(int(time.time())))
 
     def apply_layout(self, page=None):

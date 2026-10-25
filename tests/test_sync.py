@@ -445,3 +445,30 @@ def test_an_episode_change_forgets_only_its_own_show():
     for key in (('episode', 1), ('tvshow', 9), ('tvshow', 10)):
         cache.get(*key)
     assert calls[3:] == [('episode', 1), ('tvshow', 9)]
+
+
+def test_the_details_cache_survives_a_restart_and_is_rechecked(tmp_path):
+    from resources.lib.silokodi.library import DetailsCache
+    library = {('episode', 1): {'title': 'Pilot', 'playcount': 0}, ('movie', 2): {'title': 'Heat'}}
+
+    def fetch(kind, kodi_id, shows):
+        details = library.get((kind, kodi_id))
+        return (dict(details) if details else None), None
+    path = str(tmp_path / 'details.json')
+    before = DetailsCache(fetch)
+    before.get('episode', 1)
+    before.get('movie', 2)
+    assert before.dirty
+    before.save(path)
+    assert not before.dirty
+
+    after = DetailsCache(fetch)
+    assert after.load(path) == 2
+    assert after.get('episode', 1)['details']['title'] == 'Pilot'
+    assert not after.recheck()  # nothing changed while Kodi was off
+    library[('episode', 1)]['playcount'] = 1
+    del library[('movie', 2)]
+    assert after.recheck()
+    assert after.get('episode', 1)['details']['playcount'] == 1
+    assert ('movie', 2) not in after.titles
+    assert DetailsCache(fetch).load(str(tmp_path / 'missing.json')) == 0

@@ -192,12 +192,17 @@ def library_item(kind, kodi_id):
         tag.setRating(float(details['rating']))
     if details.get('playcount'):
         tag.setPlaycount(int(details['playcount']))
+    # Skins' info lines use these for shows too.
+    if details.get('year'):
+        tag.setYear(int(details['year']))
+    if details.get('mpaa'):
+        tag.setMpaa(details['mpaa'])
+    if details.get('genre'):
+        tag.setGenres(details['genre'])
     if kind == 'tvshow':
         listitem.setProperty('TotalEpisodes', str(details.get('episode') or 0))
         listitem.setProperty('WatchedEpisodes', str(details.get('watchedepisodes') or 0))
         return 'videodb://tvshows/titles/%d/' % kodi_id, listitem, True
-    if details.get('year'):
-        tag.setYear(int(details['year']))
     if details.get('runtime'):
         tag.setDuration(int(details['runtime']))
     resume = details.get('resume') or {}

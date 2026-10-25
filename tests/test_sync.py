@@ -216,6 +216,18 @@ def test_progress_moves_within_libraries(silo, open_kodi, tmp_path):
     assert any(m.startswith('TV: 0 / 2 seasons') for _, m in seen)
 
 
+# Toy Story's poster thumbhash on a real Silo server, and the tint it gives.
+TOY_STORY_TINT = 'FF2C3B42'
+
+
+def test_ambient_tint_is_the_thumbhash_average_at_silo_luminance():
+    from resources.lib.silokodi.mapping import ambient_tint
+    tint = ambient_tint('U9cNLQhmeH+HSIhoh3Znd0hwlgVn')
+    assert tint == TOY_STORY_TINT
+    red, green, blue = (int(tint[i:i + 2], 16) / 255.0 for i in (2, 4, 6))
+    assert abs(0.2126 * red + 0.7152 * green + 0.0722 * blue - 0.22) < 0.01
+    assert ambient_tint('') == '' and ambient_tint('!!') == '' and ambient_tint(None) == ''
+
 def test_home_rows_map_to_library_items(syncer, query):
     from resources.lib.silokodi.sync import home_row_items
     syncer.sync()
@@ -223,14 +235,16 @@ def test_home_rows_map_to_library_items(syncer, query):
     show_id = query('SELECT idShow FROM tvshow')[0][0]
     next_episode = query("SELECT e.idEpisode FROM episode e JOIN files f ON f.idFile = e.idFile "
                          "WHERE f.strFilename LIKE '%series-1-s1e2%'")[0][0]
-    cards = [{'content_id': 'movie-1', 'type': 'movie'},
+    cards = [{'content_id': 'movie-1', 'type': 'movie', 'poster_thumbhash': 'U9cNLQhmeH+HSIhoh3Znd0hwlgVn'},
              {'content_id': 'series-1', 'type': 'series', 'play_content_id': 'series-1-s1e2'},
              {'content_id': 'ebook-9', 'type': 'ebook'}]
     # In "what next" rows a show card is its next episode; elsewhere it is the show.
     assert home_row_items({'section_type': 'continue_watching', 'items': cards}, 'continue_watching', syncer.db) \
-        == [{'type': 'movie', 'kodi_id': movie_id}, {'type': 'episode', 'kodi_id': next_episode}]
+        == [{'type': 'movie', 'kodi_id': movie_id, 'tint': TOY_STORY_TINT},
+            {'type': 'episode', 'kodi_id': next_episode, 'tint': ''}]
     assert home_row_items({'section_type': 'collection', 'items': cards}, 'popular-imdb', syncer.db) \
-        == [{'type': 'movie', 'kodi_id': movie_id}, {'type': 'tvshow', 'kodi_id': show_id}]
+        == [{'type': 'movie', 'kodi_id': movie_id, 'tint': TOY_STORY_TINT},
+            {'type': 'tvshow', 'kodi_id': show_id, 'tint': ''}]
 
 
 def test_last_played_comes_from_watch_history(silo, syncer, query):
@@ -305,3 +319,41 @@ def test_only_added_or_removed_titles_ask_for_a_library_update(silo, syncer):
     silo.episodes_of[('series-1', 2)].append(episode('series-1', 2, 2))
     syncer.sync()
     assert syncer.added_or_removed
+
+
+def test_similar_path_encodes_the_genre_and_leaves_the_title_out():
+    import json as json_module
+    from urllib.parse import unquote
+    from resources.lib.silokodi.mapping import similar_path
+    path = similar_path('tvshow', 'Action & Adventure', 'Vigil')
+    assert path.startswith('videodb://tvshows/titles/?xsp=') and '&' not in path and ' ' not in path
+    rules = json_module.loads(unquote(path.split('=', 1)[1]))
+    assert rules['type'] == 'tvshows' and rules['rules']['and'] == [
+        {'field': 'genre', 'operator': 'is', 'value': ['Action & Adventure']},
+        {'field': 'title', 'operator': 'isnot', 'value': ['Vigil']}]
+
+
+def test_content_id_comes_from_play_urls_and_show_folders():
+    from resources.lib.silokodi.mapping import SHOWS_PATH, content_id_from_path, play_url
+    assert content_id_from_path(play_url(SHOWS_PATH + 'series-1/', 'episode-1-3-3', 'episode')) == 'episode-1-3-3'
+    assert content_id_from_path(SHOWS_PATH + 'series-tvdb-384968/') == 'series-tvdb-384968'
+    assert content_id_from_path('videodb://movies/titles/') is None
+
+
+def test_collection_cards_follow_silos_groups_and_skip_empty_ones():
+    from resources.lib.silokodi.sync import collection_cards
+    tab = {'collections': [{'id': 'a', 'title': 'IMDb Popular', 'poster_url': 'https://x/a.jpg', 'item_count': 63}],
+           'groups': [{'name': 'Lists', 'collections': [{'id': 'b', 'title': 'Oscars', 'item_count': 98},
+                                                       {'id': 'e', 'title': 'Empty', 'item_count': 0}]}],
+           'ungrouped': {'collections': [{'id': 'a', 'title': 'IMDb Popular', 'poster_url': 'https://x/a.jpg',
+                                          'item_count': 63}]}}
+    assert collection_cards(tab) == [{'id': 'b', 'title': 'Oscars', 'poster': '', 'count': 98},
+                                     {'id': 'a', 'title': 'IMDb Popular', 'poster': 'https://x/a.jpg', 'count': 63}]
+
+
+def test_skin_layout_links_each_page_to_its_collections():
+    from resources.lib.silokodi.sync import skin_layout
+    props = skin_layout([], [{'id': 1, 'type': 'movies'}, {'id': 4, 'type': 'movies'}], {})
+    assert props['silo.movies.collections'] == \
+        'plugin://plugin.video.silokodiconnect/?mode=collections&libraries=1%2C4'
+    assert props['silo.series.collections'] == ''

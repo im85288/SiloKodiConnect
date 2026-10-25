@@ -3,15 +3,17 @@
 
 Nothing here touches Kodi or the network, so it is covered by plain tests.
 """
+import base64
 import hashlib
 import json
 import re
 from datetime import datetime, timezone
 
 try:
-    from urllib.parse import quote, urlencode
+    from urllib.parse import parse_qsl, quote, unquote, urlencode
 except ImportError:  # pragma: no cover
-    from urllib import quote, urlencode
+    from urllib import quote, unquote, urlencode
+    from urlparse import parse_qsl
 
 ADDON_ID = 'plugin.video.silokodiconnect'
 # The service's loopback relay; Kodi's art URLs include it.
@@ -40,6 +42,18 @@ URL_FIELDS_SUFFIX = ('_url', '_urls')
 
 
 # ----- identity and paths -----
+
+def content_id_from_path(path):
+    """The Silo content id in a Kodi path SiloKodiConnect wrote: a play URL's
+    id, or a show folder's last segment; None for anything else."""
+    if not path.startswith(PLUGIN_ROOT):
+        return None
+    query = dict(parse_qsl(path.partition('?')[2]))
+    if query.get('id'):
+        return query['id']
+    segment = path.partition('?')[0].rstrip('/').rpartition('/')[2]
+    return unquote(segment) if path.startswith(SHOWS_PATH) and segment else None
+
 
 def play_url(path, content_id, kind):
     return '%s?%s' % (path, urlencode({'mode': 'play', 'id': content_id, 'type': kind}))
@@ -378,6 +392,34 @@ def aired_label(date):
         return ''
 
 
+def ambient_tint(thumbhash):
+    """Silo's ambient page tint for a title as Kodi's ARGB hex ('' if none): the
+    average colour a thumbhash carries in its header, scaled to a luminance of
+    0.22 as Silo's TV apps do (dark art lifted, bright art dimmed). Silo samples
+    the backdrop; its API only has the poster's thumbhash, which shares the
+    title's palette."""
+    try:
+        raw = base64.b64decode(thumbhash.replace('-', '+').replace('_', '/') + '=' * (-len(thumbhash) % 4))
+    except (AttributeError, ValueError, TypeError):
+        return ''
+    if len(raw) < 3:
+        return ''
+    header = raw[0] | raw[1] << 8 | raw[2] << 16
+    lightness = (header & 63) / 63.0
+    p = ((header >> 6) & 63) / 31.5 - 1
+    q = ((header >> 12) & 63) / 31.5 - 1
+    blue = lightness - 2.0 / 3 * p
+    red = (3 * lightness - blue + q) / 2
+    green = red - q
+    red, green, blue = (min(1.0, max(0.0, c)) for c in (red, green, blue))
+    luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+    target = 0.22
+    if luminance <= 0.001:
+        return ''
+    scale = target / luminance if luminance > target else max(1.0, target / max(luminance, 0.05))
+    return 'FF%02X%02X%02X' % tuple(int(round(min(1.0, c * scale) * 255)) for c in (red, green, blue))
+
+
 def skyline_properties(kind, details, show=None):
     """ListItem properties (silo.*) for the Skyline hero, from Kodi's JSON-RPC
     details of a movie, show or episode; `show` is the episode's show."""
@@ -385,6 +427,11 @@ def skyline_properties(kind, details, show=None):
     if kind == 'episode':
         props['silo.code'] = 'S%02dE%02d' % (details.get('season') or 0, details.get('episode') or 0)
         props['silo.aired'] = aired_label(details.get('firstaired'))
+        if details.get('tvshowid') is not None:
+            # The episode's show and season in Kodi's library, for an episode
+            # page's season pills and episode rail.
+            props['silo.show_path'] = 'videodb://tvshows/titles/%d/' % details['tvshowid']
+            props['silo.season_path'] = '%s%d/' % (props['silo.show_path'], details.get('season') or 0)
     props['silo.mpaa'] = details.get('mpaa') or (show or {}).get('mpaa') or ''
     genres = details.get('genre') or (show or {}).get('genre') or []
     props['silo.genre'] = genres[0] if genres else ''
@@ -397,4 +444,21 @@ def skyline_properties(kind, details, show=None):
     props['silo.cast'] = ', '.join(person['name'] for person in cast[:3] if person.get('name'))
     for index, badge in enumerate(quality_badges(details.get('streamdetails'))[:3], 1):
         props['silo.badge%d' % index] = badge
+    if kind in ('movie', 'tvshow') and genres:
+        props['silo.similar'] = similar_path(kind, genres[0], details.get('title') or '')
     return props
+
+
+SIMILAR_LIMIT = 20
+
+
+def similar_path(kind, genre, title):
+    """A Kodi library query for the detail page's More Like This rail: other
+    titles of the same kind sharing the first genre, best rated first. Built
+    here so the genre is URL-encoded (TV genres such as "Action & Adventure"
+    would break a query a skin builds)."""
+    rules = {'type': kind + 's', 'order': {'method': 'rating', 'direction': 'descending'}, 'limit': SIMILAR_LIMIT,
+             'rules': {'and': [{'field': 'genre', 'operator': 'is', 'value': [genre]},
+                               {'field': 'title', 'operator': 'isnot', 'value': [title]}]}}
+    folder = 'videodb://movies/titles/' if kind == 'movie' else 'videodb://tvshows/titles/'
+    return folder + '?xsp=' + quote(json.dumps(rules, separators=(',', ':')), safe='')

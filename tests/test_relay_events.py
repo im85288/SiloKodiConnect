@@ -227,7 +227,7 @@ def test_a_long_scan_still_syncs_every_limit():
 
 
 def test_skyline_properties_for_an_episode_and_a_show():
-    episode = {'season': 2, 'episode': 2, 'firstaired': '2026-09-25',
+    episode = {'season': 2, 'episode': 2, 'firstaired': '2026-09-25', 'tvshowid': 41,
                'ratings': {'imdb': {'rating': 8.41, 'default': True}, 'themoviedb': {'rating': 7.0}},
                'cast': [{'name': 'Helen Mirren', 'order': 1}, {'name': 'Tom Hardy', 'order': 0},
                         {'name': 'Pierce Brosnan', 'order': 2}, {'name': 'Paddy Considine', 'order': 3}],
@@ -236,13 +236,16 @@ def test_skyline_properties_for_an_episode_and_a_show():
     props = mapping.skyline_properties('episode', episode, {'mpaa': 'TV-MA', 'genre': ['Crime', 'Drama']})
     assert props['silo.code'] == 'S02E02'
     assert props['silo.aired'] == 'Aired Sep 25, 2026'
+    assert props['silo.show_path'] == 'videodb://tvshows/titles/41/'
+    assert props['silo.season_path'] == 'videodb://tvshows/titles/41/2/'
     assert props['silo.mpaa'] == 'TV-MA' and props['silo.genre'] == 'Crime'
     assert props['silo.rating'] == 'IMDb 8.4'
     assert props['silo.cast'] == 'Tom Hardy, Helen Mirren, Pierce Brosnan'
     assert [props['silo.badge%d' % n] for n in (1, 2, 3)] == ['4K', 'DOLBY VISION', 'DD+ 5.1']
     show = mapping.skyline_properties('tvshow', {'mpaa': 'TV-14', 'genre': ['Horror'],
                                                  'ratings': {'themoviedb': {'rating': 8.3}}})
-    assert show == {'silo.mpaa': 'TV-14', 'silo.genre': 'Horror', 'silo.rating': 'TMDB 8.3', 'silo.cast': ''}
+    assert show == {'silo.mpaa': 'TV-14', 'silo.genre': 'Horror', 'silo.rating': 'TMDB 8.3', 'silo.cast': '',
+                    'silo.similar': mapping.similar_path('tvshow', 'Horror', '')}
 
 
 def test_quality_badges_cover_common_files():

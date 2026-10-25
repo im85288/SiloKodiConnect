@@ -34,8 +34,8 @@ _module('xbmcaddon', Addon=_Anything)
 _module('xbmcgui', Window=_Anything, Dialog=_Anything, DialogProgress=_Anything,
         DialogProgressBG=_Anything, ListItem=_Anything)
 _module('xbmcvfs', translatePath=lambda path: path, exists=lambda path: True, mkdirs=lambda path: True)
-_module('xbmcplugin', setResolvedUrl=lambda *a: None, addDirectoryItem=lambda *a, **k: None,
-        endOfDirectory=lambda *a, **k: None)
+_module('xbmcplugin', setResolvedUrl=lambda *a: None, setPluginCategory=lambda *a: None,
+        addDirectoryItem=lambda *a, **k: None, endOfDirectory=lambda *a, **k: None)
 
 SCHEMA = os.path.join(os.path.dirname(__file__), 'fixtures', 'MyVideos131.sql')
 

@@ -59,10 +59,15 @@ def run(argv):
         # For skin development: reload the skin's XML without restarting Kodi.
         xbmcplugin.setResolvedUrl(handle, False, xbmcgui.ListItem(offscreen=True))
         return xbmc.executebuiltin('ReloadSkin()')
+    if mode == 'info':
+        return info(params.get('type'), params.get('dbid'))
     if mode == 'sections':
-        return sections(base, handle)
+        return sections(base, handle, params.get('type'))
     if mode == 'widget':
-        return widget(handle, params.get('section') or 'continue_watching', params.get('library'))
+        return widget(handle, params.get('section') or 'continue_watching', params.get('library'),
+                      params.get('collection'), params.get('title'))
+    if mode == 'collections':
+        return collections(base, handle, params.get('libraries') or '')
     if mode in ('sync', 'fullsync', 'libraries', 'reset'):
         return command(mode)
     return menu(base, handle)
@@ -143,20 +148,28 @@ SHOW_FIELDS = ['title', 'plot', 'year', 'rating', 'ratings', 'genre', 'mpaa', 'a
                'studio', 'episode', 'watchedepisodes', 'cast']
 
 
-def widget(handle, section, library=None):
-    """A Silo row (a home row, Continue Watching by default, or a library's own
-    row) for a skin widget, as the matching Kodi library items so art, resume
-    and play behave as usual."""
+def widget(handle, section, library=None, collection=None, title=None):
+    """A Silo row (a home row, Continue Watching by default, a library's own
+    row, or one of its collections) for a skin widget, as the matching Kodi
+    library items so art, resume and play behave as usual."""
     query = {'section': section}
     if library:
         query['library'] = library
+    if collection:
+        query['collection'] = collection
+    if title:
+        xbmcplugin.setPluginCategory(handle, title)
     answer = ask_service('command/widget', timeout=20, **query)
+    if answer.get('title'):
+        # Names the folder when the row is browsed rather than used as a widget.
+        xbmcplugin.setPluginCategory(handle, answer['title'])
     kinds = set()
     shows = {}  # an episode's show, read once per row
     for entry in answer.get('items') or []:
         item = library_item(entry['type'], entry['kodi_id'], shows)
         if item:
             url, listitem, folder = item
+            listitem.setProperty('silo.tint', entry.get('tint') or '')
             kinds.add(entry['type'])
             xbmcplugin.addDirectoryItem(handle, url, listitem, isFolder=folder)
     xbmcplugin.setContent(handle, 'movies' if kinds == {'movie'} else 'episodes' if kinds == {'episode'}
@@ -164,17 +177,59 @@ def widget(handle, section, library=None):
     xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
 
 
-def sections(base, handle):
-    """Every row on the profile's Silo home screen, each usable as a widget."""
+def collections(base, handle, library_ids):
+    """Silo's Collections section for a page's libraries: each collection a
+    folder with its poster and count, opening its titles."""
+    answer = ask_service('command/collections', timeout=20, libraries=library_ids)
+    if answer.get('error'):
+        kodi.notify(answer['error'])
+    xbmcplugin.setPluginCategory(handle, 'Collections')
+    for card in answer.get('collections') or []:
+        item = xbmcgui.ListItem(card['title'], offscreen=True)
+        # A property, not label2: Kodi overwrites a folder's label2 with sort details.
+        item.setProperty('silo.count', str(card.get('count') or ''))
+        if card.get('poster'):
+            item.setArt({'poster': card['poster'], 'thumb': card['poster']})
+        item.getVideoInfoTag().setPlot('%d titles' % (card.get('count') or 0))
+        query = {'mode': 'widget', 'section': 'collection', 'library': card['library'], 'collection': card['id'],
+                 'title': card['title']}
+        xbmcplugin.addDirectoryItem(handle, '%s?%s' % (base, urlencode(query)), item, isFolder=True)
+    xbmcplugin.setContent(handle, 'sets')
+    xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
+
+
+def sections(base, handle, kind=None):
+    """Every row on the profile's Silo home screen, each usable as a widget;
+    with kind (such as collection), only rows of that type."""
     answer = ask_service('command/sections', timeout=20)
     if answer.get('error'):
         kodi.notify(answer['error'])
+    if kind == 'collection':
+        xbmcplugin.setPluginCategory(handle, 'Collections')
     for section in answer.get('sections') or []:
+        if kind and section.get('type') != kind:
+            continue
         item = xbmcgui.ListItem(section['title'], offscreen=True)
         item.setArt({'icon': 'DefaultVideoPlaylists.png'})
         xbmcplugin.addDirectoryItem(handle, '%s?%s' % (base, urlencode({'mode': 'widget', 'section': section['id']})),
                                     item, isFolder=True)
     xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
+
+
+def info(kind, dbid):
+    """Open a library title's info page, with the details a Silo-style skin
+    shows. A skin's info page can't open another one itself (its More Like
+    This rail closes the page and asks for the next one here)."""
+    if kind not in ('movie', 'tvshow', 'episode') or not str(dbid or '').isdigit():
+        return
+    item = library_item(kind, int(dbid))
+    if item:
+        url, listitem, _ = item
+        listitem.setPath(url)
+        content_id = mapping.content_id_from_path(url)
+        if content_id:
+            listitem.setProperty('silo.tint', ask_service('command/tint', timeout=5, id=content_id).get('tint') or '')
+        xbmcgui.Dialog().info(listitem)
 
 
 def library_item(kind, kodi_id, shows=None):

@@ -2,7 +2,9 @@
 """The background service: owns the Silo session, keeps the library synced,
 listens for Silo's realtime events and reports playback."""
 import gc
+import hashlib
 import json
+import os
 import queue
 import threading
 import time
@@ -17,7 +19,7 @@ from .events import Debouncer, EventListener
 from .playback import PlaybackError, PlaybackManager
 from .relay import DEFAULT_PORT, Relay
 from .store import Store
-from .sync import Stopped, Syncer, home_row_items, skin_layout
+from .sync import Stopped, Syncer, collection_cards, home_row_items, skin_layout
 from .syncdb import SyncDB
 
 PROGRESS_POLL = 300          # seconds between resume-point checks while the socket is up
@@ -28,6 +30,9 @@ LIBRARY_QUIET = 120          # sync a library once Silo has sent no change for i
 LIBRARY_LIMIT = 900          # ...or this long after the first, during a long scan
 ITEM_QUIET = 10
 ITEM_LIMIT = 60
+DICEBEAR = 'https://api.dicebear.com/'
+COLLECTION_LIMIT = 500      # titles listed from one collection
+AVATAR_TYPES = {'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif'}
 
 
 def kind_of(task):
@@ -132,6 +137,7 @@ class Service(object):
         self.next_progress = 0
         self.signed_out_notice = False
         self.published_signed_in = None
+        self.home_rows = []  # the profile's Silo home rows, as last published
         self.library_update_pending = False
         self.deferred = []
         self.library_events = Debouncer(quiet=LIBRARY_QUIET, limit=LIBRARY_LIMIT)
@@ -430,15 +436,33 @@ class Service(object):
             self.store.sign_out()
         elif name in ('sync', 'fullsync', 'reset'):
             self.enqueue(name)
+        elif name == 'tint':
+            # A title's ambient page tint, for an info page opened by the plugin.
+            try:
+                item = self.client.item(query.get('id') or '')
+            except (ApiError, requests.RequestException):
+                return {'tint': ''}
+            return {'tint': mapping.ambient_tint(item.get('poster_thumbhash') or '')}
         elif name == 'sections':
             try:
                 return {'sections': self.home_sections()}
             except (ApiError, requests.RequestException) as error:
                 return {'error': str(error)}
+        elif name == 'collections':
+            try:
+                return {'collections': self.library_collections(query.get('libraries') or '')}
+            except (ApiError, requests.RequestException) as error:
+                return {'error': str(error)}
+        elif name == 'widget' and query.get('collection'):
+            try:
+                return {'items': self.collection_items(query.get('library'), query['collection'])}
+            except (ApiError, requests.RequestException) as error:
+                return {'error': str(error)}
         elif name == 'widget':
             try:
-                return {'items': self.widget_items(query.get('section') or 'continue_watching',
-                                                   query.get('library'))}
+                section = query.get('section') or 'continue_watching'
+                return {'items': self.widget_items(section, query.get('library')),
+                        'title': self.row_title(section, query.get('library'))}
             except (ApiError, requests.RequestException) as error:
                 return {'error': str(error)}
         elif name == 'list_libraries':
@@ -460,11 +484,47 @@ class Service(object):
         return [{'id': section['id'], 'title': section.get('title') or section['id'],
                  'type': section.get('section_type') or ''} for section in sections if section.get('id')]
 
+    def row_title(self, section, library_id=None):
+        """A home row's title in Silo, from the rows last published (no extra
+        request: skins load many widgets at once); '' when not known."""
+        if library_id:
+            return ''
+        return next((row.get('title') or '' for row in self.home_rows
+                     if str(row.get('id')) == str(section) or row.get('section_type') == section), '')
+
+    def library_collections(self, library_ids):
+        """The Collections tabs of the given libraries (comma-separated ids), as
+        cards that each know their library."""
+        cards = []
+        for library_id in [i for i in library_ids.split(',') if i.strip()]:
+            for card in collection_cards(self.client.get('/library/%s/collections' % library_id)):
+                card['library'] = library_id
+                # Silo signs the poster link but gives it relative to the server.
+                if card['poster'].startswith('/'):
+                    card['poster'] = self.client.server_url.rstrip('/') + card['poster']
+                cards.append(card)
+        return cards
+
+    def collection_items(self, library_id, collection_id):
+        """A library collection's titles as Kodi library ids, in Silo's order."""
+        items = []
+        for item in self.client.pages('/library/%s/collections/%s/items' % (library_id, collection_id)):
+            items.append(item)
+            if len(items) >= COLLECTION_LIMIT:
+                break
+        return home_row_items({'items': items}, 'collection', self.db)
+
     def widget_items(self, section, library_id=None):
         """One Silo row (a home row, or a library's own) as Kodi library ids, in Silo's order."""
         if library_id:
             page = self.client.get('/library/%s/sections/%s/items' % (library_id, section))
         else:
+            if not str(section).isdigit():
+                # A row named by its type (the menu's Continue Watching, older
+                # widget paths): Silo's home rows are addressed by id now.
+                section = next((row['id'] for row in self.home_sections() if row['type'] == section), None)
+                if not section:
+                    return []
             page = self.client.get('/home/sections/%s/items' % section)
         return home_row_items(page, section, self.db)
 
@@ -481,11 +541,62 @@ class Service(object):
             self.publish_layout()
         except (ApiError, requests.RequestException) as error:
             kodi.log_warning('Could not read Silo\'s home layout: %s' % error)
+        try:
+            self.publish_avatar()
+        except (ApiError, requests.RequestException, IOError) as error:
+            kodi.log_warning('Could not read the profile\'s avatar: %s' % error)
+
+    def publish_avatar(self):
+        """The profile's name, initial and picture for a Silo-style skin's menu
+        bar (Home window silo.profile_name, silo.profile_initial, silo.avatar).
+        The picture is saved in the add-on's folder: Silo's link to an uploaded
+        one expires within the hour. Without one the skin draws the initial."""
+        profile_id = self.store.get('profile_id')
+        profile = next((p for p in self.client.profiles() if p.get('id') == profile_id), {})
+        name = profile.get('name') or self.store.get('profile_name') or ''
+        home = xbmcgui.Window(10000)
+        home.setProperty('silo.profile_name', name)
+        home.setProperty('silo.profile_initial', name[:1].upper())
+        url = profile.get('avatar_url') or ''
+        home.setProperty('silo.avatar', self.save_avatar(url, profile.get('avatar') or url) if url else '')
+
+    def save_avatar(self, url, ref):
+        """A local copy of the avatar at url, named after its stored ref so it is
+        fetched again only when the profile's picture changes; '' when the
+        picture isn't a format Kodi draws."""
+        folder = kodi.profile_dir()
+        stem = 'avatar-%s' % hashlib.sha1(ref.encode('utf-8')).hexdigest()[:12]
+        for name in os.listdir(folder):
+            if name.startswith(stem + '.') and not name.endswith('.part'):
+                return os.path.join(folder, name)
+        server = self.client.server_url.rstrip('/')
+        # Silo links DiceBear pictures as SVG, which Kodi can't draw; DiceBear
+        # serves the same picture as PNG (Silo's Android app asks for that too).
+        if url.startswith(DICEBEAR) and '/svg?' in url:
+            url = url.replace('/svg?', '/png?', 1).replace('size=128', 'size=256')
+        if url.startswith('/'):
+            url = server + url
+        # The sign-in token goes to the Silo server only, never to an image host.
+        headers = self.client.auth_headers(profile=False) if url.startswith(server + '/') else {}
+        response = requests.get(url, headers=headers, timeout=20)
+        response.raise_for_status()
+        extension = AVATAR_TYPES.get(response.headers.get('Content-Type', '').split(';')[0].strip().lower())
+        if not extension:
+            return ''
+        for name in os.listdir(folder):
+            if name.startswith('avatar-'):
+                os.remove(os.path.join(folder, name))
+        path = os.path.join(folder, stem + extension)
+        with open(path + '.part', 'wb') as handle:
+            handle.write(response.content)
+        os.rename(path + '.part', path)
+        return path
 
     def publish_layout(self):
         """Tell a Silo-style skin which pages and rows to show (Home window
         properties silo.*), following the profile's Silo home and libraries."""
         home = self.client.get('/home/sections').get('sections') or []
+        self.home_rows = home
         libraries = self.syncer.libraries(self.excluded())
         library_sections = {}
         for library in libraries:

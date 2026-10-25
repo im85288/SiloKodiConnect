@@ -8,7 +8,7 @@ unchanged but whose watch state moved only updates Kodi's playcount and
 resume point. Titles that left Silo are removed from Kodi.
 """
 from collections import OrderedDict
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 from concurrent.futures import ThreadPoolExecutor
 
 from . import mapping
@@ -24,9 +24,32 @@ FETCH_WORKERS = 4
 NEXT_EPISODE_SECTIONS = ('continue_watching', 'next_up', 'next_in_series')
 
 
+def collection_cards(tab):
+    """A library's Collections tab as [{'id', 'title', 'poster', 'count'}], in
+    Silo's order: grouped collections first (by group), then the ungrouped."""
+    by_id = {c.get('id'): c for c in tab.get('collections') or []}
+    ordered = []
+    for group in tab.get('groups') or []:
+        ordered += group.get('collections') or []
+    ordered += (tab.get('ungrouped') or {}).get('collections') or []
+    if not ordered:
+        ordered = tab.get('collections') or []
+    cards, seen = [], set()
+    for card in ordered:
+        if card.get('id') in seen or not card.get('item_count'):
+            continue
+        seen.add(card.get('id'))
+        full = by_id.get(card.get('id'), card)
+        cards.append({'id': card['id'], 'title': card.get('title') or full.get('title') or '',
+                      'poster': card.get('poster_url') or full.get('poster_url') or '',
+                      'count': card.get('item_count') or 0})
+    return cards
+
+
 def home_row_items(page, section, db):
-    """A Silo home row's cards as [{'type', 'kodi_id'}] in Silo's order. Titles
-    not synced to Kodi (other media types, excluded libraries) are left out."""
+    """A Silo home row's cards as [{'type', 'kodi_id', 'tint'}] in Silo's order.
+    Titles not synced to Kodi (other media types, excluded libraries) are left
+    out. tint is the card's ambient page tint for a Silo-style skin."""
     next_episode = (page.get('section_type') or section) in NEXT_EPISODE_SECTIONS
     items = []
     for card in page.get('items') or []:
@@ -35,7 +58,8 @@ def home_row_items(page, section, db):
             row = db.get(card['play_content_id'])
         row = row or db.get(card.get('content_id'))
         if row and row['kind'] in ('movie', 'episode', 'tvshow') and row.get('kodi_id'):
-            items.append({'type': row['kind'], 'kodi_id': row['kodi_id']})
+            items.append({'type': row['kind'], 'kodi_id': row['kodi_id'],
+                          'tint': mapping.ambient_tint(card.get('poster_thumbhash') or '')})
     return items
 
 
@@ -65,14 +89,21 @@ def skin_layout(home_sections, libraries, library_sections):
     a type with several libraries shows their rows one library after another.
     """
     pages = OrderedDict([('home', [row_entry(s) for s in home_sections])])
+    collections = {}
     for page, types in (('movies', MOVIE_LIBRARY_TYPES), ('series', SHOW_LIBRARY_TYPES)):
-        rows = []
+        rows, ids = [], []
         for library in libraries:
             if (library.get('type') or '').lower() in types:
+                ids.append(str(library['id']))
                 rows += [row_entry(s, str(library['id'])) for s in library_sections.get(str(library['id'])) or []]
         if rows:
             pages[page] = rows
+        # The page's libraries' collections, as Silo's Collections section.
+        collections[page] = '%s?%s' % (PLUGIN, urlencode({'mode': 'collections', 'libraries': ','.join(ids)})) \
+            if ids else ''
     properties = {'silo.pages': ','.join(pages)}
+    for page, path in collections.items():
+        properties['silo.%s.collections' % page] = path
     for page in ('home', 'movies', 'series'):
         rows = pages.get(page, [])[:MAX_ROWS]
         properties['silo.%s.count' % page] = str(len(rows))

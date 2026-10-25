@@ -55,6 +55,10 @@ def run(argv):
         return sign_in()
     if mode == 'signout':
         return sign_out()
+    if mode == 'reload_skin':
+        # For skin development: reload the skin's XML without restarting Kodi.
+        xbmcplugin.setResolvedUrl(handle, False, xbmcgui.ListItem(offscreen=True))
+        return xbmc.executebuiltin('ReloadSkin()')
     if mode == 'sections':
         return sections(base, handle)
     if mode == 'widget':

@@ -64,6 +64,15 @@ def test_a_new_picture_replaces_the_old_and_svg_is_skipped(monkeypatch, tmp_path
     first, _ = save(monkeypatch, tmp_path, '/avatars/presets/fox.png', 'preset:fox')
     second, _ = save(monkeypatch, tmp_path, '/avatars/presets/owl.png', 'preset:owl')
     assert not os.path.exists(first) and os.path.exists(second)
-    svg, _ = save(monkeypatch, tmp_path, 'https://api.dicebear.com/9.x/bottts/svg?seed=a', 'preset:dicebear:bottts:a',
-                  'image/svg+xml')
+    # Silo's bundled presets are SVG only: the skin draws the initial.
+    svg, _ = save(monkeypatch, tmp_path, '/profile-avatars/fox.svg', 'preset:fox-svg', 'image/svg+xml')
     assert svg == '' and os.path.exists(second)
+
+
+def test_dicebear_pictures_are_fetched_as_png(monkeypatch, tmp_path):
+    path, calls = save(monkeypatch, tmp_path,
+                       'https://api.dicebear.com/9.x/bottts/svg?backgroundType=gradientLinear&radius=24&seed=a&size=128',
+                       'preset:dicebear:bottts:a')
+    assert calls == [('https://api.dicebear.com/9.x/bottts/png?backgroundType=gradientLinear&radius=24&seed=a&size=256',
+                      {})]
+    assert path.endswith('.png')

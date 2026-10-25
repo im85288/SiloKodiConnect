@@ -30,6 +30,7 @@ LIBRARY_QUIET = 120          # sync a library once Silo has sent no change for i
 LIBRARY_LIMIT = 900          # ...or this long after the first, during a long scan
 ITEM_QUIET = 10
 ITEM_LIMIT = 60
+DICEBEAR = 'https://api.dicebear.com/'
 AVATAR_TYPES = {'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif'}
 
 
@@ -513,6 +514,10 @@ class Service(object):
             if name.startswith(stem + '.') and not name.endswith('.part'):
                 return os.path.join(folder, name)
         server = self.client.server_url.rstrip('/')
+        # Silo links DiceBear pictures as SVG, which Kodi can't draw; DiceBear
+        # serves the same picture as PNG (Silo's Android app asks for that too).
+        if url.startswith(DICEBEAR) and '/svg?' in url:
+            url = url.replace('/svg?', '/png?', 1).replace('size=128', 'size=256')
         if url.startswith('/'):
             url = server + url
         # The sign-in token goes to the Silo server only, never to an image host.

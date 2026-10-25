@@ -55,6 +55,7 @@ def release_memory():
 # After Kodi starts, how long the sync and the check of the saved details
 # wait, so Home's rows load first on a small device.
 STARTUP_QUIET = 60
+PAGE_LOADING = 6  # seconds a page's rows show while they start loading (then empty ones hide)
 DETAILS_SAVE_INTERVAL = 30
 
 
@@ -170,6 +171,8 @@ class Service(object):
         # a page's rows load only once it has been opened (Home always).
         self.layout = {}
         self.viewed_pages = {'home'}
+        self.refresh_token = None  # silokodi.library_updated, as last put in row paths
+        self.loading_until = {}  # page -> when its silo.<page>.loading flag ends
         self.library_update_pending = False
         self.deferred = []
         self.library_events = Debouncer(quiet=LIBRARY_QUIET, limit=LIBRARY_LIMIT)
@@ -214,6 +217,8 @@ class Service(object):
                 self.enqueue('progress')
             self.player.tick()
             self.note_viewed_page()
+            self.note_refresh()
+            self.end_loading()
             if self.next_recheck and now >= self.next_recheck and not self.playing():
                 self.next_recheck = None
                 self.enqueue('recheck')
@@ -721,11 +726,40 @@ class Service(object):
         its page has been viewed, so Kodi doesn't load the rows of pages the
         viewer hasn't opened (each row costs about a second on a SHIELD)."""
         home = xbmcgui.Window(10000)
+        self.refresh_token = kodi.get_property('library_updated')
         for key, value in self.layout.items():
             row_page = page_of(key)
             if page is not None and row_page != page:
                 continue
-            home.setProperty(key, value if row_page is None or row_page in self.viewed_pages else '')
+            if row_page is not None:
+                # A row's path is empty until its page is viewed, so Kodi
+                # waits instead of failing (a list that failed to load never
+                # retries), and carries the refresh token so rows reload when
+                # SiloKodiConnect writes the library.
+                value = '%s&refresh=%s' % (value, self.refresh_token) \
+                    if value and row_page in self.viewed_pages else ''
+            home.setProperty(key, value)
+        # A skin hides empty rows, and Kodi never loads a hidden list whose path
+        # changed: silo.<page>.loading keeps a page's rows shown while they load.
+        for viewed in ([page] if page is not None else list(self.viewed_pages)):
+            home.setProperty('silo.%s.loading' % viewed, '1')
+            self.loading_until[viewed] = time.time() + PAGE_LOADING
+
+    def end_loading(self):
+        now = time.time()
+        # A skin's own pages (custom menu items) set their flag themselves.
+        if 'custom' not in self.loading_until and xbmcgui.Window(10000).getProperty('silo.custom.loading') == '1':
+            self.loading_until['custom'] = now + PAGE_LOADING
+        for page, until in list(self.loading_until.items()):
+            if now >= until:
+                xbmcgui.Window(10000).clearProperty('silo.%s.loading' % page)
+                del self.loading_until[page]
+
+    def note_refresh(self):
+        """When silokodi.library_updated changes (the library was written, or a
+        request made), give the rows their paths with the new token."""
+        if self.layout and kodi.get_property('library_updated') != self.refresh_token:
+            self.apply_layout()
 
     def note_viewed_page(self):
         """When the skin shows a page for the first time, give its rows their paths."""
@@ -734,6 +768,7 @@ class Service(object):
             self.viewed_pages.add(page)
             if self.layout:
                 self.apply_layout(page)
+
 
     def request_rows(self):
         """The Requests page's rows, or None when the profile can't request."""

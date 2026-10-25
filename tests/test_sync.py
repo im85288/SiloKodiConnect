@@ -422,10 +422,26 @@ def test_the_details_cache_looks_up_once_until_told_of_a_change():
     cache.get('episode', 1)
     cache.get('tvshow', 9)
     assert calls == [('episode', 1), ('tvshow', 9)]
-    cache.forget('episode', 1)  # Kodi changed the episode: it and shows are read again
+    cache.forget('episode', 1)  # Kodi changed an uncached-show episode: shows are read again
     cache.get('episode', 1)
     cache.get('tvshow', 9)
     assert calls[2:] == [('episode', 1), ('tvshow', 9)]
     cache.clear()
     cache.get('episode', 1)
     assert len(calls) == 5
+
+
+def test_an_episode_change_forgets_only_its_own_show():
+    from resources.lib.silokodi.library import DetailsCache
+    calls = []
+
+    def fetch(kind, kodi_id, shows):
+        calls.append((kind, kodi_id))
+        return ({'tvshowid': 9} if kind == 'episode' else {'title': 'show'}), None
+    cache = DetailsCache(fetch)
+    for key in (('episode', 1), ('tvshow', 9), ('tvshow', 10)):
+        cache.get(*key)
+    cache.forget('episode', 1)
+    for key in (('episode', 1), ('tvshow', 9), ('tvshow', 10)):
+        cache.get(*key)
+    assert calls[3:] == [('episode', 1), ('tvshow', 9)]

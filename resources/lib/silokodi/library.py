@@ -67,10 +67,13 @@ class DetailsCache(object):
 
     def forget(self, kind, kodi_id):
         with self.lock:
-            self.titles.pop((kind, kodi_id), None)
-            # A show's watched count follows its episodes.
+            gone = self.titles.pop((kind, kodi_id), None)
+            # A show's watched count follows its episodes: forget the episode's
+            # show (any show, if the episode wasn't cached).
+            show_id = ((gone or {}).get('details') or {}).get('tvshowid') if kind == 'episode' else None
             for key in [key for key in self.titles if key[0] == 'tvshow']:
-                del self.titles[key]
+                if kind == 'episode' and (show_id is None or key[1] == show_id):
+                    del self.titles[key]
 
     def clear(self):
         with self.lock:

@@ -59,3 +59,11 @@ def test_a_title_passed_last_is_taken_as_written():
     assert plugin.raw_tail(argv, 'exclude_show') == 'Law & Order: SVU'
     assert plugin.raw_tail(['plugin://x/', '1', '?mode=widget'], 'exclude_show') == ''
     assert plugin.raw_tail(['plugin://x/', '1', '?mode=widget&exclude_show=The%20Pitt'], 'exclude_show') == 'The Pitt'
+
+
+def test_the_last_episode_still_gets_its_skip_ranges():
+    from resources.lib.silokodi import upnext
+    data = upnext.payload({'episodeid': 6}, None, [('intro', 60.0, 120.0), ('credits', 2900.0, 3000.0)])
+    assert 'next_episode' not in data and 'play_info' not in data
+    assert data['skip_segments'] == [{'kind': 'intro', 'start': 60.0, 'end': 120.0}]
+    assert data['notification_offset'] == 2900

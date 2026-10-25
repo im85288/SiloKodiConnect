@@ -382,9 +382,9 @@ class Service(object):
             episodes = (kodi.jsonrpc('VideoLibrary.GetEpisodes', tvshowid=current['tvshowid'],
                                      properties=upnext.EPISODE_PROPERTIES) or {}).get('episodes') or []
             following = upnext.next_episode(episodes, current)
-            if not following:
-                return  # the last episode: nothing to offer
             data = upnext.payload(current, following, session.markers, session.origin)
+            if not following and not data.get('skip_segments'):
+                return  # the last episode, with nothing to skip: nothing to offer
             kodi.jsonrpc('JSONRPC.NotifyAll', sender=upnext.SENDER, message='upnext_data', data=upnext.encode(data))
             kodi.log('Told Up Next about %s (credits at %s s, %d skippable ranges)'
                      % (session.content_id, data.get('notification_offset'), len(data.get('skip_segments') or [])))

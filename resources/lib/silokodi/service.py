@@ -131,6 +131,7 @@ class Service(object):
         self.next_sync = 0
         self.next_progress = 0
         self.signed_out_notice = False
+        self.published_signed_in = None
         self.library_update_pending = False
         self.deferred = []
         self.library_events = Debouncer(quiet=LIBRARY_QUIET, limit=LIBRARY_LIMIT)
@@ -159,6 +160,7 @@ class Service(object):
         while not self.monitor.waitForAbort(1):
             if self.store.changed_on_disk():
                 self.store.reload()
+            self.publish_signed_in()
             if not self.store.signed_in:
                 self.stop_listener()
                 continue
@@ -465,6 +467,14 @@ class Service(object):
         else:
             page = self.client.get('/home/sections/%s/items' % section)
         return home_row_items(page, section, self.db)
+
+    def publish_signed_in(self):
+        """silokodi.signed_in for a Silo-style skin, so it can tell "still
+        starting" (no property yet) from "signed out"."""
+        state = 'true' if self.store.signed_in else 'false'
+        if state != self.published_signed_in:
+            kodi.set_property('signed_in', state)
+            self.published_signed_in = state
 
     def publish_layout_safely(self):
         try:

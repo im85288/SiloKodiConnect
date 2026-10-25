@@ -75,7 +75,9 @@ def row_entry(section, library_id=None):
         query['library'] = library_id
     return {'title': section.get('title') or section['id'],
             'path': PLUGIN + '?' + '&'.join('%s=%s' % (k, quote(str(v), safe='')) for k, v in sorted(query.items())),
-            'style': 'landscape' if section.get('section_type') in WIDE_SECTIONS else 'poster'}
+            'style': 'landscape' if section.get('section_type') in WIDE_SECTIONS else 'poster',
+            # Silo's row type: a skin marks some rows (Continue Watching's play icon).
+            'type': section.get('section_type') or ''}
 
 
 def skin_layout(home_sections, libraries, library_sections, request_rows=None):
@@ -115,7 +117,7 @@ def skin_layout(home_sections, libraries, library_sections, request_rows=None):
         properties['silo.%s.count' % page] = str(len(rows))
         for index in range(1, MAX_ROWS + 1):
             row = rows[index - 1] if index <= len(rows) else {}
-            for key in ('title', 'path', 'style'):
+            for key in ('title', 'path', 'style', 'type'):
                 properties['silo.%s.%d.%s' % (page, index, key)] = row.get(key, '')
             # The path again under the row's style, which is the only list
             # a skin should load from (it has one list per style per slot).

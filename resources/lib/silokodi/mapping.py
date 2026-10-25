@@ -251,12 +251,25 @@ def episode_stream_details(episode):
     first = files[0]
     width, height = RESOLUTION_SIZES.get((first.get('resolution') or '').lower(), (None, None))
     details = {'video': [], 'audio': [], 'subtitle': []}
+    # Silo's card summary names the HDR format and audio codec the file
+    # summary leaves out (HDR10+, EAC3), as Silo's badges show them.
+    overlay = episode.get('overlay_summary') or {}
+    hdr = OVERLAY_HDR.get((overlay.get('hdr') or '').lower(), 'hdr10' if first.get('hdr') else '')
     if first.get('codec_video'):
         details['video'].append({'codec': first['codec_video'], 'aspect': None, 'width': width,
-                                 'height': height, 'hdr': 'hdr10' if first.get('hdr') else '', 'stereo': ''})
+                                 'height': height, 'hdr': hdr, 'stereo': ''})
     if first.get('audio_channels'):
-        details['audio'].append({'codec': '', 'channels': first['audio_channels'], 'language': ''})
+        codec = OVERLAY_AUDIO.get((overlay.get('audio') or '').lower(), '')
+        details['audio'].append({'codec': codec, 'channels': first['audio_channels'], 'language': ''})
     return details
+
+
+# Silo's overlay_summary labels to Kodi's stream detail names.
+OVERLAY_HDR = {'hdr10': 'hdr10', 'hdr10+': 'hdr10plus', 'dolby vision': 'dolbyvision', 'dv': 'dolbyvision',
+               'hlg': 'hlg'}
+OVERLAY_AUDIO = {'eac3': 'eac3', 'e-ac3': 'eac3', 'ac3': 'ac3', 'truehd': 'truehd', 'dts': 'dts',
+                 'dts-hd ma': 'dtshd_ma', 'dts-hd': 'dtshd_ma', 'aac': 'aac', 'flac': 'flac', 'opus': 'opus',
+                 'mp3': 'mp3'}
 
 
 def default_version(item):
@@ -351,7 +364,7 @@ def episode_fields(episode, added_at=None):
 # ----- what a Silo-style skin shows about the focused title -----
 
 RATING_SOURCES = {'imdb': 'IMDb', 'themoviedb': 'TMDB', 'tmdb': 'TMDB', 'trakt': 'Trakt'}
-AUDIO_CODECS = {'truehd': 'TRUEHD', 'eac3': 'DD+', 'ac3': 'AC3', 'dts': 'DTS', 'dtshd_ma': 'DTS-HD MA',
+AUDIO_CODECS = {'truehd': 'TRUEHD', 'eac3': 'EAC3', 'ac3': 'AC3', 'dts': 'DTS', 'dtshd_ma': 'DTS-HD MA',
                 'dca': 'DTS', 'aac': 'AAC', 'flac': 'FLAC', 'opus': 'OPUS', 'mp3': 'MP3'}
 CHANNEL_LAYOUTS = {8: '7.1', 7: '6.1', 6: '5.1', 2: '2.0', 1: 'MONO'}
 HDR_LABELS = {'dolbyvision': 'DOLBY VISION', 'hdr10': 'HDR10', 'hdr10plus': 'HDR10+', 'hlg': 'HLG'}

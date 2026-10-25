@@ -405,6 +405,7 @@ def test_a_rows_path_is_also_published_under_its_style():
     props = sync.skin_layout([{'id': 'cw', 'title': 'Continue', 'section_type': 'continue_watching'},
                               {'id': 'top', 'title': 'Top'}], [], {})
     assert props['silo.home.1.landscape'] == props['silo.home.1.path'] and props['silo.home.1.poster'] == ''
+    assert props['silo.home.1.type'] == 'continue_watching' and props['silo.home.2.type'] == ''
     assert props['silo.home.2.poster'] == props['silo.home.2.path'] and props['silo.home.2.landscape'] == ''
     assert sync.page_of('silo.movies.3.poster') == 'movies'
     assert sync.page_of('silo.movies.3.path') is None and sync.page_of('silo.pages') is None
@@ -472,3 +473,16 @@ def test_the_details_cache_survives_a_restart_and_is_rechecked(tmp_path):
     assert after.get('episode', 1)['details']['playcount'] == 1
     assert ('movie', 2) not in after.titles
     assert DetailsCache(fetch).load(str(tmp_path / 'missing.json')) == 0
+
+
+def test_episode_badges_take_silos_hdr_and_audio_labels():
+    details = mapping.episode_stream_details({
+        'files': [{'codec_video': 'hevc', 'hdr': True, 'audio_channels': 6, 'resolution': '2160p'}],
+        'overlay_summary': {'hdr': 'HDR10+', 'audio': 'EAC3', 'audio_channels': '5.1'}})
+    assert details['video'][0]['hdr'] == 'hdr10plus' and details['audio'][0]['codec'] == 'eac3'
+    # As Kodi's JSON-RPC hands the stored details back (hdr is read as hdrtype):
+    stored = {'video': [{'height': 2160, 'hdrtype': details['video'][0]['hdr']}], 'audio': details['audio']}
+    assert mapping.quality_badges(stored) == ['4K', 'HDR10+', 'EAC3 5.1']
+    # Without the summary, as before.
+    plain = mapping.episode_stream_details({'files': [{'codec_video': 'hevc', 'hdr': True, 'audio_channels': 6}]})
+    assert plain['video'][0]['hdr'] == 'hdr10' and plain['audio'][0]['codec'] == ''

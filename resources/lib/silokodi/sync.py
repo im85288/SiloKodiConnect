@@ -176,8 +176,9 @@ class Syncer(object):
         # Titles were added or removed (not just updated): Kodi and skins need
         # a library update then, which skin helpers answer with a full rescan.
         self.added_or_removed = False
-        # For the service's cache of library details: titles rewritten in full
-        # (rewrote), or only the (kind, kodi id) titles whose play state moved.
+        # For the service's cache of library details: whether titles were
+        # removed (rewrote: forget them all), and the (kind, kodi id) titles
+        # written or whose play state moved (forget just those).
         self.rewrote = False
         self.touched = set()
         self._base, self._span = 0.0, 100.0
@@ -327,7 +328,8 @@ class Syncer(object):
                     state=mapping.state_fingerprint(item))
         self.db.set_art(content_id, remote_art)
         self._save_person_art(item)
-        self.changed = self.rewrote = True
+        self.changed = True
+        self.touched.add(('movie', kodi_id))
 
     def _remove_movie(self, kodi, row):
         if row.get('kodi_id'):
@@ -454,7 +456,8 @@ class Syncer(object):
             if season_row['content_id'] not in wanted and not self._season_has_episodes(season_row):
                 kodi.remove_season(season_row['kodi_id'])
                 self.db.remove(season_row['content_id'])
-        self.changed = self.rewrote = True
+        self.changed = True
+        self.touched.add(('tvshow', kodi_id))
 
     def _season_has_episodes(self, season_row):
         return any(row['season_number'] == season_row['season_number']
@@ -514,7 +517,8 @@ class Syncer(object):
                         fingerprint=card['fingerprint'] if card else None,
                         state=mapping.state_fingerprint(episode))
             self.db.set_art(content_id, remote_art)
-        self.changed = self.rewrote = True
+            self.touched.add(('episode', kodi_id))
+        self.changed = True
 
     def _remove_episode(self, kodi, row):
         if row.get('kodi_id'):

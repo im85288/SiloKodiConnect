@@ -123,12 +123,24 @@ def test_watch_state_change_updates_without_refetching(syncer, silo, query):
 
 def test_a_watch_state_change_names_only_that_title_for_the_cache(syncer, silo, query):
     syncer.sync()
-    assert syncer.rewrote  # the first sync wrote every title
+    assert len(syncer.touched) == 6 and not syncer.rewrote  # the first sync wrote every title
     syncer.rewrote, syncer.touched = False, set()
     silo.movies['movie-1']['user_state'] = {'played': True}
     syncer.sync()
     heat = query("SELECT idMovie FROM movie WHERE c00 = 'Heat'")[0][0]
     assert not syncer.rewrote and syncer.touched == {('movie', heat)}
+
+
+def test_rewriting_a_title_names_it_and_removing_one_forgets_all(syncer, silo, query):
+    syncer.sync()
+    syncer.touched = set()
+    silo.movies['movie-1']['title'] = 'Heat (Director\'s Definitive Edition)'
+    syncer.sync()
+    heat = query("SELECT idMovie FROM movie WHERE c00 LIKE 'Heat%'")[0][0]
+    assert syncer.touched == {('movie', heat)} and not syncer.rewrote
+    del silo.movies['movie-1']
+    syncer.sync()
+    assert syncer.rewrote
 
 
 def test_changed_metadata_rewrites_the_same_row(syncer, silo, query):

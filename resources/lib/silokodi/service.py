@@ -19,7 +19,8 @@ from .events import Debouncer, EventListener
 from .playback import PlaybackError, PlaybackManager
 from .relay import DEFAULT_PORT, Relay
 from .store import Store
-from .sync import Stopped, Syncer, collection_cards, home_row_items, skin_layout
+from .library import DetailsCache
+from .sync import Stopped, Syncer, collection_cards, home_row_items, page_of, skin_layout
 from .syncdb import SyncDB
 
 PROGRESS_POLL = 300          # seconds between resume-point checks while the socket is up
@@ -121,7 +122,11 @@ class Monitor(xbmc.Monitor):
             return
         if method == 'VideoLibrary.OnUpdate':
             try:
-                self.service.kodi_updated(json.loads(data))
+                update = json.loads(data)
+                item = update.get('item') or {}
+                if item.get('type') and item.get('id') is not None:
+                    self.service.details.forget(item['type'], item['id'])
+                self.service.kodi_updated(update)
             except Exception as error:
                 kodi.log_warning('Could not handle a Kodi library update: %s' % error)
 
@@ -152,6 +157,11 @@ class Service(object):
         self.signed_out_notice = False
         self.published_signed_in = None
         self.home_rows = []  # the profile's Silo home rows, as last published
+        self.details = DetailsCache()  # library details for rows, until they change
+        # The skin's layout as last published, and the pages viewed so far:
+        # a page's rows load only once it has been opened (Home always).
+        self.layout = {}
+        self.viewed_pages = {'home'}
         self.library_update_pending = False
         self.deferred = []
         self.library_events = Debouncer(quiet=LIBRARY_QUIET, limit=LIBRARY_LIMIT)
@@ -194,6 +204,7 @@ class Service(object):
                 self.next_progress = now + (PROGRESS_POLL if connected else PROGRESS_POLL_OFFLINE)
                 self.enqueue('progress')
             self.player.tick()
+            self.note_viewed_page()
             for task in self.library_events.due() + self.item_events.due():
                 self.enqueue(task)
             if self.deferred and not self.playing():
@@ -243,7 +254,13 @@ class Service(object):
                 release_memory()
             if self.tasks.empty() and self.syncer.changed:
                 structural = self.syncer.added_or_removed
-                self.syncer.changed = self.syncer.added_or_removed = False
+                if self.syncer.rewrote:
+                    self.details.clear()
+                else:
+                    for kind, kodi_id in self.syncer.touched:
+                        self.details.forget(kind, kodi_id)
+                self.syncer.changed = self.syncer.added_or_removed = self.syncer.rewrote = False
+                self.syncer.touched = set()
                 updated = kodi.refresh_library_views(update_library=structural)
                 self.library_update_pending = self.library_update_pending or not updated
 
@@ -492,7 +509,7 @@ class Service(object):
         elif name == 'widget':
             try:
                 section = query.get('section') or 'continue_watching'
-                return {'items': self.widget_items(section, query.get('library')),
+                return {'items': self.with_details(self.widget_items(section, query.get('library'))),
                         'title': self.row_title(section, query.get('library'))}
             except (ApiError, requests.RequestException) as error:
                 return {'error': str(error)}
@@ -558,6 +575,12 @@ class Service(object):
                     return []
             page = self.client.get('/home/sections/%s/items' % section)
         return home_row_items(page, section, self.db)
+
+    def with_details(self, items):
+        """Row items with their cached library details, so the plugin needn't look them up."""
+        for item in items:
+            item['cached'] = self.details.get(item['type'], item['kodi_id'])
+        return items
 
     def publish_signed_in(self):
         """silokodi.signed_in for a Silo-style skin, so it can tell "still
@@ -636,9 +659,29 @@ class Service(object):
                     self.client.get('/library/%s/sections' % library['id']).get('sections') or [])
             except ApiError as error:
                 kodi.log_warning('No rows for library %s: %s' % (library.get('name'), error))
-        for key, value in skin_layout(home, libraries, library_sections, self.request_rows()).items():
-            xbmcgui.Window(10000).setProperty(key, value)
+        self.layout = skin_layout(home, libraries, library_sections, self.request_rows())
+        self.apply_layout()
         kodi.set_property('layout_updated', str(int(time.time())))
+
+    def apply_layout(self, page=None):
+        """Set the layout's Home window properties: all of them, or (page) only
+        that page's row paths. A row's path under its style is held back until
+        its page has been viewed, so Kodi doesn't load the rows of pages the
+        viewer hasn't opened (each row costs about a second on a SHIELD)."""
+        home = xbmcgui.Window(10000)
+        for key, value in self.layout.items():
+            row_page = page_of(key)
+            if page is not None and row_page != page:
+                continue
+            home.setProperty(key, value if row_page is None or row_page in self.viewed_pages else '')
+
+    def note_viewed_page(self):
+        """When the skin shows a page for the first time, give its rows their paths."""
+        page = xbmcgui.Window(10000).getProperty('silo.page') or 'home'
+        if page not in self.viewed_pages:
+            self.viewed_pages.add(page)
+            if self.layout:
+                self.apply_layout(page)
 
     def request_rows(self):
         """The Requests page's rows, or None when the profile can't request."""

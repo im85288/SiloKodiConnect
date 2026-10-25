@@ -21,6 +21,7 @@ import xbmcplugin
 # and on a 2 GB device the ~7 MB that requests costs is worth saving. Sign-in
 # code (which needs requests) is imported only when used.
 from . import kodi, mapping
+from .library import CAST_LIMIT, details_of
 from .mapping import RELAY_PORT as DEFAULT_PORT
 from .store import Store
 
@@ -149,17 +150,6 @@ def choose_libraries():
     ask_service('command/sync', timeout=10)
 
 
-MOVIE_FIELDS = ['title', 'plot', 'year', 'rating', 'ratings', 'runtime', 'genre', 'mpaa', 'art', 'resume',
-                'playcount', 'file', 'premiered', 'streamdetails', 'dateadded', 'lastplayed', 'tagline', 'studio',
-                'cast', 'director']
-EPISODE_FIELDS = ['title', 'plot', 'rating', 'ratings', 'runtime', 'art', 'resume', 'playcount', 'file',
-                  'firstaired', 'showtitle', 'season', 'episode', 'tvshowid', 'streamdetails', 'dateadded',
-                  'lastplayed', 'cast', 'director']
-CAST_LIMIT = 20
-SHOW_FIELDS = ['title', 'plot', 'year', 'rating', 'ratings', 'genre', 'mpaa', 'art', 'file', 'premiered',
-               'studio', 'episode', 'watchedepisodes', 'cast']
-
-
 def raw_tail(argv, key):
     """A parameter a skin can't URL-encode (a title, search words): taken as
     written, from key= to the end, so it must come last in the path."""
@@ -182,14 +172,16 @@ def widget(handle, section, library=None, collection=None, title=None, exclude_s
         query['collection'] = collection
     if title:
         xbmcplugin.setPluginCategory(handle, title)
+    started = time.time()
     answer = ask_service('command/widget', timeout=20, **query)
+    asked = time.time()
     if answer.get('title'):
         # Names the folder when the row is browsed rather than used as a widget.
         xbmcplugin.setPluginCategory(handle, answer['title'])
     kinds = set()
     shows = {}  # an episode's show, read once per row
     for entry in answer.get('items') or []:
-        item = library_item(entry['type'], entry['kodi_id'], shows)
+        item = library_item(entry['type'], entry['kodi_id'], shows, entry.get('cached'))
         if item:
             url, listitem, folder = item
             if exclude_show and listitem.getVideoInfoTag().getTVShowTitle() == exclude_show:
@@ -200,6 +192,10 @@ def widget(handle, section, library=None, collection=None, title=None, exclude_s
     xbmcplugin.setContent(handle, 'movies' if kinds == {'movie'} else 'episodes' if kinds == {'episode'}
                           else 'videos')
     xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
+    # How long a row takes, and where: the service (Silo) or Kodi's library.
+    kodi.log('Row %s%s: %d items, %.2f s from the service, %.2f s from Kodi\'s library (%.2f s in JSON-RPC)'
+             % (section, '/' + library if library else '', len(answer.get('items') or []), asked - started,
+                time.time() - asked, kodi.JSONRPC_SECONDS[0]))
 
 
 def request_row(base, handle, row):
@@ -346,25 +342,16 @@ def info(kind, dbid):
         xbmcgui.Dialog().info(listitem)
 
 
-def library_item(kind, kodi_id, shows=None):
-    if kind == 'movie':
-        details = (kodi.jsonrpc('VideoLibrary.GetMovieDetails', movieid=kodi_id, properties=MOVIE_FIELDS)
-                   or {}).get('moviedetails')
-    elif kind == 'episode':
-        details = (kodi.jsonrpc('VideoLibrary.GetEpisodeDetails', episodeid=kodi_id, properties=EPISODE_FIELDS)
-                   or {}).get('episodedetails')
+def library_item(kind, kodi_id, shows=None, cached=None):
+    """A Kodi library title as a ListItem for a skin. cached is the service's
+    {'details', 'show'} for it, which saves the library lookups (about 60 ms a
+    title on a SHIELD); without it they're made here."""
+    if cached and cached.get('details'):
+        details, show = cached['details'], cached.get('show')
     else:
-        details = (kodi.jsonrpc('VideoLibrary.GetTVShowDetails', tvshowid=kodi_id, properties=SHOW_FIELDS)
-                   or {}).get('tvshowdetails')
+        details, show = details_of(kind, kodi_id, shows)
     if not details:
         return None
-    show = None
-    if kind == 'episode' and details.get('tvshowid'):
-        shows = {} if shows is None else shows
-        if details['tvshowid'] not in shows:
-            shows[details['tvshowid']] = (kodi.jsonrpc('VideoLibrary.GetTVShowDetails', tvshowid=details['tvshowid'],
-                                                       properties=['mpaa', 'genre']) or {}).get('tvshowdetails')
-        show = shows[details['tvshowid']]
     listitem = xbmcgui.ListItem(details.get('title') or '', offscreen=True)
     # What the Silo Skyline skin's hero shows about the title.
     listitem.setProperties(mapping.skyline_properties(kind, details, show))

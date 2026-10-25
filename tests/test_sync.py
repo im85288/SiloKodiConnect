@@ -121,6 +121,16 @@ def test_watch_state_change_updates_without_refetching(syncer, silo, query):
         == [(1,)]
 
 
+def test_a_watch_state_change_names_only_that_title_for_the_cache(syncer, silo, query):
+    syncer.sync()
+    assert syncer.rewrote  # the first sync wrote every title
+    syncer.rewrote, syncer.touched = False, set()
+    silo.movies['movie-1']['user_state'] = {'played': True}
+    syncer.sync()
+    heat = query("SELECT idMovie FROM movie WHERE c00 = 'Heat'")[0][0]
+    assert not syncer.rewrote and syncer.touched == {('movie', heat)}
+
+
 def test_changed_metadata_rewrites_the_same_row(syncer, silo, query):
     syncer.sync()
     before = query("SELECT idMovie, idFile FROM movie WHERE c00 = 'Heat'")
@@ -388,3 +398,34 @@ def test_skin_layout_adds_a_requests_page_when_the_profile_can_request():
     assert props['silo.requests.2.title'] == 'Trending Movies'
     assert props['silo.requests.2.path'] == 'plugin://plugin.video.silokodiconnect/?mode=requests&row=trending_movies'
     assert 'requests' not in skin_layout([], [], {})['silo.pages']
+
+
+def test_a_rows_path_is_also_published_under_its_style():
+    from resources.lib.silokodi import sync
+    props = sync.skin_layout([{'id': 'cw', 'title': 'Continue', 'section_type': 'continue_watching'},
+                              {'id': 'top', 'title': 'Top'}], [], {})
+    assert props['silo.home.1.landscape'] == props['silo.home.1.path'] and props['silo.home.1.poster'] == ''
+    assert props['silo.home.2.poster'] == props['silo.home.2.path'] and props['silo.home.2.landscape'] == ''
+    assert sync.page_of('silo.movies.3.poster') == 'movies'
+    assert sync.page_of('silo.movies.3.path') is None and sync.page_of('silo.pages') is None
+
+
+def test_the_details_cache_looks_up_once_until_told_of_a_change():
+    from resources.lib.silokodi.library import DetailsCache
+    calls = []
+
+    def fetch(kind, kodi_id, shows):
+        calls.append((kind, kodi_id))
+        return {'title': '%s %d' % (kind, kodi_id)}, None
+    cache = DetailsCache(fetch)
+    assert cache.get('episode', 1)['details']['title'] == 'episode 1'
+    cache.get('episode', 1)
+    cache.get('tvshow', 9)
+    assert calls == [('episode', 1), ('tvshow', 9)]
+    cache.forget('episode', 1)  # Kodi changed the episode: it and shows are read again
+    cache.get('episode', 1)
+    cache.get('tvshow', 9)
+    assert calls[2:] == [('episode', 1), ('tvshow', 9)]
+    cache.clear()
+    cache.get('episode', 1)
+    assert len(calls) == 5

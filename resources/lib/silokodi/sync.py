@@ -117,7 +117,24 @@ def skin_layout(home_sections, libraries, library_sections, request_rows=None):
             row = rows[index - 1] if index <= len(rows) else {}
             for key in ('title', 'path', 'style'):
                 properties['silo.%s.%d.%s' % (page, index, key)] = row.get(key, '')
+            # The path again under the row's style, which is the only list
+            # a skin should load from (it has one list per style per slot).
+            for style in ROW_STYLES:
+                properties['silo.%s.%d.%s' % (page, index, style)] = \
+                    row.get('path', '') if row.get('style') == style else ''
     return properties
+
+
+ROW_STYLES = ('poster', 'landscape')
+
+
+def page_of(key):
+    """The page a row's style-keyed path belongs to ('silo.movies.3.poster'
+    -> 'movies'), or None for any other layout property."""
+    parts = key.split('.')
+    if len(parts) == 4 and parts[0] == 'silo' and parts[3] in ROW_STYLES:
+        return parts[1]
+    return None
 
 
 class Stopped(Exception):
@@ -157,6 +174,10 @@ class Syncer(object):
         # Titles were added or removed (not just updated): Kodi and skins need
         # a library update then, which skin helpers answer with a full rescan.
         self.added_or_removed = False
+        # For the service's cache of library details: titles rewritten in full
+        # (rewrote), or only the (kind, kodi id) titles whose play state moved.
+        self.rewrote = False
+        self.touched = set()
         self._base, self._span = 0.0, 100.0
 
     def step(self, fraction, message):
@@ -234,7 +255,7 @@ class Syncer(object):
         for show in shows:
             with self.open_kodi() as kodi:
                 self._remove_show(kodi, show)
-        self.changed = True
+        self.changed = self.rewrote = True
 
     # ----- movies -----
 
@@ -304,13 +325,13 @@ class Syncer(object):
                     state=mapping.state_fingerprint(item))
         self.db.set_art(content_id, remote_art)
         self._save_person_art(item)
-        self.changed = True
+        self.changed = self.rewrote = True
 
     def _remove_movie(self, kodi, row):
         if row.get('kodi_id'):
             kodi.remove_movie(row['kodi_id'], row['kodi_file_id'])
         self.db.remove(row['content_id'])
-        self.changed = self.added_or_removed = True
+        self.changed = self.added_or_removed = self.rewrote = True
 
     # ----- TV -----
 
@@ -431,7 +452,7 @@ class Syncer(object):
             if season_row['content_id'] not in wanted and not self._season_has_episodes(season_row):
                 kodi.remove_season(season_row['kodi_id'])
                 self.db.remove(season_row['content_id'])
-        self.changed = True
+        self.changed = self.rewrote = True
 
     def _season_has_episodes(self, season_row):
         return any(row['season_number'] == season_row['season_number']
@@ -491,13 +512,13 @@ class Syncer(object):
                         fingerprint=card['fingerprint'] if card else None,
                         state=mapping.state_fingerprint(episode))
             self.db.set_art(content_id, remote_art)
-        self.changed = True
+        self.changed = self.rewrote = True
 
     def _remove_episode(self, kodi, row):
         if row.get('kodi_id'):
             kodi.remove_episode(row['kodi_id'], row['kodi_file_id'])
         self.db.remove(row['content_id'])
-        self.changed = self.added_or_removed = True
+        self.changed = self.added_or_removed = self.rewrote = True
 
     def _remove_show(self, kodi, row):
         for child in self.db.children(row['content_id']):
@@ -507,7 +528,7 @@ class Syncer(object):
         if row.get('kodi_id'):
             kodi.remove_show(row['kodi_id'], row.get('kodi_path_id'))
         self.db.remove(row['content_id'])
-        self.changed = self.added_or_removed = True
+        self.changed = self.added_or_removed = self.rewrote = True
 
     # ----- single items, from realtime events -----
 
@@ -571,6 +592,7 @@ class Syncer(object):
                         kodi.set_play_state(row['kodi_file_id'], count, resume, total, last)
                     self.db.set_state(row['content_id'], mapping.state_fingerprint(source))
                     self.changed = True
+                    self.touched.add((row['kind'], row.get('kodi_id')))
 
     def refresh_state(self, content_id):
         """Re-read one title's watch state after Silo reports a change."""
@@ -629,12 +651,14 @@ class Syncer(object):
         for content_id, stamp in latest.items():
             row = self.db.get(content_id)
             if row and row['kind'] in ('movie', 'episode') and row.get('kodi_file_id'):
-                pairs.append((row['kodi_file_id'], mapping.kodi_datetime(stamp)))
+                pairs.append((row['kodi_file_id'], mapping.kodi_datetime(stamp), (row['kind'], row.get('kodi_id'))))
         updated = 0
         for batch in chunks(pairs, 200):
             with self.open_kodi() as kodi:
-                for file_id, last_played in batch:
-                    updated += kodi.set_last_played(file_id, last_played)
+                for file_id, last_played, title in batch:
+                    if kodi.set_last_played(file_id, last_played):
+                        updated += 1
+                        self.touched.add(title)
         if updated:
             self.changed = True
         self.log('Watch history: %d entries read (%d undated, sources %s), %d titles, %d last-played dates '

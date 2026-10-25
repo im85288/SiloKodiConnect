@@ -88,9 +88,14 @@ def clear_property(key):
     HOME.clearProperty('silokodi.%s' % key)
 
 
+JSONRPC_SECONDS = [0.0]  # time spent in jsonrpc, for timing logs
+
+
 def jsonrpc(method, **params):
+    started = time.time()
     request = {'jsonrpc': '2.0', 'id': 1, 'method': method, 'params': params}
     response = json.loads(xbmc.executeJSONRPC(json.dumps(request)))
+    JSONRPC_SECONDS[0] += time.time() - started
     return response.get('result')
 
 

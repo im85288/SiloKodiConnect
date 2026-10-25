@@ -64,7 +64,10 @@ def run(argv):
     if mode == 'sections':
         return sections(base, handle, params.get('type'))
     if mode == 'widget':
-        return widget(handle, params.get('section') or 'continue_watching', params.get('library'))
+        return widget(handle, params.get('section') or 'continue_watching', params.get('library'),
+                      params.get('collection'), params.get('title'))
+    if mode == 'collections':
+        return collections(base, handle, params.get('libraries') or '')
     if mode in ('sync', 'fullsync', 'libraries', 'reset'):
         return command(mode)
     return menu(base, handle)
@@ -145,13 +148,17 @@ SHOW_FIELDS = ['title', 'plot', 'year', 'rating', 'ratings', 'genre', 'mpaa', 'a
                'studio', 'episode', 'watchedepisodes', 'cast']
 
 
-def widget(handle, section, library=None):
-    """A Silo row (a home row, Continue Watching by default, or a library's own
-    row) for a skin widget, as the matching Kodi library items so art, resume
-    and play behave as usual."""
+def widget(handle, section, library=None, collection=None, title=None):
+    """A Silo row (a home row, Continue Watching by default, a library's own
+    row, or one of its collections) for a skin widget, as the matching Kodi
+    library items so art, resume and play behave as usual."""
     query = {'section': section}
     if library:
         query['library'] = library
+    if collection:
+        query['collection'] = collection
+    if title:
+        xbmcplugin.setPluginCategory(handle, title)
     answer = ask_service('command/widget', timeout=20, **query)
     if answer.get('title'):
         # Names the folder when the row is browsed rather than used as a widget.
@@ -167,6 +174,27 @@ def widget(handle, section, library=None):
             xbmcplugin.addDirectoryItem(handle, url, listitem, isFolder=folder)
     xbmcplugin.setContent(handle, 'movies' if kinds == {'movie'} else 'episodes' if kinds == {'episode'}
                           else 'videos')
+    xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
+
+
+def collections(base, handle, library_ids):
+    """Silo's Collections section for a page's libraries: each collection a
+    folder with its poster and count, opening its titles."""
+    answer = ask_service('command/collections', timeout=20, libraries=library_ids)
+    if answer.get('error'):
+        kodi.notify(answer['error'])
+    xbmcplugin.setPluginCategory(handle, 'Collections')
+    for card in answer.get('collections') or []:
+        item = xbmcgui.ListItem(card['title'], offscreen=True)
+        # A property, not label2: Kodi overwrites a folder's label2 with sort details.
+        item.setProperty('silo.count', str(card.get('count') or ''))
+        if card.get('poster'):
+            item.setArt({'poster': card['poster'], 'thumb': card['poster']})
+        item.getVideoInfoTag().setPlot('%d titles' % (card.get('count') or 0))
+        query = {'mode': 'widget', 'section': 'collection', 'library': card['library'], 'collection': card['id'],
+                 'title': card['title']}
+        xbmcplugin.addDirectoryItem(handle, '%s?%s' % (base, urlencode(query)), item, isFolder=True)
+    xbmcplugin.setContent(handle, 'sets')
     xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
 
 

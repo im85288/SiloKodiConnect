@@ -338,3 +338,22 @@ def test_content_id_comes_from_play_urls_and_show_folders():
     assert content_id_from_path(play_url(SHOWS_PATH + 'series-1/', 'episode-1-3-3', 'episode')) == 'episode-1-3-3'
     assert content_id_from_path(SHOWS_PATH + 'series-tvdb-384968/') == 'series-tvdb-384968'
     assert content_id_from_path('videodb://movies/titles/') is None
+
+
+def test_collection_cards_follow_silos_groups_and_skip_empty_ones():
+    from resources.lib.silokodi.sync import collection_cards
+    tab = {'collections': [{'id': 'a', 'title': 'IMDb Popular', 'poster_url': 'https://x/a.jpg', 'item_count': 63}],
+           'groups': [{'name': 'Lists', 'collections': [{'id': 'b', 'title': 'Oscars', 'item_count': 98},
+                                                       {'id': 'e', 'title': 'Empty', 'item_count': 0}]}],
+           'ungrouped': {'collections': [{'id': 'a', 'title': 'IMDb Popular', 'poster_url': 'https://x/a.jpg',
+                                          'item_count': 63}]}}
+    assert collection_cards(tab) == [{'id': 'b', 'title': 'Oscars', 'poster': '', 'count': 98},
+                                     {'id': 'a', 'title': 'IMDb Popular', 'poster': 'https://x/a.jpg', 'count': 63}]
+
+
+def test_skin_layout_links_each_page_to_its_collections():
+    from resources.lib.silokodi.sync import skin_layout
+    props = skin_layout([], [{'id': 1, 'type': 'movies'}, {'id': 4, 'type': 'movies'}], {})
+    assert props['silo.movies.collections'] == \
+        'plugin://plugin.video.silokodiconnect/?mode=collections&libraries=1%2C4'
+    assert props['silo.series.collections'] == ''

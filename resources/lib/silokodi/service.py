@@ -19,7 +19,7 @@ from .events import Debouncer, EventListener
 from .playback import PlaybackError, PlaybackManager
 from .relay import DEFAULT_PORT, Relay
 from .store import Store
-from .sync import Stopped, Syncer, home_row_items, skin_layout
+from .sync import Stopped, Syncer, collection_cards, home_row_items, skin_layout
 from .syncdb import SyncDB
 
 PROGRESS_POLL = 300          # seconds between resume-point checks while the socket is up
@@ -31,6 +31,7 @@ LIBRARY_LIMIT = 900          # ...or this long after the first, during a long sc
 ITEM_QUIET = 10
 ITEM_LIMIT = 60
 DICEBEAR = 'https://api.dicebear.com/'
+COLLECTION_LIMIT = 500      # titles listed from one collection
 AVATAR_TYPES = {'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif'}
 
 
@@ -447,6 +448,16 @@ class Service(object):
                 return {'sections': self.home_sections()}
             except (ApiError, requests.RequestException) as error:
                 return {'error': str(error)}
+        elif name == 'collections':
+            try:
+                return {'collections': self.library_collections(query.get('libraries') or '')}
+            except (ApiError, requests.RequestException) as error:
+                return {'error': str(error)}
+        elif name == 'widget' and query.get('collection'):
+            try:
+                return {'items': self.collection_items(query.get('library'), query['collection'])}
+            except (ApiError, requests.RequestException) as error:
+                return {'error': str(error)}
         elif name == 'widget':
             try:
                 section = query.get('section') or 'continue_watching'
@@ -480,6 +491,28 @@ class Service(object):
             return ''
         return next((row.get('title') or '' for row in self.home_rows
                      if str(row.get('id')) == str(section) or row.get('section_type') == section), '')
+
+    def library_collections(self, library_ids):
+        """The Collections tabs of the given libraries (comma-separated ids), as
+        cards that each know their library."""
+        cards = []
+        for library_id in [i for i in library_ids.split(',') if i.strip()]:
+            for card in collection_cards(self.client.get('/library/%s/collections' % library_id)):
+                card['library'] = library_id
+                # Silo signs the poster link but gives it relative to the server.
+                if card['poster'].startswith('/'):
+                    card['poster'] = self.client.server_url.rstrip('/') + card['poster']
+                cards.append(card)
+        return cards
+
+    def collection_items(self, library_id, collection_id):
+        """A library collection's titles as Kodi library ids, in Silo's order."""
+        items = []
+        for item in self.client.pages('/library/%s/collections/%s/items' % (library_id, collection_id)):
+            items.append(item)
+            if len(items) >= COLLECTION_LIMIT:
+                break
+        return home_row_items({'items': items}, 'collection', self.db)
 
     def widget_items(self, section, library_id=None):
         """One Silo row (a home row, or a library's own) as Kodi library ids, in Silo's order."""

@@ -135,6 +135,14 @@ extracted from Kodi's `VideoDatabase.cpp`) and a fake Silo server.
 
 ## Changes
 
+### v0.9.3 (2026-10-25)
+- For the [Silo Skyline](https://github.com/im85288/SiloSkyline) skin: the profile's name and avatar (DiceBear
+  pictures fetched as PNG; the sign-in token never goes to an outside image host), each title's ambient tint,
+  More Like This, an episode's show and season paths, each library's collections with Silo's posters and
+  counts, and a `mode=info` route that opens a title's info page.
+- Continue Watching from the add-on's menu works again: Silo now addresses home rows by id.
+- Browsed Silo rows are named after the row.
+
 ### v0.9.2 (2026-10-25)
 - Publishes Silo's pages and rows, and whether you are signed in, for the
   [Silo Skyline](https://github.com/im85288/SiloSkyline) skin.

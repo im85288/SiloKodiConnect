@@ -288,3 +288,20 @@ def test_skin_layout_without_movie_libraries_has_no_movies_page():
     layout = skin_layout([], [{'id': '2', 'type': 'series'}], {'2': [{'id': 'x', 'title': 'X'}]})
     assert layout['silo.pages'] == 'home,series'
     assert layout['silo.movies.count'] == '0'
+
+
+def test_only_added_or_removed_titles_ask_for_a_library_update(silo, syncer):
+    syncer.sync()
+    assert syncer.added_or_removed  # the first sync adds everything
+    syncer.added_or_removed = False
+    silo.movies['movie-1']['user_state'] = {'played': True}
+    silo.movies['movie-2']['title'] = 'Thief (1981)'
+    syncer.sync()
+    assert syncer.changed and not syncer.added_or_removed  # updates only
+    del silo.movies['movie-2']
+    syncer.sync()
+    assert syncer.added_or_removed
+    syncer.added_or_removed = False
+    silo.episodes_of[('series-1', 2)].append(episode('series-1', 2, 2))
+    syncer.sync()
+    assert syncer.added_or_removed

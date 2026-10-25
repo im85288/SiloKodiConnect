@@ -117,6 +117,9 @@ class Syncer(object):
         # (a video playing), so a sync that started first doesn't compete.
         self.wait_while_busy = wait_while_busy or (lambda: None)
         self.changed = False
+        # Titles were added or removed (not just updated): Kodi and skins need
+        # a library update then, which skin helpers answer with a full rescan.
+        self.added_or_removed = False
         self._base, self._span = 0.0, 100.0
 
     def step(self, fraction, message):
@@ -242,6 +245,7 @@ class Syncer(object):
             kodi.remove_file(row['kodi_file_id'])
         kodi_id = row.get('kodi_id') or self._existing(kodi, 'movie', 'idMovie', file_id) \
             or kodi.new_id('movie', 'idMovie')
+        self.added_or_removed |= not row.get('kodi_id')
         people = mapping.people(item, self.port)
         rating_id = kodi.set_rating(kodi_id, 'movie', mapping.rating(item))
         unique_id = kodi.set_unique_ids(kodi_id, 'movie', mapping.unique_ids(item))
@@ -269,7 +273,7 @@ class Syncer(object):
         if row.get('kodi_id'):
             kodi.remove_movie(row['kodi_id'], row['kodi_file_id'])
         self.db.remove(row['content_id'])
-        self.changed = True
+        self.changed = self.added_or_removed = True
 
     # ----- TV -----
 
@@ -356,6 +360,7 @@ class Syncer(object):
         path = mapping.show_path(series_id)
         path_id = kodi.add_path(path, date_added=fields['date_added'])
         kodi_id = row.get('kodi_id') or self._show_for_path(kodi, path_id) or kodi.new_id('tvshow', 'idShow')
+        self.added_or_removed |= not row.get('kodi_id')
         people = mapping.people(item, self.port)
         rating_id = kodi.set_rating(kodi_id, 'tvshow', mapping.rating(item))
         unique_id = kodi.set_unique_ids(kodi_id, 'tvshow', mapping.unique_ids(item))
@@ -430,6 +435,7 @@ class Syncer(object):
                 kodi.remove_file(row['kodi_file_id'])
             kodi_id = row.get('kodi_id') or self._existing(kodi, 'episode', 'idEpisode', file_id) \
                 or kodi.new_id('episode', 'idEpisode')
+            self.added_or_removed |= not row.get('kodi_id')
             people = mapping.people(episode, self.port)
             rating_id = kodi.set_rating(kodi_id, 'episode', mapping.rating(episode))
             unique_id = kodi.set_unique_ids(kodi_id, 'episode', mapping.unique_ids(episode))
@@ -454,7 +460,7 @@ class Syncer(object):
         if row.get('kodi_id'):
             kodi.remove_episode(row['kodi_id'], row['kodi_file_id'])
         self.db.remove(row['content_id'])
-        self.changed = True
+        self.changed = self.added_or_removed = True
 
     def _remove_show(self, kodi, row):
         for child in self.db.children(row['content_id']):
@@ -464,7 +470,7 @@ class Syncer(object):
         if row.get('kodi_id'):
             kodi.remove_show(row['kodi_id'], row.get('kodi_path_id'))
         self.db.remove(row['content_id'])
-        self.changed = True
+        self.changed = self.added_or_removed = True
 
     # ----- single items, from realtime events -----
 

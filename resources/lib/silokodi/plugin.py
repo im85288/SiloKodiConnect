@@ -58,7 +58,7 @@ def run(argv):
     if mode == 'sections':
         return sections(base, handle)
     if mode == 'widget':
-        return widget(handle, params.get('section') or 'continue_watching')
+        return widget(handle, params.get('section') or 'continue_watching', params.get('library'))
     if mode in ('sync', 'fullsync', 'libraries', 'reset'):
         return command(mode)
     return menu(base, handle)
@@ -136,10 +136,14 @@ SHOW_FIELDS = ['title', 'plot', 'year', 'rating', 'genre', 'mpaa', 'art', 'file'
                'episode', 'watchedepisodes']
 
 
-def widget(handle, section):
-    """Silo's own home row (Continue Watching by default) for a skin widget,
-    as the matching Kodi library items so art, resume and play behave as usual."""
-    answer = ask_service('command/widget', timeout=20, section=section)
+def widget(handle, section, library=None):
+    """A Silo row (a home row, Continue Watching by default, or a library's own
+    row) for a skin widget, as the matching Kodi library items so art, resume
+    and play behave as usual."""
+    query = {'section': section}
+    if library:
+        query['library'] = library
+    answer = ask_service('command/widget', timeout=20, **query)
     kinds = set()
     for entry in answer.get('items') or []:
         item = library_item(entry['type'], entry['kodi_id'])

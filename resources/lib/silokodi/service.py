@@ -17,7 +17,7 @@ from .events import Debouncer, EventListener
 from .playback import PlaybackError, PlaybackManager
 from .relay import DEFAULT_PORT, Relay
 from .store import Store
-from .sync import Stopped, Syncer, home_row_items
+from .sync import Stopped, Syncer, home_row_items, skin_layout
 from .syncdb import SyncDB
 
 PROGRESS_POLL = 300          # seconds between resume-point checks while the socket is up
@@ -280,6 +280,8 @@ class Service(object):
             self.progress_dialog = xbmcgui.DialogProgressBG()
             self.progress_dialog.create('SiloKodiConnect', kodi.string(30140))
         started = time.time()
+        # The skin's rows first: they only need Silo, not the sync.
+        self.publish_layout_safely()
         try:
             self.syncer.sync(self.excluded())
         finally:
@@ -287,6 +289,7 @@ class Service(object):
                 self.progress_dialog.close()
                 self.progress_dialog = None
         self.db.set_meta('history_since', self.syncer.sync_history(self.db.meta('history_since')))
+        self.publish_layout_safely()
         kodi.log('Sync finished in %.0f s' % (time.time() - started))
         if first:
             self.db.set_meta('first_sync_done', True)
@@ -430,7 +433,8 @@ class Service(object):
                 return {'error': str(error)}
         elif name == 'widget':
             try:
-                return {'items': self.widget_items(query.get('section') or 'continue_watching')}
+                return {'items': self.widget_items(query.get('section') or 'continue_watching',
+                                                   query.get('library'))}
             except (ApiError, requests.RequestException) as error:
                 return {'error': str(error)}
         elif name == 'list_libraries':
@@ -452,10 +456,35 @@ class Service(object):
         return [{'id': section['id'], 'title': section.get('title') or section['id'],
                  'type': section.get('section_type') or ''} for section in sections if section.get('id')]
 
-    def widget_items(self, section):
-        """One Silo home row as Kodi library ids, in Silo's order."""
-        page = self.client.get('/home/sections/%s/items' % section)
+    def widget_items(self, section, library_id=None):
+        """One Silo row (a home row, or a library's own) as Kodi library ids, in Silo's order."""
+        if library_id:
+            page = self.client.get('/library/%s/sections/%s/items' % (library_id, section))
+        else:
+            page = self.client.get('/home/sections/%s/items' % section)
         return home_row_items(page, section, self.db)
+
+    def publish_layout_safely(self):
+        try:
+            self.publish_layout()
+        except (ApiError, requests.RequestException) as error:
+            kodi.log_warning('Could not read Silo\'s home layout: %s' % error)
+
+    def publish_layout(self):
+        """Tell a Silo-style skin which pages and rows to show (Home window
+        properties silo.*), following the profile's Silo home and libraries."""
+        home = self.client.get('/home/sections').get('sections') or []
+        libraries = self.syncer.libraries(self.excluded())
+        library_sections = {}
+        for library in libraries:
+            try:
+                library_sections[str(library['id'])] = (
+                    self.client.get('/library/%s/sections' % library['id']).get('sections') or [])
+            except ApiError as error:
+                kodi.log_warning('No rows for library %s: %s' % (library.get('name'), error))
+        for key, value in skin_layout(home, libraries, library_sections).items():
+            xbmcgui.Window(10000).setProperty(key, value)
+        kodi.set_property('layout_updated', str(int(time.time())))
 
     def media_allowed(self, path):
         return any(session_id in path for session_id in self.playback.session_ids())

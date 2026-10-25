@@ -62,7 +62,7 @@ def run(argv):
     if mode == 'info':
         return info(params.get('type'), params.get('dbid'))
     if mode == 'sections':
-        return sections(base, handle)
+        return sections(base, handle, params.get('type'))
     if mode == 'widget':
         return widget(handle, params.get('section') or 'continue_watching', params.get('library'))
     if mode in ('sync', 'fullsync', 'libraries', 'reset'):
@@ -170,12 +170,17 @@ def widget(handle, section, library=None):
     xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
 
 
-def sections(base, handle):
-    """Every row on the profile's Silo home screen, each usable as a widget."""
+def sections(base, handle, kind=None):
+    """Every row on the profile's Silo home screen, each usable as a widget;
+    with kind (such as collection), only rows of that type."""
     answer = ask_service('command/sections', timeout=20)
     if answer.get('error'):
         kodi.notify(answer['error'])
+    if kind == 'collection':
+        xbmcplugin.setPluginCategory(handle, 'Collections')
     for section in answer.get('sections') or []:
+        if kind and section.get('type') != kind:
+            continue
         item = xbmcgui.ListItem(section['title'], offscreen=True)
         item.setArt({'icon': 'DefaultVideoPlaylists.png'})
         xbmcplugin.addDirectoryItem(handle, '%s?%s' % (base, urlencode({'mode': 'widget', 'section': section['id']})),

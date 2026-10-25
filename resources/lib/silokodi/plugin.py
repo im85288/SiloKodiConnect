@@ -61,6 +61,10 @@ def run(argv):
         # For skin development: reload the skin's XML without restarting Kodi.
         xbmcplugin.setResolvedUrl(handle, False, xbmcgui.ListItem(offscreen=True))
         return xbmc.executebuiltin('ReloadSkin()')
+    if mode == 'previous':
+        return play_previous(params.get('dbid'))
+    if mode == 'more':
+        return more_actions(params.get('type'), params.get('dbid'))
     if mode == 'info':
         return info(params.get('type'), params.get('dbid'))
     if mode == 'sections':
@@ -324,6 +328,54 @@ def sections(base, handle, kind=None):
         xbmcplugin.addDirectoryItem(handle, '%s?%s' % (base, urlencode({'mode': 'widget', 'section': section['id']})),
                                     item, isFolder=True)
     xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
+
+
+def play_previous(dbid):
+    """Play the episode before this one (an info page's previous button)."""
+    if not str(dbid or '').isdigit():
+        return
+    current = (kodi.jsonrpc('VideoLibrary.GetEpisodeDetails', episodeid=int(dbid),
+                            properties=['tvshowid', 'season', 'episode']) or {}).get('episodedetails') or {}
+    episodes = (kodi.jsonrpc('VideoLibrary.GetEpisodes', tvshowid=current.get('tvshowid'),
+                             properties=['season', 'episode']) or {}).get('episodes') or []
+    key = (current.get('season'), current.get('episode'))
+    earlier = [e for e in episodes if (e['season'], e['episode']) < key and (e['season'] or not key[0])]
+    if not earlier:
+        return kodi.notify('This is the first episode')
+    previous = max(earlier, key=lambda e: (e['season'], e['episode']))
+    xbmc.executebuiltin('Dialog.Close(movieinformation)')
+    kodi.jsonrpc('Player.Open', item={'episodeid': previous['episodeid']}, options={'resume': False})
+
+
+def more_actions(kind, dbid):
+    """An info page's More button: Silo's actions Kodi can do for a title."""
+    if kind not in ('movie', 'episode', 'tvshow') or not str(dbid or '').isdigit():
+        return
+    dbid = int(dbid)
+    method, key, result = {'movie': ('Movie', 'movieid', 'moviedetails'),
+                           'episode': ('Episode', 'episodeid', 'episodedetails'),
+                           'tvshow': ('TVShow', 'tvshowid', 'tvshowdetails')}[kind]
+    fields = ['playcount'] + (['resume'] if kind != 'tvshow' else ['watchedepisodes', 'episode'])
+    details = (kodi.jsonrpc('VideoLibrary.Get%sDetails' % method, properties=fields, **{key: dbid}) or {}).get(result) or {}
+    watched = (details.get('watchedepisodes') == details.get('episode')) if kind == 'tvshow' else bool(details.get('playcount'))
+    choices = [('unwatched' if watched else 'watched', 'Mark as unwatched' if watched else 'Mark as watched')]
+    if (details.get('resume') or {}).get('position'):
+        choices.append(('start', 'Play from the beginning'))
+    picked = xbmcgui.Dialog().select('More', [label for _, label in choices])
+    if picked < 0:
+        return
+    action = choices[picked][0]
+    if action == 'start':
+        xbmc.executebuiltin('Dialog.Close(movieinformation)')
+        return kodi.jsonrpc('Player.Open', item={key: dbid}, options={'resume': False})
+    count = 0 if action == 'unwatched' else 1
+    if kind == 'tvshow':
+        for episode in (kodi.jsonrpc('VideoLibrary.GetEpisodes', tvshowid=dbid) or {}).get('episodes') or []:
+            kodi.jsonrpc('VideoLibrary.SetEpisodeDetails', episodeid=episode['episodeid'], playcount=count)
+    else:
+        kodi.jsonrpc('VideoLibrary.Set%sDetails' % method, playcount=count,
+                     resume={'position': 0, 'total': 0}, **{key: dbid})
+    kodi.notify('Marked as %s' % action)
 
 
 def info(kind, dbid):

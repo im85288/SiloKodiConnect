@@ -159,6 +159,21 @@ def person_art(item):
             for p in item.get('cast') or [] if p.get('person_id') and p.get('photo_url')}
 
 
+def ratings(item):
+    """Every rating Silo has for a title, as [(rating_type, value out of 10,
+    votes)], the default (IMDb if there is one) first."""
+    votes = {s.get('source'): s.get('votes') for s in item.get('rating_sources') or []}
+    found = []
+    if item.get('rating_imdb'):
+        found.append(('imdb', float(item['rating_imdb']), votes.get('imdb') or 0))
+    if item.get('rating_tmdb'):
+        found.append(('themoviedb', float(item['rating_tmdb']), votes.get('tmdb') or 0))
+    if not found:
+        best = rating(item)
+        found = [best] if best else []
+    return found
+
+
 def rating(item):
     """(rating_type, value out of 10, votes) or None."""
     votes = {s.get('source'): s.get('votes') for s in item.get('rating_sources') or []}
@@ -371,6 +386,43 @@ HDR_LABELS = {'dolbyvision': 'DOLBY VISION', 'hdr10': 'HDR10', 'hdr10plus': 'HDR
 MONTHS = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
 
 
+LANGUAGE_NAMES = {'eng': 'English', 'en': 'English', 'fre': 'French', 'fra': 'French', 'fr': 'French',
+                  'ger': 'German', 'deu': 'German', 'de': 'German', 'spa': 'Spanish', 'es': 'Spanish',
+                  'ita': 'Italian', 'it': 'Italian', 'jpn': 'Japanese', 'ja': 'Japanese', 'kor': 'Korean',
+                  'dut': 'Dutch', 'nld': 'Dutch', 'por': 'Portuguese', 'swe': 'Swedish', 'nor': 'Norwegian',
+                  'dan': 'Danish', 'fin': 'Finnish', 'pol': 'Polish', 'rus': 'Russian', 'chi': 'Chinese',
+                  'zho': 'Chinese', 'hin': 'Hindi', 'ara': 'Arabic', 'tur': 'Turkish'}
+
+
+def language_name(code):
+    return LANGUAGE_NAMES.get((code or '').lower(), (code or '').upper())
+
+
+def tech_lines(streamdetails):
+    """Silo's Version / Audio / Subtitles line for an info page:
+    silo.version (4K · HDR), silo.audio (English · EAC3 · 5.1) and
+    silo.subtitles (English, French, or None)."""
+    details = streamdetails or {}
+    video = (details.get('video') or [{}])[0]
+    audio = (details.get('audio') or [{}])[0]
+    badges = quality_badges(streamdetails)
+    version = [badges[0]] if badges and badges[0] in ('4K', '1080P', '720P', 'SD') else []
+    if video.get('hdrtype'):
+        version.append('HDR')
+    codec = (audio.get('codec') or '').lower()
+    audio_parts = [part for part in (language_name(audio.get('language')),
+                                     AUDIO_CODECS.get(codec, codec.upper()),
+                                     CHANNEL_LAYOUTS.get(audio.get('channels') or 0, '')) if part]
+    subtitles = []
+    for track in details.get('subtitle') or []:
+        name = language_name(track.get('language'))
+        if name and name not in subtitles:
+            subtitles.append(name)
+    return {'silo.version': ' · '.join(version), 'silo.audio': ' · '.join(audio_parts),
+            'silo.subtitles': ', '.join(subtitles[:3]) + (' +%d' % (len(subtitles) - 3) if len(subtitles) > 3 else '')
+            if subtitles else 'None'}
+
+
 def quality_badges(streamdetails):
     """Silo's quality badges for a file: resolution, dynamic range, audio."""
     badges = []
@@ -440,6 +492,7 @@ def skyline_properties(kind, details, show=None):
     if kind == 'episode':
         props['silo.code'] = 'S%02dE%02d' % (details.get('season') or 0, details.get('episode') or 0)
         props['silo.aired'] = aired_label(details.get('firstaired'))
+        props['silo.air_date'] = props['silo.aired'][len('Aired '):]
         if details.get('tvshowid') is not None:
             # The episode's show and season in Kodi's library, for an episode
             # page's season pills and episode rail.
@@ -457,6 +510,13 @@ def skyline_properties(kind, details, show=None):
     props['silo.cast'] = ', '.join(person['name'] for person in cast[:3] if person.get('name'))
     for index, badge in enumerate(quality_badges(details.get('streamdetails'))[:3], 1):
         props['silo.badge%d' % index] = badge
+    # The info page's ratings (an episode shows its series', as Silo does)
+    # and its Version / Audio / Subtitles line.
+    for source, key in (('imdb', 'imdb'), ('themoviedb', 'tmdb')):
+        value = ((details.get('ratings') or {}).get(source) or ((show or {}).get('ratings') or {}).get(source)
+                 or {}).get('rating')
+        props['silo.rating.%s' % key] = '%.1f' % value if value else ''
+    props.update(tech_lines(details.get('streamdetails')))
     if kind in ('movie', 'tvshow') and genres:
         props['silo.similar'] = similar_path(kind, genres[0], details.get('title') or '')
     return props

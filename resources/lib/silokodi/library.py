@@ -21,7 +21,7 @@ SHOW_FIELDS = ['title', 'plot', 'year', 'rating', 'ratings', 'genre', 'mpaa', 'a
 
 def details_of(kind, kodi_id, shows=None):
     """(details, show) for a movie, episode or show in Kodi's library; show is
-    an episode's show (mpaa, genre), read once per `shows` dict."""
+    an episode's show (mpaa, genre, ratings), read once per `shows` dict."""
     if kind == 'movie':
         details = (kodi.jsonrpc('VideoLibrary.GetMovieDetails', movieid=kodi_id, properties=MOVIE_FIELDS)
                    or {}).get('moviedetails')
@@ -40,7 +40,7 @@ def details_of(kind, kodi_id, shows=None):
         shows = {} if shows is None else shows
         if details['tvshowid'] not in shows:
             shows[details['tvshowid']] = (kodi.jsonrpc('VideoLibrary.GetTVShowDetails', tvshowid=details['tvshowid'],
-                                                       properties=['mpaa', 'genre']) or {}).get('tvshowdetails')
+                                                       properties=['mpaa', 'genre', 'ratings']) or {}).get('tvshowdetails')
         show = shows[details['tvshowid']]
     return details, show
 
@@ -49,7 +49,7 @@ class DetailsCache(object):
     """details_of, remembered until Kodi reports the title changed (forget)
     or SiloKodiConnect writes the library (clear)."""
 
-    VERSION = 1
+    VERSION = 2  # 2: shows carry ratings
 
     def __init__(self, fetch=details_of):
         self.fetch = fetch

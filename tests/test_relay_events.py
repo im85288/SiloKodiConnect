@@ -245,7 +245,9 @@ def test_skyline_properties_for_an_episode_and_a_show():
     show = mapping.skyline_properties('tvshow', {'mpaa': 'TV-14', 'genre': ['Horror'],
                                                  'ratings': {'themoviedb': {'rating': 8.3}}})
     assert show == {'silo.mpaa': 'TV-14', 'silo.genre': 'Horror', 'silo.rating': 'TMDB 8.3', 'silo.cast': '',
-                    'silo.similar': mapping.similar_path('tvshow', 'Horror', '')}
+                    'silo.similar': mapping.similar_path('tvshow', 'Horror', ''),
+                    'silo.rating.imdb': '', 'silo.rating.tmdb': '8.3',
+                    'silo.version': '', 'silo.audio': '', 'silo.subtitles': 'None'}
 
 
 def test_quality_badges_cover_common_files():

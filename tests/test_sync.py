@@ -498,3 +498,16 @@ def test_episode_badges_take_silos_hdr_and_audio_labels():
     # Without the summary, as before.
     plain = mapping.episode_stream_details({'files': [{'codec_video': 'hevc', 'hdr': True, 'audio_channels': 6}]})
     assert plain['video'][0]['hdr'] == 'hdr10' and plain['audio'][0]['codec'] == ''
+
+
+def test_tech_lines_and_both_ratings():
+    lines = mapping.tech_lines({'video': [{'height': 2160, 'hdrtype': 'hdr10plus'}],
+                                'audio': [{'codec': 'eac3', 'channels': 6, 'language': 'eng'}],
+                                'subtitle': [{'language': 'eng'}, {'language': 'fre'}, {'language': 'eng'}]})
+    assert lines == {'silo.version': '4K · HDR', 'silo.audio': 'English · EAC3 · 5.1',
+                     'silo.subtitles': 'English, French'}
+    assert mapping.tech_lines({})['silo.subtitles'] == 'None'
+    assert mapping.ratings({'rating_imdb': 8.7, 'rating_tmdb': 8}) == [('imdb', 8.7, 0), ('themoviedb', 8.0, 0)]
+    props = mapping.skyline_properties('episode', {'season': 7, 'episode': 6, 'ratings': {}},
+                                       {'ratings': {'imdb': {'rating': 8.7}, 'themoviedb': {'rating': 8.0}}})
+    assert props['silo.rating.imdb'] == '8.7' and props['silo.rating.tmdb'] == '8.0'

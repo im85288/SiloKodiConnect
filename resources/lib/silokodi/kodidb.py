@@ -235,14 +235,18 @@ class KodiVideoDB(object):
                 self.cursor.execute('DELETE FROM art WHERE media_id = ? AND media_type = ? AND type = ?',
                                     (kodi_id, kodi_type, kind))
 
-    def set_rating(self, kodi_id, kodi_type, rating):
-        """rating: (type, value, votes) or None. Returns the rating_id."""
+    def set_rating(self, kodi_id, kodi_type, ratings):
+        """ratings: [(type, value, votes)], the default first (a single tuple
+        or None also do). Returns the default's rating_id."""
         self.cursor.execute('DELETE FROM rating WHERE media_id = ? AND media_type = ?', (kodi_id, kodi_type))
-        if not rating:
-            return None
-        self.cursor.execute('INSERT INTO rating(media_id, media_type, rating_type, rating, votes) VALUES (?, ?, ?, ?, ?)',
-                            (kodi_id, kodi_type, rating[0], rating[1], rating[2]))
-        return self.cursor.lastrowid
+        if ratings and isinstance(ratings[0], str):
+            ratings = [ratings]
+        first = None
+        for rating in ratings or []:
+            self.cursor.execute('INSERT INTO rating(media_id, media_type, rating_type, rating, votes) '
+                                'VALUES (?, ?, ?, ?, ?)', (kodi_id, kodi_type, rating[0], rating[1], rating[2]))
+            first = first or self.cursor.lastrowid
+        return first
 
     def set_unique_ids(self, kodi_id, kodi_type, ids):
         """ids: [(type, value)], most preferred first. Returns the default uniqueid_id."""

@@ -19,7 +19,7 @@ import xbmcplugin
 # Kept light: Kodi starts a fresh Python for every play and widget refresh,
 # and on a 2 GB device the ~7 MB that requests costs is worth saving. Sign-in
 # code (which needs requests) is imported only when used.
-from . import kodi
+from . import kodi, mapping
 from .mapping import RELAY_PORT as DEFAULT_PORT
 from .store import Store
 
@@ -132,12 +132,14 @@ def choose_libraries():
     ask_service('command/sync', timeout=10)
 
 
-MOVIE_FIELDS = ['title', 'plot', 'year', 'rating', 'runtime', 'genre', 'mpaa', 'art', 'resume', 'playcount',
-                'file', 'premiered', 'streamdetails', 'dateadded', 'lastplayed', 'tagline', 'studio']
-EPISODE_FIELDS = ['title', 'plot', 'rating', 'runtime', 'art', 'resume', 'playcount', 'file', 'firstaired',
-                  'showtitle', 'season', 'episode', 'tvshowid', 'streamdetails', 'dateadded', 'lastplayed']
-SHOW_FIELDS = ['title', 'plot', 'year', 'rating', 'genre', 'mpaa', 'art', 'file', 'premiered', 'studio',
-               'episode', 'watchedepisodes']
+MOVIE_FIELDS = ['title', 'plot', 'year', 'rating', 'ratings', 'runtime', 'genre', 'mpaa', 'art', 'resume',
+                'playcount', 'file', 'premiered', 'streamdetails', 'dateadded', 'lastplayed', 'tagline', 'studio',
+                'cast']
+EPISODE_FIELDS = ['title', 'plot', 'rating', 'ratings', 'runtime', 'art', 'resume', 'playcount', 'file',
+                  'firstaired', 'showtitle', 'season', 'episode', 'tvshowid', 'streamdetails', 'dateadded',
+                  'lastplayed', 'cast']
+SHOW_FIELDS = ['title', 'plot', 'year', 'rating', 'ratings', 'genre', 'mpaa', 'art', 'file', 'premiered',
+               'studio', 'episode', 'watchedepisodes', 'cast']
 
 
 def widget(handle, section, library=None):
@@ -149,8 +151,9 @@ def widget(handle, section, library=None):
         query['library'] = library
     answer = ask_service('command/widget', timeout=20, **query)
     kinds = set()
+    shows = {}  # an episode's show, read once per row
     for entry in answer.get('items') or []:
-        item = library_item(entry['type'], entry['kodi_id'])
+        item = library_item(entry['type'], entry['kodi_id'], shows)
         if item:
             url, listitem, folder = item
             kinds.add(entry['type'])
@@ -173,7 +176,7 @@ def sections(base, handle):
     xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
 
 
-def library_item(kind, kodi_id):
+def library_item(kind, kodi_id, shows=None):
     if kind == 'movie':
         details = (kodi.jsonrpc('VideoLibrary.GetMovieDetails', movieid=kodi_id, properties=MOVIE_FIELDS)
                    or {}).get('moviedetails')
@@ -185,7 +188,16 @@ def library_item(kind, kodi_id):
                    or {}).get('tvshowdetails')
     if not details:
         return None
+    show = None
+    if kind == 'episode' and details.get('tvshowid'):
+        shows = {} if shows is None else shows
+        if details['tvshowid'] not in shows:
+            shows[details['tvshowid']] = (kodi.jsonrpc('VideoLibrary.GetTVShowDetails', tvshowid=details['tvshowid'],
+                                                       properties=['mpaa', 'genre']) or {}).get('tvshowdetails')
+        show = shows[details['tvshowid']]
     listitem = xbmcgui.ListItem(details.get('title') or '', offscreen=True)
+    # What the Silo Skyline skin's hero shows about the title.
+    listitem.setProperties(mapping.skyline_properties(kind, details, show))
     listitem.setArt(details.get('art') or {})
     tag = listitem.getVideoInfoTag()
     tag.setDbId(kodi_id)

@@ -262,3 +262,20 @@ def test_a_running_sync_waits_between_batches(silo, open_kodi, tmp_path):
     waits = []
     Syncer(silo, SyncDB(str(tmp_path)), open_kodi, PORT, wait_while_busy=lambda: waits.append(1)).sync()
     assert waits  # called between batches, so playback can pause it
+
+
+def test_only_added_or_removed_titles_ask_for_a_library_update(silo, syncer):
+    syncer.sync()
+    assert syncer.added_or_removed  # the first sync adds everything
+    syncer.added_or_removed = False
+    silo.movies['movie-1']['user_state'] = {'played': True}
+    silo.movies['movie-2']['title'] = 'Thief (1981)'
+    syncer.sync()
+    assert syncer.changed and not syncer.added_or_removed  # updates only
+    del silo.movies['movie-2']
+    syncer.sync()
+    assert syncer.added_or_removed
+    syncer.added_or_removed = False
+    silo.episodes_of[('series-1', 2)].append(episode('series-1', 2, 2))
+    syncer.sync()
+    assert syncer.added_or_removed

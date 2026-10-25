@@ -220,8 +220,10 @@ class Service(object):
             if kind_of(task) in ('sync', 'fullsync', 'library'):
                 release_memory()
             if self.tasks.empty() and self.syncer.changed:
-                self.syncer.changed = False
-                self.library_update_pending = not kodi.refresh_library_views()
+                structural = self.syncer.added_or_removed
+                self.syncer.changed = self.syncer.added_or_removed = False
+                updated = kodi.refresh_library_views(update_library=structural)
+                self.library_update_pending = self.library_update_pending or not updated
 
     def do(self, task):
         if not self.store.signed_in:

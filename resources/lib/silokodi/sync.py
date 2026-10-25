@@ -8,6 +8,7 @@ unchanged but whose watch state moved only updates Kodi's playcount and
 resume point. Titles that left Silo are removed from Kodi.
 """
 from collections import OrderedDict
+from urllib.parse import quote
 from concurrent.futures import ThreadPoolExecutor
 
 from . import mapping
@@ -36,6 +37,50 @@ def home_row_items(page, section, db):
         if row and row['kind'] in ('movie', 'episode', 'tvshow') and row.get('kodi_id'):
             items.append({'type': row['kind'], 'kodi_id': row['kodi_id']})
     return items
+
+
+# The skin's pages and row slots. Rows beyond MAX_ROWS are left out.
+MAX_ROWS = 12
+WIDE_SECTIONS = ('continue_watching', 'next_up', 'next_in_series')
+PLUGIN = 'plugin://plugin.video.silokodiconnect/'
+
+
+def row_entry(section, library_id=None):
+    query = {'mode': 'widget', 'section': section['id']}
+    if library_id:
+        query['library'] = library_id
+    return {'title': section.get('title') or section['id'],
+            'path': PLUGIN + '?' + '&'.join('%s=%s' % (k, quote(str(v), safe='')) for k, v in sorted(query.items())),
+            'style': 'landscape' if section.get('section_type') in WIDE_SECTIONS else 'poster'}
+
+
+def skin_layout(home_sections, libraries, library_sections):
+    """The pages and rows a Silo-style skin shows, as Home window properties.
+
+    home_sections:     Silo's home rows, in order
+    libraries:         the synced movie and series libraries, in Silo's order
+    library_sections:  {library id: that library's rows, in order}
+
+    Pages are Home plus one per library type present, as in Silo's top bar;
+    a type with several libraries shows their rows one library after another.
+    """
+    pages = OrderedDict([('home', [row_entry(s) for s in home_sections])])
+    for page, types in (('movies', MOVIE_LIBRARY_TYPES), ('series', SHOW_LIBRARY_TYPES)):
+        rows = []
+        for library in libraries:
+            if (library.get('type') or '').lower() in types:
+                rows += [row_entry(s, str(library['id'])) for s in library_sections.get(str(library['id'])) or []]
+        if rows:
+            pages[page] = rows
+    properties = {'silo.pages': ','.join(pages)}
+    for page in ('home', 'movies', 'series'):
+        rows = pages.get(page, [])[:MAX_ROWS]
+        properties['silo.%s.count' % page] = str(len(rows))
+        for index in range(1, MAX_ROWS + 1):
+            row = rows[index - 1] if index <= len(rows) else {}
+            for key in ('title', 'path', 'style'):
+                properties['silo.%s.%d.%s' % (page, index, key)] = row.get(key, '')
+    return properties
 
 
 class Stopped(Exception):

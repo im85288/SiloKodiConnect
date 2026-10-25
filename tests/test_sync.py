@@ -264,6 +264,32 @@ def test_a_running_sync_waits_between_batches(silo, open_kodi, tmp_path):
     assert waits  # called between batches, so playback can pause it
 
 
+def test_skin_layout_follows_silo_home_and_libraries():
+    from resources.lib.silokodi.sync import MAX_ROWS, skin_layout
+    home = [{'id': 'continue_watching', 'title': 'Continue Watching', 'section_type': 'continue_watching'},
+            {'id': 'abc 1', 'title': 'Popular on IMDb', 'section_type': 'collection'}]
+    libraries = [{'id': '1', 'name': 'Movies', 'type': 'movies'}, {'id': '2', 'name': 'Shows', 'type': 'series'}]
+    library_sections = {'1': [{'id': 'recent', 'title': 'Recently Added', 'section_type': 'recently_added'}],
+                        '2': [{'id': 's%d' % n, 'title': 'Row %d' % n} for n in range(20)]}
+    layout = skin_layout(home, libraries, library_sections)
+    assert layout['silo.pages'] == 'home,movies,series'
+    assert layout['silo.home.count'] == '2'
+    assert layout['silo.home.1.style'] == 'landscape' and layout['silo.home.2.style'] == 'poster'
+    assert layout['silo.home.2.path'] == 'plugin://plugin.video.silokodiconnect/?mode=widget&section=abc%201'
+    assert layout['silo.movies.1.path'] == \
+        'plugin://plugin.video.silokodiconnect/?library=1&mode=widget&section=recent'
+    assert layout['silo.series.count'] == str(MAX_ROWS)
+    # Unused slots are cleared, so rows removed in Silo don't linger in the skin.
+    assert layout['silo.home.3.title'] == '' and layout['silo.home.%d.path' % MAX_ROWS] == ''
+
+
+def test_skin_layout_without_movie_libraries_has_no_movies_page():
+    from resources.lib.silokodi.sync import skin_layout
+    layout = skin_layout([], [{'id': '2', 'type': 'series'}], {'2': [{'id': 'x', 'title': 'X'}]})
+    assert layout['silo.pages'] == 'home,series'
+    assert layout['silo.movies.count'] == '0'
+
+
 def test_only_added_or_removed_titles_ask_for_a_library_update(silo, syncer):
     syncer.sync()
     assert syncer.added_or_removed  # the first sync adds everything

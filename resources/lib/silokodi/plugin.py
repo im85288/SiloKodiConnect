@@ -19,7 +19,7 @@ import xbmcplugin
 # Kept light: Kodi starts a fresh Python for every play and widget refresh,
 # and on a 2 GB device the ~7 MB that requests costs is worth saving. Sign-in
 # code (which needs requests) is imported only when used.
-from . import kodi
+from . import kodi, mapping
 from .mapping import RELAY_PORT as DEFAULT_PORT
 from .store import Store
 
@@ -55,10 +55,14 @@ def run(argv):
         return sign_in()
     if mode == 'signout':
         return sign_out()
+    if mode == 'reload_skin':
+        # For skin development: reload the skin's XML without restarting Kodi.
+        xbmcplugin.setResolvedUrl(handle, False, xbmcgui.ListItem(offscreen=True))
+        return xbmc.executebuiltin('ReloadSkin()')
     if mode == 'sections':
         return sections(base, handle)
     if mode == 'widget':
-        return widget(handle, params.get('section') or 'continue_watching')
+        return widget(handle, params.get('section') or 'continue_watching', params.get('library'))
     if mode in ('sync', 'fullsync', 'libraries', 'reset'):
         return command(mode)
     return menu(base, handle)
@@ -128,21 +132,29 @@ def choose_libraries():
     ask_service('command/sync', timeout=10)
 
 
-MOVIE_FIELDS = ['title', 'plot', 'year', 'rating', 'runtime', 'genre', 'mpaa', 'art', 'resume', 'playcount',
-                'file', 'premiered', 'streamdetails', 'dateadded', 'lastplayed', 'tagline', 'studio']
-EPISODE_FIELDS = ['title', 'plot', 'rating', 'runtime', 'art', 'resume', 'playcount', 'file', 'firstaired',
-                  'showtitle', 'season', 'episode', 'tvshowid', 'streamdetails', 'dateadded', 'lastplayed']
-SHOW_FIELDS = ['title', 'plot', 'year', 'rating', 'genre', 'mpaa', 'art', 'file', 'premiered', 'studio',
-               'episode', 'watchedepisodes']
+MOVIE_FIELDS = ['title', 'plot', 'year', 'rating', 'ratings', 'runtime', 'genre', 'mpaa', 'art', 'resume',
+                'playcount', 'file', 'premiered', 'streamdetails', 'dateadded', 'lastplayed', 'tagline', 'studio',
+                'cast', 'director']
+EPISODE_FIELDS = ['title', 'plot', 'rating', 'ratings', 'runtime', 'art', 'resume', 'playcount', 'file',
+                  'firstaired', 'showtitle', 'season', 'episode', 'tvshowid', 'streamdetails', 'dateadded',
+                  'lastplayed', 'cast', 'director']
+CAST_LIMIT = 20
+SHOW_FIELDS = ['title', 'plot', 'year', 'rating', 'ratings', 'genre', 'mpaa', 'art', 'file', 'premiered',
+               'studio', 'episode', 'watchedepisodes', 'cast']
 
 
-def widget(handle, section):
-    """Silo's own home row (Continue Watching by default) for a skin widget,
-    as the matching Kodi library items so art, resume and play behave as usual."""
-    answer = ask_service('command/widget', timeout=20, section=section)
+def widget(handle, section, library=None):
+    """A Silo row (a home row, Continue Watching by default, or a library's own
+    row) for a skin widget, as the matching Kodi library items so art, resume
+    and play behave as usual."""
+    query = {'section': section}
+    if library:
+        query['library'] = library
+    answer = ask_service('command/widget', timeout=20, **query)
     kinds = set()
+    shows = {}  # an episode's show, read once per row
     for entry in answer.get('items') or []:
-        item = library_item(entry['type'], entry['kodi_id'])
+        item = library_item(entry['type'], entry['kodi_id'], shows)
         if item:
             url, listitem, folder = item
             kinds.add(entry['type'])
@@ -165,7 +177,7 @@ def sections(base, handle):
     xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
 
 
-def library_item(kind, kodi_id):
+def library_item(kind, kodi_id, shows=None):
     if kind == 'movie':
         details = (kodi.jsonrpc('VideoLibrary.GetMovieDetails', movieid=kodi_id, properties=MOVIE_FIELDS)
                    or {}).get('moviedetails')
@@ -177,7 +189,16 @@ def library_item(kind, kodi_id):
                    or {}).get('tvshowdetails')
     if not details:
         return None
+    show = None
+    if kind == 'episode' and details.get('tvshowid'):
+        shows = {} if shows is None else shows
+        if details['tvshowid'] not in shows:
+            shows[details['tvshowid']] = (kodi.jsonrpc('VideoLibrary.GetTVShowDetails', tvshowid=details['tvshowid'],
+                                                       properties=['mpaa', 'genre']) or {}).get('tvshowdetails')
+        show = shows[details['tvshowid']]
     listitem = xbmcgui.ListItem(details.get('title') or '', offscreen=True)
+    # What the Silo Skyline skin's hero shows about the title.
+    listitem.setProperties(mapping.skyline_properties(kind, details, show))
     listitem.setArt(details.get('art') or {})
     tag = listitem.getVideoInfoTag()
     tag.setDbId(kodi_id)
@@ -188,12 +209,25 @@ def library_item(kind, kodi_id):
         tag.setRating(float(details['rating']))
     if details.get('playcount'):
         tag.setPlaycount(int(details['playcount']))
+    # Skins' info lines use these for shows too.
+    if details.get('year'):
+        tag.setYear(int(details['year']))
+    if details.get('mpaa'):
+        tag.setMpaa(details['mpaa'])
+    if details.get('genre'):
+        tag.setGenres(details['genre'])
+    # The info page's cast list and credit line.
+    if details.get('cast'):
+        tag.setCast([xbmc.Actor(person.get('name') or '', person.get('role') or '', person.get('order') or 0,
+                                person.get('thumbnail') or '') for person in details['cast'][:CAST_LIMIT]])
+    if details.get('director'):
+        tag.setDirectors(details['director'])
+    if details.get('studio'):
+        tag.setStudios(details['studio'])
     if kind == 'tvshow':
         listitem.setProperty('TotalEpisodes', str(details.get('episode') or 0))
         listitem.setProperty('WatchedEpisodes', str(details.get('watchedepisodes') or 0))
         return 'videodb://tvshows/titles/%d/' % kodi_id, listitem, True
-    if details.get('year'):
-        tag.setYear(int(details['year']))
     if details.get('runtime'):
         tag.setDuration(int(details['runtime']))
     resume = details.get('resume') or {}

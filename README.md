@@ -62,6 +62,15 @@ rows instead, point skin widgets at the add-on:
 Rows list the matching Kodi library items, so art, resume points and play behave as usual. In "what to watch
 next" rows a show stands for its next episode; elsewhere for the show. Titles not synced to Kodi are skipped.
 
+## Silo Skyline skin
+
+[Silo Skyline](https://github.com/im85288/SiloSkyline) lays Kodi out like the Silo TV apps. The add-on
+tells it which pages and rows to show, following the profile's Silo home and libraries: Home window
+properties `silo.pages`, `silo.<page>.count` and `silo.<page>.<n>.title` / `.path` / `.style`, published when
+the service starts and after every sync, plus `silokodi.signed_in`. Widget items carry what Silo's hero and
+detail page show (`silo.code`, `silo.aired`, `silo.mpaa`, `silo.genre`, `silo.rating`, `silo.cast`,
+`silo.badge1`-`3`) and their cast, directors and studios. Other skins can use the same properties.
+
 ## Settings
 
 - **Playback -> Highest resolution / HDR this TV shows.** Defaults to 1080p SDR, so Silo converts 4K and
@@ -125,6 +134,13 @@ The tests run the sync against Kodi 21's real video database schema (`tests/fixt
 extracted from Kodi's `VideoDatabase.cpp`) and a fake Silo server.
 
 ## Changes
+
+### v0.9.2 (2026-10-25)
+- Publishes Silo's pages and rows, and whether you are signed in, for the
+  [Silo Skyline](https://github.com/im85288/SiloSkyline) skin.
+- Widget items carry the hero's details (episode code, air date, age rating, genre, IMDb rating, cast,
+  quality badges) and their cast, directors and studios, so info pages list the cast.
+- Asks Kodi for a library update only when titles are added or removed: skin helpers rescan on every update.
 
 ### v0.9.1 (2026-10-25)
 - Sync once per Silo library scan, after Silo goes quiet, instead of a full sync for every scan step: one

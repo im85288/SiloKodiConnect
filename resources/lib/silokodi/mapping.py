@@ -332,3 +332,69 @@ def episode_fields(episode, added_at=None):
         'episode': episode.get('episode_number'),
         'date_added': kodi_datetime(added_at or episode.get('added_at')),
     }
+
+
+# ----- what a Silo-style skin shows about the focused title -----
+
+RATING_SOURCES = {'imdb': 'IMDb', 'themoviedb': 'TMDB', 'tmdb': 'TMDB', 'trakt': 'Trakt'}
+AUDIO_CODECS = {'truehd': 'TRUEHD', 'eac3': 'DD+', 'ac3': 'AC3', 'dts': 'DTS', 'dtshd_ma': 'DTS-HD MA',
+                'dca': 'DTS', 'aac': 'AAC', 'flac': 'FLAC', 'opus': 'OPUS', 'mp3': 'MP3'}
+CHANNEL_LAYOUTS = {8: '7.1', 7: '6.1', 6: '5.1', 2: '2.0', 1: 'MONO'}
+HDR_LABELS = {'dolbyvision': 'DOLBY VISION', 'hdr10': 'HDR10', 'hdr10plus': 'HDR10+', 'hlg': 'HLG'}
+MONTHS = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
+
+
+def quality_badges(streamdetails):
+    """Silo's quality badges for a file: resolution, dynamic range, audio."""
+    badges = []
+    video = ((streamdetails or {}).get('video') or [{}])[0]
+    width, height = video.get('width') or 0, video.get('height') or 0
+    if height >= 1600 or width >= 3000:
+        badges.append('4K')
+    elif height >= 1000 or width >= 1800:
+        badges.append('1080P')
+    elif height >= 700 or width >= 1200:
+        badges.append('720P')
+    elif height:
+        badges.append('SD')
+    hdr = (video.get('hdrtype') or '').lower()
+    if hdr:
+        badges.append(HDR_LABELS.get(hdr, hdr.upper()))
+    audio = ((streamdetails or {}).get('audio') or [{}])[0]
+    codec = (audio.get('codec') or '').lower()
+    layout = CHANNEL_LAYOUTS.get(audio.get('channels') or 0, '')
+    # Episodes synced from season listings know their channels but not their codec.
+    if codec or layout:
+        badges.append(('%s %s' % (AUDIO_CODECS.get(codec, codec.upper()), layout)).strip())
+    return badges
+
+
+def aired_label(date):
+    """2026-09-25 -> 'Aired Sep 25, 2026'."""
+    try:
+        year, month, day = (int(part) for part in (date or '')[:10].split('-'))
+        return 'Aired %s %d, %d' % (MONTHS[month - 1], day, year)
+    except (ValueError, IndexError):
+        return ''
+
+
+def skyline_properties(kind, details, show=None):
+    """ListItem properties (silo.*) for the Skyline hero, from Kodi's JSON-RPC
+    details of a movie, show or episode; `show` is the episode's show."""
+    props = {}
+    if kind == 'episode':
+        props['silo.code'] = 'S%02dE%02d' % (details.get('season') or 0, details.get('episode') or 0)
+        props['silo.aired'] = aired_label(details.get('firstaired'))
+    props['silo.mpaa'] = details.get('mpaa') or (show or {}).get('mpaa') or ''
+    genres = details.get('genre') or (show or {}).get('genre') or []
+    props['silo.genre'] = genres[0] if genres else ''
+    ratings = details.get('ratings') or {}
+    best = next((name for name, value in ratings.items() if value.get('default')), None) or \
+        next(iter(ratings), None)
+    if best and ratings[best].get('rating'):
+        props['silo.rating'] = '%s %.1f' % (RATING_SOURCES.get(best, best.title()), ratings[best]['rating'])
+    cast = sorted(details.get('cast') or [], key=lambda person: person.get('order', 999))
+    props['silo.cast'] = ', '.join(person['name'] for person in cast[:3] if person.get('name'))
+    for index, badge in enumerate(quality_badges(details.get('streamdetails'))[:3], 1):
+        props['silo.badge%d' % index] = badge
+    return props

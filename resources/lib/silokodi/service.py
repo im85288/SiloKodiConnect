@@ -469,6 +469,12 @@ class Service(object):
         if library_id:
             page = self.client.get('/library/%s/sections/%s/items' % (library_id, section))
         else:
+            if not str(section).isdigit():
+                # A row named by its type (the menu's Continue Watching, older
+                # widget paths): Silo's home rows are addressed by id now.
+                section = next((row['id'] for row in self.home_sections() if row['type'] == section), None)
+                if not section:
+                    return []
             page = self.client.get('/home/sections/%s/items' % section)
         return home_row_items(page, section, self.db)
 

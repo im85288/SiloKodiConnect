@@ -66,7 +66,7 @@ def run(argv):
         return sections(base, handle, params.get('type'))
     if mode == 'widget':
         return widget(handle, params.get('section') or 'continue_watching', params.get('library'),
-                      params.get('collection'), params.get('title'))
+                      params.get('collection'), params.get('title'), raw_tail(argv, 'exclude_show'))
     if mode == 'requests':
         # The skin can't URL-encode the search words, so take them as written
         # (they may hold & or =), up to the refresh suffix.
@@ -160,10 +160,21 @@ SHOW_FIELDS = ['title', 'plot', 'year', 'rating', 'ratings', 'genre', 'mpaa', 'a
                'studio', 'episode', 'watchedepisodes', 'cast']
 
 
-def widget(handle, section, library=None, collection=None, title=None):
+def raw_tail(argv, key):
+    """A parameter a skin can't URL-encode (a title, search words): taken as
+    written, from key= to the end, so it must come last in the path."""
+    query = argv[2] if len(argv) > 2 else ''
+    marker = '&%s=' % key
+    if marker not in query and not query.lstrip('?').startswith(key + '='):
+        return ''
+    return unquote(query.split(key + '=', 1)[1])
+
+
+def widget(handle, section, library=None, collection=None, title=None, exclude_show=''):
     """A Silo row (a home row, Continue Watching by default, a library's own
     row, or one of its collections) for a skin widget, as the matching Kodi
-    library items so art, resume and play behave as usual."""
+    library items so art, resume and play behave as usual. exclude_show
+    leaves out a show's episodes (Up Next's row skips the show it offers)."""
     query = {'section': section}
     if library:
         query['library'] = library
@@ -181,6 +192,8 @@ def widget(handle, section, library=None, collection=None, title=None):
         item = library_item(entry['type'], entry['kodi_id'], shows)
         if item:
             url, listitem, folder = item
+            if exclude_show and listitem.getVideoInfoTag().getTVShowTitle() == exclude_show:
+                continue
             listitem.setProperty('silo.tint', entry.get('tint') or '')
             kinds.add(entry['type'])
             xbmcplugin.addDirectoryItem(handle, url, listitem, isFolder=folder)

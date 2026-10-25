@@ -52,3 +52,10 @@ def test_marker_ranges_are_percent_of_the_player_timeline():
     assert upnext.marker_ranges(found, 2970.0, origin=30.0)['intro'] == '1.01,3.03'
     assert 'recap' not in upnext.marker_ranges(found, 2970.0, origin=30.0)
     assert upnext.marker_ranges(found, 0) == {}
+
+
+def test_a_title_passed_last_is_taken_as_written():
+    argv = ['plugin://x/', '1', '?mode=widget&section=continue_watching&refresh=5&exclude_show=Law & Order: SVU']
+    assert plugin.raw_tail(argv, 'exclude_show') == 'Law & Order: SVU'
+    assert plugin.raw_tail(['plugin://x/', '1', '?mode=widget'], 'exclude_show') == ''
+    assert plugin.raw_tail(['plugin://x/', '1', '?mode=widget&exclude_show=The%20Pitt'], 'exclude_show') == 'The Pitt'

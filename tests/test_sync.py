@@ -216,6 +216,18 @@ def test_progress_moves_within_libraries(silo, open_kodi, tmp_path):
     assert any(m.startswith('TV: 0 / 2 seasons') for _, m in seen)
 
 
+# Toy Story's poster thumbhash on a real Silo server, and the tint it gives.
+TOY_STORY_TINT = 'FF2C3B42'
+
+
+def test_ambient_tint_is_the_thumbhash_average_at_silo_luminance():
+    from resources.lib.silokodi.mapping import ambient_tint
+    tint = ambient_tint('U9cNLQhmeH+HSIhoh3Znd0hwlgVn')
+    assert tint == TOY_STORY_TINT
+    red, green, blue = (int(tint[i:i + 2], 16) / 255.0 for i in (2, 4, 6))
+    assert abs(0.2126 * red + 0.7152 * green + 0.0722 * blue - 0.22) < 0.01
+    assert ambient_tint('') == '' and ambient_tint('!!') == '' and ambient_tint(None) == ''
+
 def test_home_rows_map_to_library_items(syncer, query):
     from resources.lib.silokodi.sync import home_row_items
     syncer.sync()
@@ -223,14 +235,16 @@ def test_home_rows_map_to_library_items(syncer, query):
     show_id = query('SELECT idShow FROM tvshow')[0][0]
     next_episode = query("SELECT e.idEpisode FROM episode e JOIN files f ON f.idFile = e.idFile "
                          "WHERE f.strFilename LIKE '%series-1-s1e2%'")[0][0]
-    cards = [{'content_id': 'movie-1', 'type': 'movie'},
+    cards = [{'content_id': 'movie-1', 'type': 'movie', 'poster_thumbhash': 'U9cNLQhmeH+HSIhoh3Znd0hwlgVn'},
              {'content_id': 'series-1', 'type': 'series', 'play_content_id': 'series-1-s1e2'},
              {'content_id': 'ebook-9', 'type': 'ebook'}]
     # In "what next" rows a show card is its next episode; elsewhere it is the show.
     assert home_row_items({'section_type': 'continue_watching', 'items': cards}, 'continue_watching', syncer.db) \
-        == [{'type': 'movie', 'kodi_id': movie_id}, {'type': 'episode', 'kodi_id': next_episode}]
+        == [{'type': 'movie', 'kodi_id': movie_id, 'tint': TOY_STORY_TINT},
+            {'type': 'episode', 'kodi_id': next_episode, 'tint': ''}]
     assert home_row_items({'section_type': 'collection', 'items': cards}, 'popular-imdb', syncer.db) \
-        == [{'type': 'movie', 'kodi_id': movie_id}, {'type': 'tvshow', 'kodi_id': show_id}]
+        == [{'type': 'movie', 'kodi_id': movie_id, 'tint': TOY_STORY_TINT},
+            {'type': 'tvshow', 'kodi_id': show_id, 'tint': ''}]
 
 
 def test_last_played_comes_from_watch_history(silo, syncer, query):

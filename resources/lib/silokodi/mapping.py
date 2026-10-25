@@ -3,6 +3,7 @@
 
 Nothing here touches Kodi or the network, so it is covered by plain tests.
 """
+import base64
 import hashlib
 import json
 import re
@@ -376,6 +377,34 @@ def aired_label(date):
         return 'Aired %s %d, %d' % (MONTHS[month - 1], day, year)
     except (ValueError, IndexError):
         return ''
+
+
+def ambient_tint(thumbhash):
+    """Silo's ambient page tint for a title as Kodi's ARGB hex ('' if none): the
+    average colour a thumbhash carries in its header, scaled to a luminance of
+    0.22 as Silo's TV apps do (dark art lifted, bright art dimmed). Silo samples
+    the backdrop; its API only has the poster's thumbhash, which shares the
+    title's palette."""
+    try:
+        raw = base64.b64decode(thumbhash.replace('-', '+').replace('_', '/') + '=' * (-len(thumbhash) % 4))
+    except (AttributeError, ValueError, TypeError):
+        return ''
+    if len(raw) < 3:
+        return ''
+    header = raw[0] | raw[1] << 8 | raw[2] << 16
+    lightness = (header & 63) / 63.0
+    p = ((header >> 6) & 63) / 31.5 - 1
+    q = ((header >> 12) & 63) / 31.5 - 1
+    blue = lightness - 2.0 / 3 * p
+    red = (3 * lightness - blue + q) / 2
+    green = red - q
+    red, green, blue = (min(1.0, max(0.0, c)) for c in (red, green, blue))
+    luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+    target = 0.22
+    if luminance <= 0.001:
+        return ''
+    scale = target / luminance if luminance > target else max(1.0, target / max(luminance, 0.05))
+    return 'FF%02X%02X%02X' % tuple(int(round(min(1.0, c * scale) * 255)) for c in (red, green, blue))
 
 
 def skyline_properties(kind, details, show=None):

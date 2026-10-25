@@ -160,6 +160,7 @@ def widget(handle, section, library=None):
         item = library_item(entry['type'], entry['kodi_id'], shows)
         if item:
             url, listitem, folder = item
+            listitem.setProperty('silo.tint', entry.get('tint') or '')
             kinds.add(entry['type'])
             xbmcplugin.addDirectoryItem(handle, url, listitem, isFolder=folder)
     xbmcplugin.setContent(handle, 'movies' if kinds == {'movie'} else 'episodes' if kinds == {'episode'}

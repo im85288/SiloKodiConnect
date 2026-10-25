@@ -25,8 +25,9 @@ NEXT_EPISODE_SECTIONS = ('continue_watching', 'next_up', 'next_in_series')
 
 
 def home_row_items(page, section, db):
-    """A Silo home row's cards as [{'type', 'kodi_id'}] in Silo's order. Titles
-    not synced to Kodi (other media types, excluded libraries) are left out."""
+    """A Silo home row's cards as [{'type', 'kodi_id', 'tint'}] in Silo's order.
+    Titles not synced to Kodi (other media types, excluded libraries) are left
+    out. tint is the card's ambient page tint for a Silo-style skin."""
     next_episode = (page.get('section_type') or section) in NEXT_EPISODE_SECTIONS
     items = []
     for card in page.get('items') or []:
@@ -35,7 +36,8 @@ def home_row_items(page, section, db):
             row = db.get(card['play_content_id'])
         row = row or db.get(card.get('content_id'))
         if row and row['kind'] in ('movie', 'episode', 'tvshow') and row.get('kodi_id'):
-            items.append({'type': row['kind'], 'kodi_id': row['kodi_id']})
+            items.append({'type': row['kind'], 'kodi_id': row['kodi_id'],
+                          'tint': mapping.ambient_tint(card.get('poster_thumbhash') or '')})
     return items
 
 

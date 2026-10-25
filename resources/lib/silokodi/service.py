@@ -2,7 +2,9 @@
 """The background service: owns the Silo session, keeps the library synced,
 listens for Silo's realtime events and reports playback."""
 import gc
+import hashlib
 import json
+import os
 import queue
 import threading
 import time
@@ -28,6 +30,7 @@ LIBRARY_QUIET = 120          # sync a library once Silo has sent no change for i
 LIBRARY_LIMIT = 900          # ...or this long after the first, during a long scan
 ITEM_QUIET = 10
 ITEM_LIMIT = 60
+AVATAR_TYPES = {'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif'}
 
 
 def kind_of(task):
@@ -481,6 +484,52 @@ class Service(object):
             self.publish_layout()
         except (ApiError, requests.RequestException) as error:
             kodi.log_warning('Could not read Silo\'s home layout: %s' % error)
+        try:
+            self.publish_avatar()
+        except (ApiError, requests.RequestException, IOError) as error:
+            kodi.log_warning('Could not read the profile\'s avatar: %s' % error)
+
+    def publish_avatar(self):
+        """The profile's name, initial and picture for a Silo-style skin's menu
+        bar (Home window silo.profile_name, silo.profile_initial, silo.avatar).
+        The picture is saved in the add-on's folder: Silo's link to an uploaded
+        one expires within the hour. Without one the skin draws the initial."""
+        profile_id = self.store.get('profile_id')
+        profile = next((p for p in self.client.profiles() if p.get('id') == profile_id), {})
+        name = profile.get('name') or self.store.get('profile_name') or ''
+        home = xbmcgui.Window(10000)
+        home.setProperty('silo.profile_name', name)
+        home.setProperty('silo.profile_initial', name[:1].upper())
+        url = profile.get('avatar_url') or ''
+        home.setProperty('silo.avatar', self.save_avatar(url, profile.get('avatar') or url) if url else '')
+
+    def save_avatar(self, url, ref):
+        """A local copy of the avatar at url, named after its stored ref so it is
+        fetched again only when the profile's picture changes; '' when the
+        picture isn't a format Kodi draws."""
+        folder = kodi.profile_dir()
+        stem = 'avatar-%s' % hashlib.sha1(ref.encode('utf-8')).hexdigest()[:12]
+        for name in os.listdir(folder):
+            if name.startswith(stem + '.') and not name.endswith('.part'):
+                return os.path.join(folder, name)
+        server = self.client.server_url.rstrip('/')
+        if url.startswith('/'):
+            url = server + url
+        # The sign-in token goes to the Silo server only, never to an image host.
+        headers = self.client.auth_headers(profile=False) if url.startswith(server + '/') else {}
+        response = requests.get(url, headers=headers, timeout=20)
+        response.raise_for_status()
+        extension = AVATAR_TYPES.get(response.headers.get('Content-Type', '').split(';')[0].strip().lower())
+        if not extension:
+            return ''
+        for name in os.listdir(folder):
+            if name.startswith('avatar-'):
+                os.remove(os.path.join(folder, name))
+        path = os.path.join(folder, stem + extension)
+        with open(path + '.part', 'wb') as handle:
+            handle.write(response.content)
+        os.rename(path + '.part', path)
+        return path
 
     def publish_layout(self):
         """Tell a Silo-style skin which pages and rows to show (Home window

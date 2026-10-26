@@ -21,7 +21,7 @@ from .relay import DEFAULT_PORT, Relay
 from .store import Store
 from . import rows as home_cards
 from .library import DetailsCache
-from .sync import MAX_ROWS, Stopped, Syncer, collection_cards, home_row_items, page_of, skin_layout
+from .sync import MAX_ROWS, MOVIE_LIBRARY_TYPES, SHOW_LIBRARY_TYPES, Stopped, Syncer, collection_cards, home_row_items, page_of, skin_layout
 from .syncdb import SyncDB
 
 PROGRESS_POLL = 300          # seconds between resume-point checks while the socket is up
@@ -55,6 +55,7 @@ def release_memory():
 
 # After Kodi starts, how long the sync and the check of the saved details
 # wait, so Home's rows load first on a small device.
+PUBLISHED_PAGES = ('home',)  # pages whose rows are published as cards
 STARTUP_QUIET = 60
 PAGE_LOADING = 6  # seconds a page's rows show while they start loading (then empty ones hide)
 DETAILS_SAVE_INTERVAL = 30
@@ -167,7 +168,8 @@ class Service(object):
         self.published_signed_in = None
         self.home_rows = []  # the profile's Silo home rows, as last published
         self.details = DetailsCache()  # library details for rows, until they change
-        self.home_cards = {}  # Home's rows as published properties (rows.py)
+        self.home_cards = {}  # every page's rows as published properties (rows.py)
+        self.page_sources = {}  # page -> [(row id, library id)], from the layout
         self.home_cards_due = 0  # when to publish them again (0: not due)
         self.next_recheck = None  # when to confirm the details loaded from disk
         self.next_save = 0
@@ -730,7 +732,15 @@ class Service(object):
                     self.client.get('/library/%s/sections' % library['id']).get('sections') or [])
             except ApiError as error:
                 kodi.log_warning('No rows for library %s: %s' % (library.get('name'), error))
-        self.layout = skin_layout(home, libraries, library_sections, self.request_rows())
+        request_rows = self.request_rows()
+        self.layout = skin_layout(home, libraries, library_sections, request_rows)
+        # Where each page's rows come from, in the layout's order, for its cards.
+        self.page_sources = {'home': [(section['id'], None) for section in home if section.get('id')],
+                             'requests': [(key, None) for key, _ in request_rows or []]}
+        for page, types in (('movies', MOVIE_LIBRARY_TYPES), ('series', SHOW_LIBRARY_TYPES)):
+            self.page_sources[page] = [(section['id'], str(library['id'])) for library in libraries
+                                       if (library.get('type') or '').lower() in types
+                                       for section in library_sections.get(str(library['id'])) or []]
         self.apply_layout()
         self.db.set_meta('layout', self.layout)
         kodi.set_property('layout_updated', str(int(time.time())))
@@ -784,28 +794,26 @@ class Service(object):
             self.home_cards_due = time.time() + delay
 
     def publish_home_cards(self):
-        """Home's rows, in Silo's order, as Home window properties a skin draws
-        without a plugin (see rows.py). Only changed values are set."""
-        if not self.home_rows:
+        """Every page's rows (Home, Movies, Series, Requests), in Silo's order,
+        as Home window properties a skin draws without a plugin (rows.py).
+        Only changed values are set."""
+        if not self.page_sources:
             return
         props = {}
-        for row, section in enumerate(self.home_rows[:MAX_ROWS], 1):
-            try:
-                items = self.widget_items(section['id'])
-            except (ApiError, requests.RequestException) as error:
-                kodi.log_warning('Home row %s: %s' % (section.get('title'), error))
-                items = None
-            if items is None:  # keep what the row showed
-                props.update({key: value for key, value in self.home_cards.items()
-                              if key.startswith('silo.home.%d.' % row)})
-                continue
-            cards = []
-            for item in items[:home_cards.CARDS]:
-                cached = self.details.get(item['type'], item['kodi_id'])
-                if cached:
-                    cards.append(home_cards.card(item['type'], cached['details'], cached.get('show'),
-                                                 item.get('tint')))
-            props.update(home_cards.row_properties(row, cards))
+        # Home only: Movies and Series rows Kodi can order load natively, and
+        # every published slot costs the skin load time (see the skin).
+        for page in PUBLISHED_PAGES:
+            for row, (row_id, library_id) in enumerate(self.page_sources.get(page, [])[:MAX_ROWS], 1):
+                try:
+                    cards = self.page_cards(page, row_id, library_id)
+                except (ApiError, requests.RequestException) as error:
+                    kodi.log_warning('%s row %s: %s' % (page, row_id, error))
+                    cards = None
+                if cards is None:  # keep what the row showed
+                    prefix = 'silo.%s.%d.' % (page, row)
+                    props.update({key: value for key, value in self.home_cards.items() if key.startswith(prefix)})
+                    continue
+                props.update(home_cards.row_properties(row, cards, page))
         home = xbmcgui.Window(10000)
         changed = 0
         for key, value in props.items():
@@ -816,7 +824,27 @@ class Service(object):
             home.clearProperty(key)
         self.home_cards = props
         self.db.set_meta('home_cards', props)
-        kodi.log('Home rows published (%d values changed)' % changed)
+        kodi.log('Rows published (%d values changed)' % changed)
+
+    def page_cards(self, page, row_id, library_id):
+        """One row's cards: library titles with their cached details; on the
+        Requests page, titles Silo can request too."""
+        if page == 'requests':
+            entries = [(card.get('kind'), card.get('kodi_id'), card) for card in self.request_cards(row_id)]
+        else:
+            entries = [(item['type'], item['kodi_id'], item) for item in self.widget_items(row_id, library_id)]
+        cards = []
+        for kind, kodi_id, source in entries[:home_cards.CARDS]:
+            if not kodi_id:
+                cards.append(home_cards.request_card(source))
+                continue
+            cached = self.details.get(kind, kodi_id)
+            if cached:
+                card = home_cards.card(kind, cached['details'], cached.get('show'), source.get('tint'))
+                if page == 'requests' and source.get('label'):
+                    card['card.sub'] = card['card.wide_sub'] = source['label']
+                cards.append(card)
+        return cards
 
     def note_viewed_page(self):
         """When the skin shows a page for the first time, give its rows their paths."""

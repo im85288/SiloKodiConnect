@@ -2,6 +2,7 @@
 import pytest
 
 from resources.lib.silokodi import mapping
+from resources.lib.silokodi import sync as sync_module
 from resources.lib.silokodi.sync import Syncer
 from resources.lib.silokodi.syncdb import SyncDB
 
@@ -312,8 +313,9 @@ def test_skin_layout_follows_silo_home_and_libraries():
     assert layout['silo.home.count'] == '2'
     assert layout['silo.home.1.style'] == 'landscape' and layout['silo.home.2.style'] == 'poster'
     assert layout['silo.home.2.path'] == 'plugin://plugin.video.silokodiconnect/?mode=widget&section=abc%201'
-    assert layout['silo.movies.1.path'] == \
-        'plugin://plugin.video.silokodiconnect/?library=1&mode=widget&section=recent'
+    # Recently Added is a row Kodi's library can list in Silo's order: native.
+    assert layout['silo.movies.1.path'] == sync_module.native_path(
+        {'section_type': 'recently_added'}, libraries[0])
     assert layout['silo.series.count'] == str(MAX_ROWS)
     # Unused slots are cleared, so rows removed in Silo don't linger in the skin.
     assert layout['silo.home.3.title'] == '' and layout['silo.home.%d.path' % MAX_ROWS] == ''
@@ -546,3 +548,35 @@ def test_quickstart_sets_home_from_what_the_service_saved(tmp_path):
     props = quickstart.home_properties(*quickstart.saved(str(tmp_path)))
     assert props['silo.home.1.landscape'] == 'plugin://x/?a=1' and props['silo.movies.1.poster'] == ''
     assert props['silo.movies.1.title'] == 'Recently Added' and props['silo.home.1.1.label'] == 'Heat'
+
+
+def test_a_requestable_title_card_and_page_prefixes():
+    from resources.lib.silokodi import rows
+    card = rows.request_card({'type': 'series', 'tmdb': 95396, 'title': 'Severance', 'year': 2022, 'rating': 8.4,
+                              'label': 'Requested', 'overview': 'Work.', 'poster': 'p.jpg', 'backdrop': 'b.jpg'})
+    assert card['type'] == 'request' and card['request.tmdb'] == '95396' and card['card.sub'] == 'Requested'
+    assert card['hero.meta'] == '2022 · TMDB 8.4' and card['art.fanart'] == 'b.jpg'
+    props = rows.row_properties(3, [card], 'requests')
+    assert props['silo.requests.3.1.request.type'] == 'series' and props['silo.requests.3.cards'] == '1'
+
+
+def test_library_rows_kodi_can_order_load_natively():
+    from resources.lib.silokodi import sync
+    import json
+    from urllib.parse import unquote
+    movies = {'id': 1, 'type': 'movies', 'name': 'Films'}
+    path = sync.native_path({'section_type': 'continue_watching'}, movies)
+    assert path.startswith('videodb://movies/titles/?xsp=')
+    query = json.loads(unquote(path.split('xsp=', 1)[1]))
+    assert 'order' not in query and 'limit' not in query  # Kodi's list sorts, then cuts
+    assert {'field': 'inprogress', 'operator': 'true', 'value': []} in query['rules']['and']
+    assert {'field': 'tag', 'operator': 'is', 'value': ['Films']} in query['rules']['and']
+    shows = {'id': 2, 'type': 'series', 'name': 'TV'}
+    assert sync.native_path({'section_type': 'recently_added'}, shows).startswith('videodb://tvshows/titles/')
+    assert sync.native_path({'section_type': 'continue_watching'}, shows) is None  # Silo's next-up
+    assert sync.native_path({'section_type': 'recommended_for_you'}, movies) is None
+    entry = sync.row_entry({'id': 'x', 'section_type': 'random', 'title': 'Random'}, '1', movies)
+    assert entry['path'].startswith('videodb://')
+    assert (entry['sort'], entry['order'], entry['limit']) == ('random', 'ascending', '25')
+    plugin = sync.row_entry({'id': 'y', 'section_type': 'imdb_popular', 'title': 'IMDb'}, '1', movies)
+    assert (plugin['sort'], plugin['order'], plugin['limit']) == ('', '', '')

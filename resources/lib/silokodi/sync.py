@@ -7,6 +7,7 @@ Only new or changed titles are fetched in full; a card whose title is
 unchanged but whose watch state moved only updates Kodi's playcount and
 resume point. Titles that left Silo are removed from Kodi.
 """
+import json
 from collections import OrderedDict
 from urllib.parse import quote, urlencode
 from concurrent.futures import ThreadPoolExecutor
@@ -69,15 +70,50 @@ WIDE_SECTIONS = ('continue_watching', 'next_up', 'next_in_series')
 PLUGIN = 'plugin://plugin.video.silokodiconnect/'
 
 
-def row_entry(section, library_id=None):
+# A library's rows that Kodi's own library can list in Silo's order: these
+# load as native Kodi lists (about 0.2 s on a SHIELD, against 0.7 s for a
+# plugin row). The rest come through the plugin.
+NATIVE_ORDERS = {'recently_added': ('dateadded', 'descending', None),
+                 'random': ('random', 'ascending', None),
+                 'continue_watching': ('lastplayed', 'descending', 'inprogress')}
+NATIVE_LIMIT = 25
+
+
+def native_path(section, library):
+    """A Kodi library path for a library's row, or None. Kodi's lists ignore
+    the path's own order, so the order is native_sort's, for the skin."""
+    kind = (library or {}).get('type', '').lower()
+    content = 'movies' if kind == 'movies' else 'tvshows' if kind in ('series', 'tv', 'tvshows') else None
+    order = NATIVE_ORDERS.get(section.get('section_type'))
+    if not content or not order or not library.get('name'):
+        return None
+    method, direction, only = order
+    if only and content != 'movies':  # a series' Continue Watching is Silo's next-up episodes
+        return None
+    rules = [{'field': 'tag', 'operator': 'is', 'value': [library['name']]}]
+    if only == 'inprogress':
+        rules.append({'field': 'inprogress', 'operator': 'true', 'value': []})
+    query = {'type': content, 'rules': {'and': rules}}
+    return 'videodb://%s/titles/?xsp=%s' % (content, quote(json.dumps(query, separators=(',', ':')), safe=''))
+
+
+def native_sort(section):
+    """(sort, order, limit) for a skin's list of a native row's path."""
+    method, direction, _ = NATIVE_ORDERS[section.get('section_type')]
+    return method, direction, str(NATIVE_LIMIT)
+
+
+def row_entry(section, library_id=None, library=None):
     query = {'mode': 'widget', 'section': section['id']}
     if library_id:
         query['library'] = library_id
+    path = native_path(section, library) if library else None
     return {'title': section.get('title') or section['id'],
-            'path': PLUGIN + '?' + '&'.join('%s=%s' % (k, quote(str(v), safe='')) for k, v in sorted(query.items())),
+            'path': path or PLUGIN + '?' + '&'.join('%s=%s' % (k, quote(str(v), safe='')) for k, v in sorted(query.items())),
             'style': 'landscape' if section.get('section_type') in WIDE_SECTIONS else 'poster',
             # Silo's row type: a skin marks some rows (Continue Watching's play icon).
-            'type': section.get('section_type') or ''}
+            'type': section.get('section_type') or '',
+            **dict(zip(('sort', 'order', 'limit'), native_sort(section) if path else ('', '', '')))}
 
 
 def skin_layout(home_sections, libraries, library_sections, request_rows=None):
@@ -98,7 +134,7 @@ def skin_layout(home_sections, libraries, library_sections, request_rows=None):
         for library in libraries:
             if (library.get('type') or '').lower() in types:
                 ids.append(str(library['id']))
-                rows += [row_entry(s, str(library['id'])) for s in library_sections.get(str(library['id'])) or []]
+                rows += [row_entry(s, str(library['id']), library) for s in library_sections.get(str(library['id'])) or []]
         if rows:
             pages[page] = rows
         # The page's libraries' collections, as Silo's Collections section.
@@ -117,7 +153,7 @@ def skin_layout(home_sections, libraries, library_sections, request_rows=None):
         properties['silo.%s.count' % page] = str(len(rows))
         for index in range(1, MAX_ROWS + 1):
             row = rows[index - 1] if index <= len(rows) else {}
-            for key in ('title', 'path', 'style', 'type'):
+            for key in ('title', 'path', 'style', 'type', 'sort', 'order', 'limit'):
                 properties['silo.%s.%d.%s' % (page, index, key)] = row.get(key, '')
             # The path again under the row's style, which is the only list
             # a skin should load from (it has one list per style per slot).

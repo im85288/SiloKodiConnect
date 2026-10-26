@@ -217,6 +217,10 @@ class Syncer(object):
         # written or whose play state moved (forget just those).
         self.rewrote = False
         self.touched = set()
+        # On a household profile (not the account's primary one) Silo lists
+        # only the titles that profile may see; Kodi keeps every title then,
+        # so nothing is removed, and only watch states follow the profile.
+        self.household = False
         self._base, self._span = 0.0, 100.0
 
     def step(self, fraction, message):
@@ -241,9 +245,12 @@ class Syncer(object):
 
     # ----- whole sync -----
 
-    def libraries(self, excluded=()):
+    def libraries(self, excluded=(), primary=True):
+        """The movie and series libraries to use: all of them (primary, the
+        sync's, which needs the account's primary profile), or the ones the
+        current profile can see."""
         wanted = []
-        for library in self.client.libraries():
+        for library in (self.client.libraries() if primary else self.client.user_libraries()):
             kind = (library.get('type') or '').lower()
             if not library.get('enabled', True) or str(library['id']) in excluded:
                 continue
@@ -259,10 +266,18 @@ class Syncer(object):
         pending, self.changed = self.changed, False
         with self.open_kodi() as kodi:
             kodi.setup_root_paths()
-        libraries = self.libraries(excluded)
+        try:
+            libraries = self.libraries(excluded)
+            self.household = False
+        except ApiError as error:
+            if error.status != 403:
+                raise
+            # Only the primary profile can list every library.
+            libraries = self.libraries(excluded, primary=False)
+            self.household = True
         wanted = set(str(library['id']) for library in libraries)
         for library_id in self.db.libraries():
-            if library_id not in wanted:
+            if library_id not in wanted and not self.household:
                 self.log('Removing library %s from Kodi' % library_id)
                 self.remove_library(library_id)
         for index, library in enumerate(libraries):
@@ -329,7 +344,8 @@ class Syncer(object):
                     if item:
                         self.write_movie(kodi, item, library, fingerprint)
         self.apply_states(states)
-        gone = [row for row in self.db.items('movie', library_id) if row['content_id'] not in seen]
+        gone = [] if self.household else \
+            [row for row in self.db.items('movie', library_id) if row['content_id'] not in seen]
         for batch in chunks(gone, BATCH):
             with self.open_kodi() as kodi:
                 for row in batch:
@@ -440,7 +456,9 @@ class Syncer(object):
                     if episodes is not None:
                         self.write_episodes(kodi, key[0], key[1], episodes, stale_seasons[key])
         self.apply_states(states)
-        # Remove what left Silo.
+        # Remove what left Silo (not what a household profile can't see).
+        if self.household:
+            return
         with self.open_kodi() as kodi:
             for row in self.db.items('episode', library_id):
                 if row['content_id'] not in seen_episodes:
@@ -584,7 +602,8 @@ class Syncer(object):
             item = self.client.item(content_id)
         except ApiError as error:
             if error.status == 404:
-                self.remove_item(content_id)
+                if not self.household:
+                    self.remove_item(content_id)
                 return
             raise
         kind = item.get('type')

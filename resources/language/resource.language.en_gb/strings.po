@@ -249,3 +249,11 @@ msgstr ""
 msgctxt "#30157"
 msgid "Connect this device to your Silo server"
 msgstr ""
+
+msgctxt "#30158"
+msgid "Switch to another Silo profile"
+msgstr ""
+
+msgctxt "#30159"
+msgid "Watching as %s"
+msgstr ""

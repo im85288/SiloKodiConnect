@@ -87,18 +87,27 @@ def _epoch(value):
     return moment.timestamp() if moment else None
 
 
-def choose_profile(store, client):
+def choose_profile(store, client, switching=False):
+    """Ask who's watching. On sign-in, backing out picks the main profile;
+    when switching, it keeps the current one (returns False)."""
     profiles = client.profiles()
     if not profiles:
-        return True
-    if len(profiles) == 1:
+        return not switching
+    current = store.get('profile_id')
+    if len(profiles) == 1 and not switching:
         chosen = profiles[0]
     else:
-        index = xbmcgui.Dialog().select(kodi.string(30104), [p.get('name') or p['id'] for p in profiles])
+        names = [p.get('name') or p['id'] for p in profiles]
+        at = next((i for i, p in enumerate(profiles) if p.get('id') == current), -1)
+        index = xbmcgui.Dialog().select(kodi.string(30104), names, preselect=at)
         if index < 0:
+            if switching:
+                return False
             chosen = next((p for p in profiles if p.get('is_primary')), profiles[0])
         else:
             chosen = profiles[index]
+    if switching and chosen.get('id') == current:
+        return False
     token = None
     if chosen.get('has_pin'):
         while True:

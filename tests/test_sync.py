@@ -658,3 +658,49 @@ def test_library_facts_line():
         '1,087 films  ·  529 series  ·  28,374 episodes'
     assert library_facts({'movie': 1}) == '1 film'
     assert library_facts({}) == ''
+
+
+def test_switching_profile_keeps_the_current_one_on_cancel(monkeypatch, tmp_path):
+    from resources.lib.silokodi import auth
+    from resources.lib.silokodi.store import Store
+    store = Store(str(tmp_path))
+    store.update(profile_id='me', profile_name='Ian')
+
+    class Client(object):
+        def profiles(self):
+            return [{'id': 'me', 'name': 'Ian'}, {'id': 'aurora', 'name': 'Aurora'}]
+
+    picks = []
+
+    class Dialog(object):
+        def select(self, heading, names, preselect=-1):
+            picks.append(preselect)
+            return answer[0]
+    monkeypatch.setattr(auth.xbmcgui, 'Dialog', Dialog)
+    answer = [-1]
+    assert auth.choose_profile(store, Client(), switching=True) is False
+    assert store.get('profile_id') == 'me' and picks == [0]  # the current profile preselected
+    answer = [0]
+    assert auth.choose_profile(store, Client(), switching=True) is False  # the same one: nothing to do
+    answer = [1]
+    assert auth.choose_profile(store, Client(), switching=True) is True
+    assert store.get('profile_id') == 'aurora' and store.get('profile_name') == 'Aurora'
+
+
+def test_a_household_profiles_libraries_come_from_its_own_list(syncer, silo):
+    # The sync's list needs the primary profile; the layout's doesn't.
+    assert [lib['id'] for lib in syncer.libraries(primary=False)] == [lib['id'] for lib in syncer.libraries()]
+
+
+def test_a_household_profile_keeps_every_title(syncer, silo, query):
+    from resources.lib.silokodi.api import ApiError
+    syncer.sync()
+    assert len(query('SELECT idMovie FROM movie')) == 2
+    # As a household profile: /libraries is refused and Silo lists fewer titles.
+    def refused():
+        raise ApiError(403, 'permission_denied', "Admin access requires the account's primary profile")
+    silo.libraries = refused
+    del silo.movies['movie-2']
+    syncer.sync()
+    assert syncer.household is True
+    assert len(query('SELECT idMovie FROM movie')) == 2  # Thief stays in Kodi

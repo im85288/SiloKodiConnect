@@ -57,6 +57,8 @@ def run(argv):
         return sign_in()
     if mode == 'signout':
         return sign_out()
+    if mode == 'profile':
+        return switch_profile()
     if mode == 'reload_skin':
         # For skin development: reload the skin's XML without restarting Kodi.
         xbmcplugin.setResolvedUrl(handle, False, xbmcgui.ListItem(offscreen=True))
@@ -117,6 +119,24 @@ def sign_in():
     if auth.sign_in(store):
         ask_service('command/signed_in', timeout=10)
         kodi.notify(kodi.string(30107) % (store.get('profile_name') or store.get('username') or ''))
+
+
+def switch_profile():
+    """Watch as another of the account's Silo profiles: the service then
+    brings Home's rows, Requests and watch states in line with it."""
+    from . import auth
+    from .api import ApiError, SiloClient
+    store = Store(kodi.profile_dir())
+    client = SiloClient(store, kodi.version(), xbmc.getInfoLabel('System.FriendlyName'))
+    try:
+        switched = auth.choose_profile(store, client, switching=True)
+    except ApiError as error:
+        kodi.notify(str(error))
+        return
+    if switched:
+        ask_service('command/profile_switched', timeout=10)
+        kodi.notify(kodi.string(30159) % (store.get('profile_name') or ''))
+        xbmc.executebuiltin('Container.Refresh')
 
 
 def sign_out():
@@ -457,7 +477,7 @@ def menu(base, handle):
     # (silo.menu.icon names one of its own) and the description under the label.
     if store.signed_in:
         who = store.get('profile_name') or store.get('username') or ''
-        entries.append((kodi.string(30130) % (who, store.get('server_url')), None, '', 'profile'))
+        entries.append((kodi.string(30130) % (who, store.get('server_url')), 'profile', kodi.string(30158), 'profile'))
         entries.append((kodi.string(30137), 'widget', kodi.string(30150), 'play'))
         entries.append((kodi.string(30138), 'sections', kodi.string(30151), 'rows'))
         entries.append((kodi.string(30131), 'sync', kodi.string(30152), 'sync'))

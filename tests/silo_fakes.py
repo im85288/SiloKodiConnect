@@ -90,6 +90,11 @@ class FakeSilo(object):
     def libraries(self):
         return copy.deepcopy(self.libraries_list)
 
+    def user_libraries(self):
+        # A household profile: Silo lists the libraries it can see, unflagged.
+        return [{k: v for k, v in library.items() if k != 'enabled'}
+                for library in copy.deepcopy(self.libraries_list) if library.get('enabled', True)]
+
     def catalog(self, library_id, media_type):
         self.calls.append(('catalog', library_id, media_type))
         if library_id == '1' and media_type == 'movie':

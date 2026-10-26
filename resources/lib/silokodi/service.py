@@ -566,6 +566,13 @@ class Service(object):
             self.signed_out_notice = False
             self.stop_listener()
             self.next_sync = 0
+        elif name == 'profile_switched':
+            # Another profile: its own rows, requests and watch states.
+            self.store.reload()
+            self.stop_listener()
+            self.db.set_meta('history_since', None)  # its own watch history, from the start
+            self.enqueue('layout')
+            self.next_sync = 0
         elif name == 'signout':
             self.client.logout()
             self.stop_listener()
@@ -758,7 +765,8 @@ class Service(object):
         properties silo.*), following the profile's Silo home and libraries."""
         home = self.client.get('/home/sections').get('sections') or []
         self.home_rows = home
-        libraries = self.syncer.libraries(self.excluded())
+        # The profile's own libraries: a household profile can't list them all.
+        libraries = self.syncer.libraries(self.excluded(), primary=False)
         library_sections = {}
         for library in libraries:
             try:
@@ -778,6 +786,7 @@ class Service(object):
         self.apply_layout()
         self.db.set_meta('layout', self.layout)
         kodi.set_property('layout_updated', str(int(time.time())))
+        self.home_cards_soon()  # the cards for this layout's rows (a profile's own)
 
     def apply_layout(self, page=None):
         """Set the layout's Home window properties: all of them, or (page) only

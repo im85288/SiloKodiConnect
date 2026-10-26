@@ -203,6 +203,11 @@ class SiloClient(object):
     def libraries(self):
         return self.get('/libraries').get('items') or []
 
+    def user_libraries(self):
+        """The libraries this profile can see (any profile; /libraries is
+        the primary profile's only), the ones it hid from its menus too."""
+        return self.get('/user/libraries', include_hidden='true').get('items') or []
+
     def catalog(self, library_id, media_type):
         """Every card of one type in a library, in a stable order."""
         return self.pages('/catalog', library_id=library_id, type=media_type, sort='added_at',

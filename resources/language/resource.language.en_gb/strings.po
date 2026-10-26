@@ -217,3 +217,35 @@ msgstr ""
 msgctxt "#30141"
 msgid "Your Silo library is in Kodi"
 msgstr ""
+
+msgctxt "#30150"
+msgid "Your titles in progress and next episodes, in Silo's order"
+msgstr ""
+
+msgctxt "#30151"
+msgid "Every row from Silo's Home"
+msgstr ""
+
+msgctxt "#30152"
+msgid "Check Silo for new titles and watch status"
+msgstr ""
+
+msgctxt "#30153"
+msgid "Choose which Silo libraries appear in Kodi"
+msgstr ""
+
+msgctxt "#30154"
+msgid "Write every title into Kodi again; takes a few minutes"
+msgstr ""
+
+msgctxt "#30155"
+msgid "Sign this device out of Silo"
+msgstr ""
+
+msgctxt "#30156"
+msgid "Take everything SiloKodiConnect added out of Kodi's library"
+msgstr ""
+
+msgctxt "#30157"
+msgid "Connect this device to your Silo server"
+msgstr ""

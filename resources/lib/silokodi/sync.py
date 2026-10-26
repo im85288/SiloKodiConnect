@@ -252,8 +252,11 @@ class Syncer(object):
         return wanted
 
     def sync(self, excluded=()):
-        """Sync every chosen library. Returns True if Kodi's library changed."""
-        self.changed = False
+        """Sync every chosen library. Returns True if this sync changed Kodi's
+        library. A change an earlier sync made stays flagged until the
+        service has handled it (its cache, Kodi's lists, Home's cards): a
+        sync queued right behind a full resync must not wipe it out."""
+        pending, self.changed = self.changed, False
         with self.open_kodi() as kodi:
             kodi.setup_root_paths()
         libraries = self.libraries(excluded)
@@ -269,7 +272,8 @@ class Syncer(object):
             self.progress(int(self._base), library.get('name') or '')
             self.sync_library(library)
         self.progress(100, '')
-        return self.changed
+        changed, self.changed = self.changed, self.changed or pending
+        return changed
 
     def sync_library(self, library):
         kind = (library.get('type') or '').lower()

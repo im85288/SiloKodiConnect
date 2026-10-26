@@ -617,3 +617,36 @@ def test_an_empty_kodi_library_row_gets_no_path(monkeypatch):
     assert set_props['silo.movies.2.poster'] == 'videodb://movies/titles/?xsp=recent&refresh=7'
     assert set_props['silo.movies.3.poster'] == 'plugin://x/?mode=widget&refresh=7'
     assert len(asked) == 2  # each path asked once, until the library changes
+
+
+def test_dolby_vision_hdr10_plus_and_atmos_as_silo_names_them():
+    from resources.lib.silokodi import mapping
+    # MobLand S2E3 as Silo lists it: Dolby Vision with HDR10+, Atmos in EAC3.
+    episode = {'files': [{'resolution': '2160p', 'codec_video': 'hevc', 'hdr': True, 'audio_channels': 6}],
+               'overlay_summary': {'hdr': 'DV HDR10+', 'audio': 'Atmos'}}
+    details = mapping.episode_stream_details(episode)
+    assert details['video'][0]['hdr'] == 'dolbyvision'
+    assert details['audio'][0]['codec'] == 'eac3_ddp_atmos'
+    version = {'video_tracks': [{'codec': 'hevc', 'width': 3840, 'height': 1600, 'dolby_vision': 'Profile 8',
+                                 'video_range_type': 'DOVIWithHDR10Plus'}],
+               'audio_tracks': [{'codec': 'eac3', 'profile': 'Dolby Digital Plus + Dolby Atmos', 'channels': 6,
+                                 'language': 'en'}]}
+    full = mapping.stream_details(version)
+    assert full['video'][0]['hdr'] == 'dolbyvision' and full['audio'][0]['codec'] == 'eac3_ddp_atmos'
+    assert mapping.hdr_type({'video_range_type': 'HDR10Plus'}, {}) == 'hdr10plus'
+    assert mapping.overlay_hdr('HDR10+') == 'hdr10plus' and mapping.overlay_hdr('', 'hdr10') == 'hdr10'
+    kodi = {'video': [{'width': 3840, 'height': 1600, 'hdrtype': 'dolbyvision'}],
+            'audio': [{'codec': 'eac3_ddp_atmos', 'channels': 6, 'language': 'en'}]}
+    assert mapping.quality_badges(kodi) == ['4K', 'DOLBY VISION', 'ATMOS 5.1']
+    assert mapping.tech_lines(kodi)['silo.audio'] == 'English · EAC3 · 5.1'
+
+
+
+def test_a_second_sync_keeps_the_first_ones_change_pending(syncer):
+    # A full resync, then the regular sync queued behind it before the
+    # service handled the first one's change: it must still be flagged.
+    assert syncer.sync() is True
+    assert syncer.sync() is False
+    assert syncer.changed is True
+    syncer.changed = False  # the service handled it
+    assert syncer.sync() is False and syncer.changed is False

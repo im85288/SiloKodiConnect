@@ -216,6 +216,8 @@ def hdr_type(track, version):
     kind = (track.get('video_range_type') or track.get('video_range') or '').lower()
     if 'hlg' in kind or transfer == 'arib-std-b67':
         return 'hlg'
+    if 'hdr10plus' in kind or 'hdr10+' in kind:
+        return 'hdr10plus'
     if 'hdr10' in kind or 'pq' in kind or transfer == 'smpte2084' or version.get('hdr'):
         return 'hdr10'
     return ''
@@ -251,11 +253,20 @@ def stream_details(version):
         width, height = RESOLUTION_SIZES.get((version.get('resolution') or '').lower(), (None, None))
         video.append({'codec': version['codec_video'], 'aspect': None, 'width': width, 'height': height,
                       'hdr': 'hdr10' if version.get('hdr') else '', 'stereo': ''})
-    audio = [{'codec': track.get('codec') or '', 'channels': track.get('channels'),
+    audio = [{'codec': audio_codec(track.get('codec'), track.get('profile')), 'channels': track.get('channels'),
               'language': track.get('language') or ''}
              for track in version.get('audio_tracks') or []]
     subtitles = [track.get('language') or '' for track in version.get('subtitle_tracks') or []]
     return {'video': video, 'audio': audio, 'subtitle': subtitles}
+
+
+def audio_codec(codec, profile=''):
+    """Kodi's codec name for a track, with Atmos as Kodi's own players name
+    it (eac3_ddp_atmos, truehd_atmos), from Silo's profile ("... Atmos")."""
+    codec = (codec or '').lower()
+    if 'atmos' in (profile or '').lower() and codec in ('eac3', 'truehd'):
+        return 'eac3_ddp_atmos' if codec == 'eac3' else 'truehd_atmos'
+    return codec
 
 
 def episode_stream_details(episode):
@@ -269,7 +280,7 @@ def episode_stream_details(episode):
     # Silo's card summary names the HDR format and audio codec the file
     # summary leaves out (HDR10+, EAC3), as Silo's badges show them.
     overlay = episode.get('overlay_summary') or {}
-    hdr = OVERLAY_HDR.get((overlay.get('hdr') or '').lower(), 'hdr10' if first.get('hdr') else '')
+    hdr = overlay_hdr(overlay.get('hdr'), 'hdr10' if first.get('hdr') else '')
     if first.get('codec_video'):
         details['video'].append({'codec': first['codec_video'], 'aspect': None, 'width': width,
                                  'height': height, 'hdr': hdr, 'stereo': ''})
@@ -279,10 +290,22 @@ def episode_stream_details(episode):
     return details
 
 
+def overlay_hdr(label, default=''):
+    """Kodi's HDR type for Silo's card label, which can name several formats
+    ("DV HDR10+"): the first one Kodi knows, Dolby Vision ahead of the rest."""
+    label = (label or '').lower()
+    if label in OVERLAY_HDR:
+        return OVERLAY_HDR[label]
+    for part in label.split():
+        if part in OVERLAY_HDR:
+            return OVERLAY_HDR[part]
+    return default
+
+
 # Silo's overlay_summary labels to Kodi's stream detail names.
 OVERLAY_HDR = {'hdr10': 'hdr10', 'hdr10+': 'hdr10plus', 'dolby vision': 'dolbyvision', 'dv': 'dolbyvision',
                'hlg': 'hlg'}
-OVERLAY_AUDIO = {'eac3': 'eac3', 'e-ac3': 'eac3', 'ac3': 'ac3', 'truehd': 'truehd', 'dts': 'dts',
+OVERLAY_AUDIO = {'atmos': 'eac3_ddp_atmos', 'truehd atmos': 'truehd_atmos', 'eac3': 'eac3', 'e-ac3': 'eac3', 'ac3': 'ac3', 'truehd': 'truehd', 'dts': 'dts',
                  'dts-hd ma': 'dtshd_ma', 'dts-hd': 'dtshd_ma', 'aac': 'aac', 'flac': 'flac', 'opus': 'opus',
                  'mp3': 'mp3'}
 
@@ -379,8 +402,9 @@ def episode_fields(episode, added_at=None):
 # ----- what a Silo-style skin shows about the focused title -----
 
 RATING_SOURCES = {'imdb': 'IMDb', 'themoviedb': 'TMDB', 'tmdb': 'TMDB', 'trakt': 'Trakt'}
-AUDIO_CODECS = {'truehd': 'TRUEHD', 'eac3': 'EAC3', 'ac3': 'AC3', 'dts': 'DTS', 'dtshd_ma': 'DTS-HD MA',
+AUDIO_CODECS = {'eac3_ddp_atmos': 'ATMOS', 'truehd_atmos': 'ATMOS', 'truehd': 'TRUEHD', 'eac3': 'EAC3', 'ac3': 'AC3', 'dts': 'DTS', 'dtshd_ma': 'DTS-HD MA',
                 'dca': 'DTS', 'aac': 'AAC', 'flac': 'FLAC', 'opus': 'OPUS', 'mp3': 'MP3'}
+ATMOS_BASE = {'eac3_ddp_atmos': 'eac3', 'truehd_atmos': 'truehd'}
 CHANNEL_LAYOUTS = {8: '7.1', 7: '6.1', 6: '5.1', 2: '2.0', 1: 'MONO'}
 HDR_LABELS = {'dolbyvision': 'DOLBY VISION', 'hdr10': 'HDR10', 'hdr10plus': 'HDR10+', 'hlg': 'HLG'}
 MONTHS = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
@@ -409,7 +433,8 @@ def tech_lines(streamdetails):
     version = [badges[0]] if badges and badges[0] in ('4K', '1080P', '720P', 'SD') else []
     if video.get('hdrtype'):
         version.append('HDR')
-    codec = (audio.get('codec') or '').lower()
+    # The info line names the codec (Silo: "English · EAC3 · 5.1"); Atmos is a badge.
+    codec = ATMOS_BASE.get((audio.get('codec') or '').lower(), (audio.get('codec') or '').lower())
     audio_parts = [part for part in (language_name(audio.get('language')),
                                      AUDIO_CODECS.get(codec, codec.upper()),
                                      CHANNEL_LAYOUTS.get(audio.get('channels') or 0, '')) if part]

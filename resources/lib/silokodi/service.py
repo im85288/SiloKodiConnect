@@ -13,7 +13,7 @@ import requests
 import xbmc
 import xbmcgui
 
-from . import jump, kodi, kodidb, mapping, upnext
+from . import jump, kodi, kodidb, mapping, tracks, upnext
 from .api import ApiError, SignedOut, SiloClient
 from .events import Debouncer, EventListener
 from .playback import PlaybackError, PlaybackManager
@@ -126,6 +126,8 @@ class Monitor(xbmc.Monitor):
 
     def onNotification(self, sender, method, data):
         if jump.handle(sender, method):  # a skin's A-Z bar
+            return
+        if tracks.handle(sender, method):  # a skin's player sheet
             return
         if method.endswith(upnext.PLAY_ACTION):
             # Up Next chose to play the next episode: open it as the library item.

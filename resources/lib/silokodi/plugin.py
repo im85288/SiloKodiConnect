@@ -453,20 +453,25 @@ def library_item(kind, kodi_id, shows=None, cached=None):
 def menu(base, handle):
     store = Store(kodi.profile_dir())
     entries = []
+    # (label, mode, description, icon): a Silo-style skin draws the icon
+    # (silo.menu.icon names one of its own) and the description under the label.
     if store.signed_in:
         who = store.get('profile_name') or store.get('username') or ''
-        entries.append((kodi.string(30130) % (who, store.get('server_url')), None))
-        entries.append((kodi.string(30137), 'widget'))
-        entries.append((kodi.string(30138), 'sections'))
-        entries.append((kodi.string(30131), 'sync'))
-        entries.append((kodi.string(30132), 'libraries'))
-        entries.append((kodi.string(30133), 'fullsync'))
-        entries.append((kodi.string(30134), 'signout'))
-        entries.append((kodi.string(30135), 'reset'))
+        entries.append((kodi.string(30130) % (who, store.get('server_url')), None, '', 'profile'))
+        entries.append((kodi.string(30137), 'widget', kodi.string(30150), 'play'))
+        entries.append((kodi.string(30138), 'sections', kodi.string(30151), 'rows'))
+        entries.append((kodi.string(30131), 'sync', kodi.string(30152), 'sync'))
+        entries.append((kodi.string(30132), 'libraries', kodi.string(30153), 'libraries'))
+        entries.append((kodi.string(30133), 'fullsync', kodi.string(30154), 'rewrite'))
+        entries.append((kodi.string(30134), 'signout', kodi.string(30155), 'signout'))
+        entries.append((kodi.string(30135), 'reset', kodi.string(30156), 'remove'))
     else:
-        entries.append((kodi.string(30136), 'signin'))
-    for label, mode in entries:
+        entries.append((kodi.string(30136), 'signin', kodi.string(30157), 'profile'))
+    for label, mode, description, icon in entries:
         item = xbmcgui.ListItem(label, offscreen=True)
+        item.setProperty('silo.menu.icon', icon)
+        item.setProperty('silo.menu.description', description)
+        item.getVideoInfoTag().setPlot(description)
         url = '%s?mode=%s' % (base, mode) if mode else ''
         xbmcplugin.addDirectoryItem(handle, url, item, isFolder=mode in ('widget', 'sections'))
     xbmcplugin.endOfDirectory(handle, cacheToDisc=False)

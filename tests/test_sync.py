@@ -650,3 +650,11 @@ def test_a_second_sync_keeps_the_first_ones_change_pending(syncer):
     assert syncer.changed is True
     syncer.changed = False  # the service handled it
     assert syncer.sync() is False and syncer.changed is False
+
+
+def test_library_facts_line():
+    from resources.lib.silokodi.service import library_facts
+    assert library_facts({'movie': 1087, 'tvshow': 529, 'episode': 28374, 'season': 2125}) == \
+        '1,087 films  ·  529 series  ·  28,374 episodes'
+    assert library_facts({'movie': 1}) == '1 film'
+    assert library_facts({}) == ''

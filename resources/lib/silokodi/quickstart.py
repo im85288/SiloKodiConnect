@@ -48,6 +48,19 @@ def home_properties(layout, cards):
     return props
 
 
+def facts(folder):
+    """The facts line the service saved (a skin's header shows it at once)."""
+    try:
+        connection = sqlite3.connect(os.path.join(folder, 'silokodi.db'), timeout=5)
+        try:
+            row = connection.execute("SELECT value FROM meta WHERE key = 'library_facts'").fetchone()
+        finally:
+            connection.close()
+        return json.loads(row[0]) if row and row[0] else ''
+    except (sqlite3.Error, ValueError):
+        return ''
+
+
 def apply():
     try:
         folder = xbmcvfs.translatePath(xbmcaddon.Addon(ADDON_ID).getAddonInfo('profile'))
@@ -55,6 +68,7 @@ def apply():
     except Exception:  # never stop the service starting
         return 0
     home = xbmcgui.Window(10000)
+    props['silo.library.facts'] = facts(folder)
     for key, value in props.items():
         home.setProperty(key, value)
     return len(props)

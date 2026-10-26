@@ -119,6 +119,15 @@ class Player(xbmc.Player):
         self.service.playback.on_tick(self.last_time, paused)
 
 
+def library_facts(counts):
+    """'1,087 films · 529 series · 28,374 episodes', leaving out what's missing."""
+    parts = [('{:,} %s' % (single if n == 1 else plural)).format(n)
+             for kind, single, plural in (('movie', 'film', 'films'), ('tvshow', 'series', 'series'),
+                                          ('episode', 'episode', 'episodes'))
+             for n in [counts.get(kind) or 0] if n]
+    return '  ·  '.join(parts)
+
+
 class Monitor(xbmc.Monitor):
     def __init__(self, service):
         xbmc.Monitor.__init__(self)
@@ -271,6 +280,7 @@ class Service(object):
         saved library details at once, then Silo's current layout before the
         sync, which waits a minute so it doesn't compete with Home loading on a
         small device (the first sync ever runs at once)."""
+        self.publish_library_facts()  # a skin's header: what the library holds
         loaded = self.details.load(self.details_path())
         if loaded:
             self.next_recheck = time.time() + STARTUP_QUIET
@@ -419,10 +429,17 @@ class Service(object):
                 self.progress_dialog = None
         self.db.set_meta('history_since', self.syncer.sync_history(self.db.meta('history_since')))
         self.publish_layout_safely()
+        self.publish_library_facts()
         kodi.log('Sync finished in %.0f s' % (time.time() - started))
         if first:
             self.db.set_meta('first_sync_done', True)
             kodi.notify(kodi.string(30141))
+
+    def publish_library_facts(self):
+        """A Silo-style skin's facts line: what the library holds."""
+        counts = self.db.counts()
+        xbmcgui.Window(10000).setProperty('silo.library.facts', library_facts(counts))
+        self.db.set_meta('library_facts', library_facts(counts))
 
     def sync_progress(self, percent, message):
         if self.progress_dialog:

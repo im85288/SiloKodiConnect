@@ -83,6 +83,10 @@ class SyncDB(object):
             return self._query('SELECT * FROM items WHERE kind = ?', (kind,))
         return self._query('SELECT * FROM items WHERE kind = ? AND library_id = ?', (kind, library_id))
 
+    def counts(self):
+        """{kind: how many} for every kind of item synced."""
+        return {row['kind']: row['n'] for row in self._query('SELECT kind, COUNT(*) AS n FROM items GROUP BY kind')}
+
     def children(self, parent_id, kind=None):
         if kind:
             return self._query('SELECT * FROM items WHERE parent_id = ? AND kind = ?', (parent_id, kind))

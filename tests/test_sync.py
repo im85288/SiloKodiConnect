@@ -532,3 +532,17 @@ def test_home_cards_carry_silos_text_and_resolved_art():
     props = rows.row_properties(2, [movie])
     assert props['silo.home.2.1.label'] == 'Heat' and props['silo.home.2.cards'] == '1'
     assert props['silo.home.2.2.label'] == '' and 'silo.home.2.%d.label' % rows.CARDS in props
+
+
+def test_quickstart_sets_home_from_what_the_service_saved(tmp_path):
+    from resources.lib.silokodi import quickstart
+    from resources.lib.silokodi.syncdb import SyncDB
+    assert quickstart.saved(str(tmp_path)) == ({}, {})
+    db = SyncDB(str(tmp_path))
+    db.set_meta('layout', {'silo.pages': 'home,movies', 'silo.home.1.landscape': 'plugin://x/?a=1',
+                           'silo.movies.1.poster': 'plugin://x/?b=2', 'silo.movies.1.title': 'Recently Added'})
+    db.set_meta('home_cards', {'silo.home.1.1.label': 'Heat'})
+    db.close()
+    props = quickstart.home_properties(*quickstart.saved(str(tmp_path)))
+    assert props['silo.home.1.landscape'] == 'plugin://x/?a=1' and props['silo.movies.1.poster'] == ''
+    assert props['silo.movies.1.title'] == 'Recently Added' and props['silo.home.1.1.label'] == 'Heat'

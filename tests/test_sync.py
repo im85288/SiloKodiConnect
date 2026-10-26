@@ -558,6 +558,10 @@ def test_a_requestable_title_card_and_page_prefixes():
     assert card['hero.meta'] == '2022 · TMDB 8.4' and card['art.fanart'] == 'b.jpg'
     props = rows.row_properties(3, [card], 'requests')
     assert props['silo.requests.3.1.request.type'] == 'series' and props['silo.requests.3.cards'] == '1'
+    # A Requests row has the skin's 12 slots, not Home's 25.
+    props = rows.row_properties(3, [card] * 20, 'requests', 12)
+    assert props['silo.requests.3.cards'] == '12' and 'silo.requests.3.12.type' in props
+    assert 'silo.requests.3.13.type' not in props
 
 
 def test_library_rows_kodi_can_order_load_natively():

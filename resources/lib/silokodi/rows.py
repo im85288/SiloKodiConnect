@@ -4,8 +4,8 @@
 A plugin row costs Kodi starting Python every time the row loads (about
 0.5 s a row on a SHIELD, most of a row's time), and a Kodi library list
 can't keep Silo's order (a title is #1 in one row and #7 in another). So
-the service publishes Home's rows' cards, in Silo's order, as Home window
-properties (Movies' and Series' rows Kodi can order load from the library;
+the service publishes Home's and Requests' rows' cards, in Silo's order,
+as Home window properties (Movies' and Series' rows Kodi can order load from the library;
 the others stay plugin rows, as static cards for every page made the skin
 slow to load):
 
@@ -77,13 +77,14 @@ def request_card(card):
     }
 
 
-def row_properties(row, cards, page='home'):
+def row_properties(row, cards, page='home', count=CARDS):
     """Every property for a page's row `row` (1-based): its cards, then
-    empty values for the slots it doesn't fill, so a shorter row leaves none."""
+    empty values for the `count` slots it doesn't fill, so a shorter row
+    leaves none."""
     props = {}
-    for index in range(1, CARDS + 1):
+    for index in range(1, count + 1):
         fields = cards[index - 1] if index <= len(cards) else {}
         for field in FIELDS:
             props['silo.%s.%d.%d.%s' % (page, row, index, field)] = fields.get(field, '')
-    props['silo.%s.%d.cards' % (page, row)] = str(min(len(cards), CARDS))
+    props['silo.%s.%d.cards' % (page, row)] = str(min(len(cards), count))
     return props

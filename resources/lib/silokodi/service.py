@@ -55,7 +55,9 @@ def release_memory():
 
 # After Kodi starts, how long the sync and the check of the saved details
 # wait, so Home's rows load first on a small device.
-PUBLISHED_PAGES = ('home',)  # pages whose rows are published as cards
+# Pages whose rows are published as cards, with how many cards a row has
+# (the skin's slots: every slot costs it load time).
+PUBLISHED_PAGES = {'home': 25, 'requests': 12}
 STARTUP_QUIET = 60
 PAGE_LOADING = 6  # seconds a page's rows show while they start loading (then empty ones hide)
 DETAILS_SAVE_INTERVAL = 30
@@ -566,7 +568,9 @@ class Service(object):
         elif name == 'request':
             try:
                 seasons = [int(n) for n in (query.get('seasons') or '').split(',') if n.strip().isdigit()]
-                return self.make_request(query.get('type') or 'movie', query.get('tmdb') or '', seasons)
+                answer = self.make_request(query.get('type') or 'movie', query.get('tmdb') or '', seasons)
+                self.home_cards_soon()  # Your requests shows it
+                return answer
             except (ApiError, requests.RequestException) as error:
                 return {'error': str(error)}
         elif name == 'collections':
@@ -794,15 +798,15 @@ class Service(object):
             self.home_cards_due = time.time() + delay
 
     def publish_home_cards(self):
-        """Every page's rows (Home, Movies, Series, Requests), in Silo's order,
-        as Home window properties a skin draws without a plugin (rows.py).
-        Only changed values are set."""
+        """Home's and Requests' rows, in Silo's order, as Home window
+        properties a skin draws without a plugin (rows.py). Only changed
+        values are set."""
         if not self.page_sources:
             return
         props = {}
-        # Home only: Movies and Series rows Kodi can order load natively, and
+        # Not Movies and Series: the rows Kodi can order load natively, and
         # every published slot costs the skin load time (see the skin).
-        for page in PUBLISHED_PAGES:
+        for page, count in PUBLISHED_PAGES.items():
             for row, (row_id, library_id) in enumerate(self.page_sources.get(page, [])[:MAX_ROWS], 1):
                 try:
                     cards = self.page_cards(page, row_id, library_id)
@@ -813,7 +817,7 @@ class Service(object):
                     prefix = 'silo.%s.%d.' % (page, row)
                     props.update({key: value for key, value in self.home_cards.items() if key.startswith(prefix)})
                     continue
-                props.update(home_cards.row_properties(row, cards, page))
+                props.update(home_cards.row_properties(row, cards[:count], page, count))
         home = xbmcgui.Window(10000)
         changed = 0
         for key, value in props.items():

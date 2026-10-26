@@ -21,7 +21,8 @@ from . import mapping
 CARDS = 25  # cards per row; Silo's rows go up to 50, Home shows far fewer
 FIELDS = ('type', 'dbid', 'label', 'card.title', 'card.sub', 'card.wide_sub', 'hero.title', 'hero.meta',
           'hero.detail', 'plot', 'mpaa', 'badge1', 'badge2', 'badge3', 'tint', 'percent', 'playcount',
-          'art.poster', 'art.landscape', 'art.fanart', 'art.clearlogo', 'request.type', 'request.tmdb')
+          'art.poster', 'art.landscape', 'art.fanart', 'art.clearlogo', 'request.type', 'request.tmdb',
+          'status.tint', 'status.seg1', 'status.seg2', 'status.seg3', 'status.seg4')
 
 
 def card(kind, details, show=None, tint=''):
@@ -66,7 +67,7 @@ def request_card(card):
     """A title Silo can request (mapping.request_card), as a card."""
     meta = ' · '.join(part for part in (str(card.get('year') or ''),
                                         'TMDB %.1f' % card['rating'] if card.get('rating') else '') if part)
-    return {
+    props = {
         'type': 'request', 'label': card.get('title') or '',
         'card.title': card.get('title') or '', 'card.sub': card.get('label') or '',
         'card.wide_sub': card.get('label') or '', 'hero.title': card.get('title') or '',
@@ -75,6 +76,20 @@ def request_card(card):
         'art.fanart': card.get('backdrop') or '',
         'request.type': card.get('type') or '', 'request.tmdb': str(card.get('tmdb') or ''),
     }
+    props.update(request_status(card))
+    return props
+
+
+def request_status(card):
+    """A request's status for a Silo-style skin: the dot colour beside the
+    card's caption, the hero's phrase, and the colours of Silo's four-step
+    track under it (steps behind it white, the one it is on in its colour)."""
+    props = {'status.tint': card.get('tint') or '', 'hero.detail': card.get('long') or card.get('label') or ''}
+    for step in range(1, mapping.REQUEST_STEPS + 1):
+        colour = '' if not card.get('label') else 'FFEDEDED' if step <= (card.get('done') or 0) \
+            else card.get('tint') if step == card.get('step') else '33FFFFFF'
+        props['status.seg%d' % step] = colour or ''
+    return props
 
 
 def row_properties(row, cards, page='home', count=CARDS):

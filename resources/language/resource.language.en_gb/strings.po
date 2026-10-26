@@ -257,3 +257,15 @@ msgstr ""
 msgctxt "#30159"
 msgid "Watching as %s"
 msgstr ""
+
+msgctxt "#30160"
+msgid "Watchlist"
+msgstr ""
+
+msgctxt "#30161"
+msgid "Favorites"
+msgstr ""
+
+msgctxt "#30162"
+msgid "History"
+msgstr ""

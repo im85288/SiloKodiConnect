@@ -235,6 +235,7 @@ def request_row(base, handle, row):
             item = library_item(card['kind'], card['kodi_id'])
             if item:
                 item[1].setProperty('silo.request.label', card.get('label') or '')
+                item[1].setProperty('silo.request.tint', card.get('tint') or '')
                 xbmcplugin.addDirectoryItem(handle, item[0], item[1], isFolder=item[2])
             continue
         url = '%s?%s' % (base, urlencode({'mode': 'request', 'type': card['type'], 'tmdb': card['tmdb']}))
@@ -257,6 +258,7 @@ def request_listitem(card):
         tag.setRating(float(card['rating']))
     listitem.setProperties({'silo.request.type': card['type'], 'silo.request.tmdb': str(card['tmdb']),
                             'silo.request.label': card['label'], 'silo.request.state': card['state'],
+                            'silo.request.tint': card.get('tint') or '',
                             'silo.request.requestable': 'true' if card['requestable'] else 'false',
                             'silo.rating': 'TMDB %.1f' % card['rating'] if card.get('rating') else ''})
     return listitem

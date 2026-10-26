@@ -572,6 +572,57 @@ REQUEST_STATES = {'pending': 'Requested', 'approved': 'Approved', 'processing': 
                   'cancelled': 'Cancelled', 'failed': 'Failed'}
 
 
+# Silo's request status colours (RequestColors) as Kodi colours.
+REQUEST_TINTS = {'amber': 'FFF59E0B', 'sky': 'FF38BDF8', 'emerald': 'FF34D399', 'rose': 'FFFB7185',
+                 'neutral': '99EDEDED'}
+REQUEST_STEPS = 4  # Requested, Approved, Downloading, In your library
+
+
+def request_progress(state, status='', outcome='', available=False, requestable=False):
+    """What Silo's TV app shows for a request (RequestDisplayState and
+    RequestProgress): {'label', 'long', 'tint', 'done', 'step'} with the short
+    card caption, the hero's phrase, the dot colour, the steps behind it and
+    the step it is on (1-4, 0 for none); None for a title with nothing to show
+    (it can simply be requested)."""
+    def progress(label, long, tint, done, step):
+        return {'label': label, 'long': long, 'tint': REQUEST_TINTS[tint], 'done': done, 'step': step}
+    display = {'pending': 'pending', 'approved': 'on_the_way', 'processing': 'on_the_way',
+               'partially_available': 'on_the_way', 'available': 'in_library', 'declined': 'declined',
+               'failed': 'failed', 'cancelled': 'unavailable'}.get(state or '')
+    if not display:
+        if outcome in ('declined', 'failed'):
+            display = outcome
+        elif outcome == 'cancelled':
+            display = 'unavailable'
+        elif available and not outcome:
+            display = 'in_library'
+        elif status:
+            display = {'pending': 'pending', 'completed': 'in_library', 'failed': 'failed'}.get(status, 'on_the_way')
+        elif requestable or outcome:
+            return None
+        else:
+            display = 'unavailable'
+    if display == 'pending':
+        return progress('Pending', 'Waiting for approval', 'amber', 1, 2)
+    if display == 'on_the_way':
+        if state == 'partially_available':
+            return progress('Partly in library', 'Partly in your library', 'sky', 3, 4)
+        if status == 'downloading':
+            return progress('Downloading', 'Downloading', 'sky', 2, 3)
+        if status == 'completed':
+            return progress('Adding to library', 'Adding to your library', 'sky', 3, 4)
+        if status in ('approved', 'queued'):
+            return progress('Queued', 'Queued for download', 'sky', 2, 3)
+        return progress('On the way', 'On the way', 'sky', 2, 3)
+    if display == 'in_library':
+        return progress('In library', 'In your library', 'emerald', REQUEST_STEPS, 0)
+    if display == 'declined':
+        return progress('Declined', 'Declined', 'rose', 1, 2)
+    if display == 'failed':
+        return progress('Failed', 'Request failed', 'rose', 2, 3)
+    return progress('Unavailable', 'Unavailable', 'neutral', 0, 0)
+
+
 def request_card(item):
     """A request, or a title Silo can request, as a card for a skin: TMDB
     artwork, Silo's one state to show and whether it can be requested now."""
@@ -580,13 +631,18 @@ def request_card(item):
     if item.get('availability') == 'available' or (item.get('library_content_id') and not state):
         state = state or 'available'
     poster, backdrop = item.get('poster_path') or '', item.get('backdrop_path') or ''
+    shown = request_progress(item.get('state') or request.get('state'), item.get('status') or request.get('status') or '',
+                             item.get('outcome') or '', item.get('availability') == 'available'
+                             or bool(item.get('library_content_id') and not state),
+                             bool(request.get('requestable'))) or {}
     return {'type': item.get('media_type') or 'movie', 'tmdb': item.get('tmdb_id'),
             'title': item.get('title') or '', 'year': item.get('year') or 0, 'overview': item.get('overview') or '',
             'poster': TMDB_IMAGES + 'w500' + poster if poster else '',
             'backdrop': TMDB_IMAGES + 'w1280' + backdrop if backdrop else '',
             'rating': round(float(item.get('vote_average') or 0), 1),
-            'state': state, 'label': REQUEST_STATES.get(state, ''), 'requestable': bool(request.get('requestable')),
-            'content_id': item.get('library_content_id') or ''}
+            'state': state, 'label': shown.get('label', ''), 'long': shown.get('long', ''),
+            'tint': shown.get('tint', ''), 'done': shown.get('done', 0), 'step': shown.get('step', 0),
+            'requestable': bool(request.get('requestable')), 'content_id': item.get('library_content_id') or ''}
 
 
 def request_body(detail):

@@ -34,6 +34,10 @@ ITEM_QUIET = 10
 ITEM_LIMIT = 60
 DICEBEAR = 'https://api.dicebear.com/'
 COLLECTION_LIMIT = 500      # titles listed from one collection
+PERSONAL_LIMIT = 200        # titles listed from the watchlist, favourites or history
+# The profile's own lists, as Silo's avatar menu offers them: section -> (path, title string).
+PERSONAL_LISTS = {'watchlist': ('/watchlist', 30160), 'favorites': ('/favorites', 30161),
+                  'history': ('/history', 30162)}
 AVATAR_TYPES = {'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif'}
 
 
@@ -620,6 +624,12 @@ class Service(object):
                 return {'items': self.collection_items(query.get('library'), query['collection'])}
             except (ApiError, requests.RequestException) as error:
                 return {'error': str(error)}
+        elif name == 'widget' and query.get('section') in PERSONAL_LISTS:
+            try:
+                path, title = PERSONAL_LISTS[query['section']]
+                return {'items': self.with_details(self.personal_items(path)), 'title': kodi.string(title)}
+            except (ApiError, requests.RequestException) as error:
+                return {'error': str(error)}
         elif name == 'widget':
             try:
                 section = query.get('section') or 'continue_watching'
@@ -675,6 +685,21 @@ class Service(object):
             if len(items) >= COLLECTION_LIMIT:
                 break
         return home_row_items({'items': items}, 'collection', self.db)
+
+    def personal_items(self, path):
+        """The profile's watchlist, favourites or history (newest first) as
+        Kodi library ids; a history title watched twice is listed once."""
+        cards = []
+        for card in self.client.pages(path):
+            cards.append(card)
+            if len(cards) >= PERSONAL_LIMIT:
+                break
+        items, seen = [], set()
+        for item in home_row_items({'items': cards}, 'personal', self.db):
+            if (item['type'], item['kodi_id']) not in seen:
+                seen.add((item['type'], item['kodi_id']))
+                items.append(item)
+        return items
 
     def widget_items(self, section, library_id=None):
         """One Silo row (a home row, or a library's own) as Kodi library ids, in Silo's order."""
@@ -904,6 +929,7 @@ class Service(object):
                 card = home_cards.card(kind, cached['details'], cached.get('show'), source.get('tint'))
                 if page == 'requests' and source.get('label'):
                     card['card.sub'] = card['card.wide_sub'] = source['label']
+                    card.update(home_cards.request_status(source))
                 cards.append(card)
         return cards
 

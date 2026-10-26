@@ -391,10 +391,28 @@ def test_request_cards_show_silos_state_and_tmdb_art():
     card = request_card(result)
     assert card['poster'] == 'https://image.tmdb.org/t/p/w500/p.jpg' and card['rating'] == 7.9
     assert card['requestable'] and card['state'] == '' and card['label'] == ''
-    mine = {'media_type': 'series', 'tmdb_id': 1, 'title': 'Vigil', 'state': 'processing'}
-    assert request_card(mine)['label'] == 'Downloading' and not request_card(mine)['requestable']
+    mine = {'media_type': 'series', 'tmdb_id': 1, 'title': 'Vigil', 'state': 'processing', 'status': 'queued',
+            'outcome': 'active'}
+    assert request_card(mine)['label'] == 'Queued' and not request_card(mine)['requestable']
+    assert request_card(mine)['long'] == 'Queued for download' and request_card(mine)['tint'] == 'FF38BDF8'
     held = dict(result, availability='available', library_content_id='movie-1', request={})
-    assert request_card(held)['label'] == 'Available' and request_card(held)['content_id'] == 'movie-1'
+    assert request_card(held)['label'] == 'In library' and request_card(held)['content_id'] == 'movie-1'
+
+
+def test_request_progress_reads_as_silos_tv_app():
+    progress = mapping.request_progress
+    assert progress('pending')['label'] == 'Pending' and progress('pending')['tint'] == 'FFF59E0B'
+    assert progress('processing', 'downloading')['label'] == 'Downloading'
+    assert progress('processing')['label'] == 'On the way'
+    assert progress('partially_available')['label'] == 'Partly in library'
+    assert (progress('available')['done'], progress('available')['step']) == (4, 0)
+    assert progress('failed')['long'] == 'Request failed' and progress('declined')['tint'] == 'FFFB7185'
+    # No state (an older server): status and outcome decide.
+    assert progress('', 'completed', 'active')['label'] == 'In library'
+    assert progress('', 'queued', 'declined')['label'] == 'Declined'
+    # A title nobody asked for: nothing to show, it can just be requested.
+    assert progress('', requestable=True) is None
+    assert progress('', available=True)['label'] == 'In library'
 
 
 def test_request_body_carries_the_title_as_silo_needs_it():

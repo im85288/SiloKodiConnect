@@ -394,8 +394,15 @@ def more_actions(kind, dbid):
     choices = [('unwatched' if watched else 'watched', 'Mark as unwatched' if watched else 'Mark as watched')]
     if (details.get('resume') or {}).get('position'):
         choices.append(('start', 'Play from the beginning'))
-    # The small context menu by the button, as Silo's More popover (not a big list).
-    picked = xbmcgui.Dialog().contextmenu([label for _, label in choices])
+    # The small context menu, as Silo's More popover (not a big list). Kodi
+    # can't place it at a button inside the page's button row, so the skin
+    # moves it under More while silo.popover says how many rows it has.
+    home = xbmcgui.Window(10000)
+    home.setProperty('silo.popover', str(len(choices)))
+    try:
+        picked = xbmcgui.Dialog().contextmenu([label for _, label in choices])
+    finally:
+        home.clearProperty('silo.popover')
     if picked < 0:
         return
     action = choices[picked][0]

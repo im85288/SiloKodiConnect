@@ -140,6 +140,8 @@ class Monitor(xbmc.Monitor):
                 if item.get('type') and item.get('id') is not None:
                     self.service.details.forget(item['type'], item['id'])
                     self.service.home_cards_soon()
+                if not all(self.service.native_counts.values()):
+                    self.service.native_recheck = True
                 self.service.kodi_updated(update)
             except Exception as error:
                 kodi.log_warning('Could not handle a Kodi library update: %s' % error)
@@ -175,6 +177,8 @@ class Service(object):
         self.home_cards = {}  # every page's rows as published properties (rows.py)
         self.page_sources = {}  # page -> [(row id, library id)], from the layout
         self.home_cards_due = 0  # when to publish them again (0: not due)
+        self.native_counts = {}  # (Kodi library row path, refresh token) -> has items
+        self.native_recheck = False  # set by a library change while a row is held back
         self.next_recheck = None  # when to confirm the details loaded from disk
         self.next_save = 0
         # The skin's layout as last published, and the pages viewed so far:
@@ -228,6 +232,11 @@ class Service(object):
             self.player.tick()
             self.note_viewed_page()
             self.note_refresh()
+            if self.native_recheck and self.layout:
+                # A library change may have filled a Kodi row held back as empty.
+                self.native_recheck = False
+                self.native_counts.clear()
+                self.apply_layout()
             if self.home_cards_due and now >= self.home_cards_due and self.store.signed_in:
                 self.home_cards_due = 0
                 self.enqueue('homecards')
@@ -769,12 +778,30 @@ class Service(object):
                 # SiloKodiConnect writes the library.
                 value = '%s&refresh=%s' % (value, self.refresh_token) \
                     if value and row_page in self.viewed_pages else ''
+            if value.startswith('videodb://') and not self.native_has_items(value.split('&refresh=')[0]):
+                # An empty Kodi library row (Continue Watching with nothing
+                # part-watched) has no path, so the skin hides it at once
+                # rather than showing its title while the page loads.
+                value = ''
             home.setProperty(key, value)
         # A skin hides empty rows, and Kodi never loads a hidden list whose path
         # changed: silo.<page>.loading keeps a page's rows shown while they load.
         for viewed in ([page] if page is not None else list(self.viewed_pages)):
             home.setProperty('silo.%s.loading' % viewed, '1')
             self.loading_until[viewed] = time.time() + PAGE_LOADING
+
+    def native_has_items(self, path):
+        """Whether a Kodi library row's path lists anything; asked once per
+        path until the library changes."""
+        key = (path, self.refresh_token)
+        if key not in self.native_counts:
+            try:
+                result = kodi.jsonrpc('Files.GetDirectory', directory=path, media='video',
+                                      limits={'start': 0, 'end': 1}) or {}
+                self.native_counts[key] = bool((result.get('limits') or {}).get('total'))
+            except Exception:  # an unanswered row stays: Kodi loads it as before
+                self.native_counts[key] = True
+        return self.native_counts[key]
 
     def end_loading(self):
         now = time.time()

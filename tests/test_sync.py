@@ -584,3 +584,36 @@ def test_library_rows_kodi_can_order_load_natively():
     assert (entry['sort'], entry['order'], entry['limit']) == ('random', 'ascending', '25')
     plugin = sync.row_entry({'id': 'y', 'section_type': 'imdb_popular', 'title': 'IMDb'}, '1', movies)
     assert (plugin['sort'], plugin['order'], plugin['limit']) == ('', '', '')
+
+
+def test_an_empty_kodi_library_row_gets_no_path(monkeypatch):
+    from resources.lib.silokodi import kodi, service as service_module
+    set_props = {}
+
+    class Window(object):
+        def __init__(self, *args):
+            pass
+
+        def setProperty(self, key, value):
+            set_props[key] = value
+
+    monkeypatch.setattr(service_module.xbmcgui, 'Window', Window)
+    monkeypatch.setattr(kodi, 'get_property', lambda name: '7')
+    asked = []
+
+    def jsonrpc(method, **params):
+        asked.append(params['directory'])
+        return {'limits': {'total': 0 if 'inprogress' in params['directory'] else 3}}
+    monkeypatch.setattr(kodi, 'jsonrpc', jsonrpc)
+    service = service_module.Service.__new__(service_module.Service)
+    service.viewed_pages, service.loading_until, service.native_counts = {'movies'}, {}, {}
+    service.layout = {'silo.movies.1.path': 'videodb://movies/titles/?xsp=inprogress',
+                      'silo.movies.1.landscape': 'videodb://movies/titles/?xsp=inprogress',
+                      'silo.movies.2.path': 'videodb://movies/titles/?xsp=recent',
+                      'silo.movies.2.poster': 'videodb://movies/titles/?xsp=recent',
+                      'silo.movies.3.poster': 'plugin://x/?mode=widget'}
+    service.apply_layout()
+    assert set_props['silo.movies.1.path'] == '' and set_props['silo.movies.1.landscape'] == ''
+    assert set_props['silo.movies.2.poster'] == 'videodb://movies/titles/?xsp=recent&refresh=7'
+    assert set_props['silo.movies.3.poster'] == 'plugin://x/?mode=widget&refresh=7'
+    assert len(asked) == 2  # each path asked once, until the library changes

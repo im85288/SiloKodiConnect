@@ -65,6 +65,8 @@ def run(argv):
         return xbmc.executebuiltin('ReloadSkin()')
     if mode == 'previous':
         return play_previous(params.get('dbid'))
+    if mode == 'show':
+        return show_of(params.get('episode'))
     if mode == 'more':
         return more_actions(params.get('type'), params.get('dbid'))
     if mode == 'info':
@@ -367,6 +369,17 @@ def play_previous(dbid):
     kodi.jsonrpc('Player.Open', item={'episodeid': previous['episodeid']}, options={'resume': False})
 
 
+def show_of(episode_id):
+    """An episode page's Show pill: its series' page. The skin can't read
+    the series' id from the episode, so it's looked up here."""
+    if not str(episode_id or '').isdigit():
+        return
+    details = (kodi.jsonrpc('VideoLibrary.GetEpisodeDetails', episodeid=int(episode_id),
+                            properties=['tvshowid']) or {}).get('episodedetails') or {}
+    if details.get('tvshowid'):
+        info('tvshow', details['tvshowid'])
+
+
 def more_actions(kind, dbid):
     """An info page's More button: Silo's actions Kodi can do for a title."""
     if kind not in ('movie', 'episode', 'tvshow') or not str(dbid or '').isdigit():
@@ -381,7 +394,8 @@ def more_actions(kind, dbid):
     choices = [('unwatched' if watched else 'watched', 'Mark as unwatched' if watched else 'Mark as watched')]
     if (details.get('resume') or {}).get('position'):
         choices.append(('start', 'Play from the beginning'))
-    picked = xbmcgui.Dialog().select('More', [label for _, label in choices])
+    # The small context menu by the button, as Silo's More popover (not a big list).
+    picked = xbmcgui.Dialog().contextmenu([label for _, label in choices])
     if picked < 0:
         return
     action = choices[picked][0]

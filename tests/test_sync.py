@@ -511,3 +511,24 @@ def test_tech_lines_and_both_ratings():
     props = mapping.skyline_properties('episode', {'season': 7, 'episode': 6, 'ratings': {}},
                                        {'ratings': {'imdb': {'rating': 8.7}, 'themoviedb': {'rating': 8.0}}})
     assert props['silo.rating.imdb'] == '8.7' and props['silo.rating.tmdb'] == '8.0'
+
+
+def test_home_cards_carry_silos_text_and_resolved_art():
+    from resources.lib.silokodi import rows
+    episode = rows.card('episode', {
+        'episodeid': 7, 'title': 'Zone of Death', 'showtitle': 'Marshals', 'season': 1, 'episode': 2,
+        'firstaired': '2026-03-08', 'resume': {'position': 600, 'total': 2400}, 'playcount': 0,
+        'art': {'thumb': 'still.jpg', 'tvshow.poster': 'poster.jpg', 'tvshow.fanart': 'fanart.jpg',
+                'tvshow.clearlogo': 'logo.png'}}, {'mpaa': 'TV-14', 'genre': ['Drama']}, 'FF223344')
+    assert episode['type'] == 'episode' and episode['dbid'] == '7'
+    assert episode['card.title'] == 'Marshals' and episode['card.sub'] == 'S01E02'
+    assert episode['card.wide_sub'] == 'S01E02 • Zone of Death' and episode['hero.title'] == ''
+    assert episode['hero.meta'] == 'S01E02 · Zone of Death' and episode['percent'] == '25'
+    assert (episode['art.poster'], episode['art.landscape'], episode['art.fanart'], episode['art.clearlogo']) == \
+        ('poster.jpg', 'still.jpg', 'fanart.jpg', 'logo.png')
+    assert episode['mpaa'] == 'TV-14' and episode['tint'] == 'FF223344'
+    movie = rows.card('movie', {'movieid': 3, 'title': 'Heat', 'year': 1995, 'art': {'poster': 'p.jpg'}})
+    assert movie['card.title'] == 'Heat' and movie['card.sub'] == '1995' and movie['hero.title'] == 'Heat'
+    props = rows.row_properties(2, [movie])
+    assert props['silo.home.2.1.label'] == 'Heat' and props['silo.home.2.cards'] == '1'
+    assert props['silo.home.2.2.label'] == '' and 'silo.home.2.%d.label' % rows.CARDS in props

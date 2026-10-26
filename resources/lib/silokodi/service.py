@@ -19,8 +19,9 @@ from .events import Debouncer, EventListener
 from .playback import PlaybackError, PlaybackManager
 from .relay import DEFAULT_PORT, Relay
 from .store import Store
+from . import rows as home_cards
 from .library import DetailsCache
-from .sync import Stopped, Syncer, collection_cards, home_row_items, page_of, skin_layout
+from .sync import MAX_ROWS, Stopped, Syncer, collection_cards, home_row_items, page_of, skin_layout
 from .syncdb import SyncDB
 
 PROGRESS_POLL = 300          # seconds between resume-point checks while the socket is up
@@ -133,6 +134,7 @@ class Monitor(xbmc.Monitor):
                 item = update.get('item') or {}
                 if item.get('type') and item.get('id') is not None:
                     self.service.details.forget(item['type'], item['id'])
+                    self.service.home_cards_soon()
                 self.service.kodi_updated(update)
             except Exception as error:
                 kodi.log_warning('Could not handle a Kodi library update: %s' % error)
@@ -165,6 +167,8 @@ class Service(object):
         self.published_signed_in = None
         self.home_rows = []  # the profile's Silo home rows, as last published
         self.details = DetailsCache()  # library details for rows, until they change
+        self.home_cards = {}  # Home's rows as published properties (rows.py)
+        self.home_cards_due = 0  # when to publish them again (0: not due)
         self.next_recheck = None  # when to confirm the details loaded from disk
         self.next_save = 0
         # The skin's layout as last published, and the pages viewed so far:
@@ -218,6 +222,9 @@ class Service(object):
             self.player.tick()
             self.note_viewed_page()
             self.note_refresh()
+            if self.home_cards_due and now >= self.home_cards_due and self.store.signed_in:
+                self.home_cards_due = 0
+                self.enqueue('homecards')
             self.end_loading()
             if self.next_recheck and now >= self.next_recheck and not self.playing():
                 self.next_recheck = None
@@ -253,6 +260,11 @@ class Service(object):
         self.layout = self.db.meta('layout') or {}
         if self.layout:
             self.apply_layout()
+        # Home's rows as last published: drawn at once, before any lookup.
+        self.home_cards = self.db.meta('home_cards') or {}
+        home = xbmcgui.Window(10000)
+        for key, value in self.home_cards.items():
+            home.setProperty(key, value)
         kodi.log('Started with %d saved titles and %s saved layout' % (loaded, 'a' if self.layout else 'no'))
         if self.store.signed_in:
             self.enqueue('layout')
@@ -329,6 +341,9 @@ class Service(object):
             self.poll_progress()
         elif kind == 'layout':
             self.publish_layout_safely()
+            self.publish_home_cards()
+        elif kind == 'homecards':
+            self.publish_home_cards()
         elif kind == 'recheck':
             started = time.time()
             if self.details.recheck(lambda: not self.playing() and not self.monitor.abortRequested()):
@@ -757,9 +772,51 @@ class Service(object):
 
     def note_refresh(self):
         """When silokodi.library_updated changes (the library was written, or a
-        request made), give the rows their paths with the new token."""
+        request made), give the rows their paths with the new token, and
+        publish Home's cards again."""
         if self.layout and kodi.get_property('library_updated') != self.refresh_token:
             self.apply_layout()
+            self.home_cards_soon()
+
+    def home_cards_soon(self, delay=2):
+        """Publish Home's cards in a moment: changes come in bursts."""
+        if not self.home_cards_due:
+            self.home_cards_due = time.time() + delay
+
+    def publish_home_cards(self):
+        """Home's rows, in Silo's order, as Home window properties a skin draws
+        without a plugin (see rows.py). Only changed values are set."""
+        if not self.home_rows:
+            return
+        props = {}
+        for row, section in enumerate(self.home_rows[:MAX_ROWS], 1):
+            try:
+                items = self.widget_items(section['id'])
+            except (ApiError, requests.RequestException) as error:
+                kodi.log_warning('Home row %s: %s' % (section.get('title'), error))
+                items = None
+            if items is None:  # keep what the row showed
+                props.update({key: value for key, value in self.home_cards.items()
+                              if key.startswith('silo.home.%d.' % row)})
+                continue
+            cards = []
+            for item in items[:home_cards.CARDS]:
+                cached = self.details.get(item['type'], item['kodi_id'])
+                if cached:
+                    cards.append(home_cards.card(item['type'], cached['details'], cached.get('show'),
+                                                 item.get('tint')))
+            props.update(home_cards.row_properties(row, cards))
+        home = xbmcgui.Window(10000)
+        changed = 0
+        for key, value in props.items():
+            if self.home_cards.get(key) != value:
+                home.setProperty(key, value)
+                changed += 1
+        for key in set(self.home_cards) - set(props):
+            home.clearProperty(key)
+        self.home_cards = props
+        self.db.set_meta('home_cards', props)
+        kodi.log('Home rows published (%d values changed)' % changed)
 
     def note_viewed_page(self):
         """When the skin shows a page for the first time, give its rows their paths."""

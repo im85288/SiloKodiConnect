@@ -404,7 +404,8 @@ def episode_fields(episode, added_at=None):
 RATING_SOURCES = {'imdb': 'IMDb', 'themoviedb': 'TMDB', 'tmdb': 'TMDB', 'trakt': 'Trakt'}
 AUDIO_CODECS = {'eac3_ddp_atmos': 'ATMOS', 'truehd_atmos': 'ATMOS', 'truehd': 'TRUEHD', 'eac3': 'EAC3', 'ac3': 'AC3', 'dts': 'DTS', 'dtshd_ma': 'DTS-HD MA',
                 'dca': 'DTS', 'aac': 'AAC', 'flac': 'FLAC', 'opus': 'OPUS', 'mp3': 'MP3'}
-ATMOS_BASE = {'eac3_ddp_atmos': 'eac3', 'truehd_atmos': 'truehd'}
+AUDIO_LINE = {'eac3_ddp_atmos': 'EAC3 Atmos', 'truehd_atmos': 'TrueHD Atmos'}  # the info line's names
+HDR_NAMES = {'dolbyvision': 'Dolby Vision', 'hdr10plus': 'HDR10+', 'hdr10': 'HDR10', 'hlg': 'HLG'}
 CHANNEL_LAYOUTS = {8: '7.1', 7: '6.1', 6: '5.1', 2: '2.0', 1: 'MONO'}
 HDR_LABELS = {'dolbyvision': 'DOLBY VISION', 'hdr10': 'HDR10', 'hdr10plus': 'HDR10+', 'hlg': 'HLG'}
 MONTHS = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
@@ -431,12 +432,13 @@ def tech_lines(streamdetails):
     audio = (details.get('audio') or [{}])[0]
     badges = quality_badges(streamdetails)
     version = [badges[0]] if badges and badges[0] in ('4K', '1080P', '720P', 'SD') else []
-    if video.get('hdrtype'):
-        version.append('HDR')
-    # The info line names the codec (Silo: "English · EAC3 · 5.1"); Atmos is a badge.
-    codec = ATMOS_BASE.get((audio.get('codec') or '').lower(), (audio.get('codec') or '').lower())
+    # The format by name (Dolby Vision, HDR10+), as the row's badges have it.
+    hdr = (video.get('hdrtype') or '').lower()
+    if hdr:
+        version.append(HDR_NAMES.get(hdr, 'HDR'))
+    codec = (audio.get('codec') or '').lower()
     audio_parts = [part for part in (language_name(audio.get('language')),
-                                     AUDIO_CODECS.get(codec, codec.upper()),
+                                     AUDIO_LINE.get(codec) or AUDIO_CODECS.get(codec, codec.upper()),
                                      CHANNEL_LAYOUTS.get(audio.get('channels') or 0, '')) if part]
     subtitles = []
     for track in details.get('subtitle') or []:

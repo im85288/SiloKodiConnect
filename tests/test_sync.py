@@ -506,7 +506,7 @@ def test_tech_lines_and_both_ratings():
     lines = mapping.tech_lines({'video': [{'height': 2160, 'hdrtype': 'hdr10plus'}],
                                 'audio': [{'codec': 'eac3', 'channels': 6, 'language': 'eng'}],
                                 'subtitle': [{'language': 'eng'}, {'language': 'fre'}, {'language': 'eng'}]})
-    assert lines == {'silo.version': '4K · HDR', 'silo.audio': 'English · EAC3 · 5.1',
+    assert lines == {'silo.version': '4K · HDR10+', 'silo.audio': 'English · EAC3 · 5.1',
                      'silo.subtitles': 'English, French'}
     assert mapping.tech_lines({})['silo.subtitles'] == 'None'
     assert mapping.ratings({'rating_imdb': 8.7, 'rating_tmdb': 8}) == [('imdb', 8.7, 0), ('themoviedb', 8.0, 0)]
@@ -638,7 +638,8 @@ def test_dolby_vision_hdr10_plus_and_atmos_as_silo_names_them():
     kodi = {'video': [{'width': 3840, 'height': 1600, 'hdrtype': 'dolbyvision'}],
             'audio': [{'codec': 'eac3_ddp_atmos', 'channels': 6, 'language': 'en'}]}
     assert mapping.quality_badges(kodi) == ['4K', 'DOLBY VISION', 'ATMOS 5.1']
-    assert mapping.tech_lines(kodi)['silo.audio'] == 'English · EAC3 · 5.1'
+    assert mapping.tech_lines(kodi)['silo.audio'] == 'English · EAC3 Atmos · 5.1'
+    assert mapping.tech_lines(kodi)['silo.version'] == '4K · Dolby Vision'
 
 
 

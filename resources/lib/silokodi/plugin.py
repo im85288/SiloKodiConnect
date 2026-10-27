@@ -69,6 +69,8 @@ def run(argv):
         return show_of(params.get('episode'))
     if mode == 'more':
         return more_actions(params.get('type'), params.get('dbid'))
+    if mode == 'mark':
+        return mark(params.get('type'), params.get('dbid'), params.get('action'))
     if mode == 'info':
         return info(params.get('type'), params.get('dbid'))
     if mode == 'watchlist':
@@ -412,7 +414,9 @@ def more_actions(kind, dbid):
     fields = ['playcount'] + (['resume'] if kind != 'tvshow' else ['watchedepisodes', 'episode'])
     details = (kodi.jsonrpc('VideoLibrary.Get%sDetails' % method, properties=fields, **{key: dbid}) or {}).get(result) or {}
     watched = (details.get('watchedepisodes') == details.get('episode')) if kind == 'tvshow' else bool(details.get('playcount'))
-    choices = [('unwatched' if watched else 'watched', 'Mark as unwatched' if watched else 'Mark as watched')]
+    # A show's is for every episode in it: the label says so.
+    whole = ' series' if kind == 'tvshow' else ''
+    choices = [('unwatched', 'Mark%s as unwatched' % whole) if watched else ('watched', 'Mark%s as watched' % whole)]
     if (details.get('resume') or {}).get('position'):
         choices.append(('start', 'Play from the beginning'))
     # The small context menu, as Silo's More popover (not a big list). Kodi
@@ -424,9 +428,20 @@ def more_actions(kind, dbid):
         picked = xbmcgui.Dialog().contextmenu([label for _, label in choices])
     finally:
         home.clearProperty('silo.popover')
-    if picked < 0:
+    if picked >= 0:
+        mark(kind, dbid, choices[picked][0])
+
+
+def mark(kind, dbid, action):
+    """A More action on a title: watched, unwatched (a show's every
+    episode) or start (play from the beginning). The open info page learns
+    the new state (Window(movieinformation).Property(silo.marked))."""
+    if kind not in ('movie', 'episode', 'tvshow') or not str(dbid or '').isdigit() or \
+            action not in ('watched', 'unwatched', 'start'):
         return
-    action = choices[picked][0]
+    dbid = int(dbid)
+    method, key = {'movie': ('Movie', 'movieid'), 'episode': ('Episode', 'episodeid'),
+                   'tvshow': ('TVShow', 'tvshowid')}[kind]
     if action == 'start':
         xbmc.executebuiltin('Dialog.Close(movieinformation)')
         return kodi.jsonrpc('Player.Open', item={key: dbid}, options={'resume': False})
@@ -437,7 +452,8 @@ def more_actions(kind, dbid):
     else:
         kodi.jsonrpc('VideoLibrary.Set%sDetails' % method, playcount=count,
                      resume={'position': 0, 'total': 0}, **{key: dbid})
-    kodi.notify('Marked as %s' % action)
+    xbmcgui.Window(12003).setProperty('silo.marked', action)
+    kodi.notify('%s as %s' % ('Series marked' if kind == 'tvshow' else 'Marked', action))
 
 
 def info(kind, dbid):
@@ -451,6 +467,12 @@ def info(kind, dbid):
         url, listitem, _ = item
         listitem.setPath(url)
         content_id = mapping.content_id_from_path(url)
+        if not content_id and kind == 'tvshow':
+            # A show opens from its library path (videodb://), which has no
+            # Silo id; its folder in Kodi (SiloKodiConnect's) has.
+            show = (kodi.jsonrpc('VideoLibrary.GetTVShowDetails', tvshowid=int(dbid), properties=['file'])
+                    or {}).get('tvshowdetails') or {}
+            content_id = mapping.content_id_from_path(show.get('file') or '')
         if content_id:
             extra = ask_service('command/tint', timeout=5, id=content_id)
             listitem.setProperty('silo.tint', extra.get('tint') or '')
@@ -461,6 +483,7 @@ def info(kind, dbid):
             listitem.setProperty('silo.watchlist', extra.get('watchlist') or '')
             # A toggle on an earlier page doesn't carry over to this one.
             xbmcgui.Window(12003).clearProperty('silo.watchlist.for')
+        xbmcgui.Window(12003).clearProperty('silo.marked')
         xbmcgui.Dialog().info(listitem)
 
 
@@ -518,6 +541,9 @@ def library_item(kind, kodi_id, shows=None, cached=None):
     if kind == 'tvshow':
         listitem.setProperty('TotalEpisodes', str(details.get('episode') or 0))
         listitem.setProperty('WatchedEpisodes', str(details.get('watchedepisodes') or 0))
+        # A skin's watched mark for a show: every episode watched.
+        listitem.setProperty('UnWatchedEpisodes', str(max(0, (details.get('episode') or 0)
+                                                          - (details.get('watchedepisodes') or 0))))
         return 'videodb://tvshows/titles/%d/' % kodi_id, listitem, True
     if details.get('runtime'):
         tag.setDuration(int(details['runtime']))

@@ -2,6 +2,7 @@
 import pytest
 
 from resources.lib.silokodi import mapping
+from resources.lib.silokodi import rows as rows_module
 from resources.lib.silokodi import sync as sync_module
 from resources.lib.silokodi.sync import Syncer
 from resources.lib.silokodi.syncdb import SyncDB
@@ -573,7 +574,7 @@ def test_a_requestable_title_card_and_page_prefixes():
     card = rows.request_card({'type': 'series', 'tmdb': 95396, 'title': 'Severance', 'year': 2022, 'rating': 8.4,
                               'label': 'Requested', 'overview': 'Work.', 'poster': 'p.jpg', 'backdrop': 'b.jpg'})
     assert card['type'] == 'request' and card['request.tmdb'] == '95396' and card['card.sub'] == 'Requested'
-    assert card['hero.meta'] == '2022 · TMDB 8.4' and card['art.fanart'] == 'b.jpg'
+    assert card['hero.meta'] == '2022 · [COLOR 66EDEDED]TMDB[/COLOR] [B]8.4[/B]' and card['art.fanart'] == 'b.jpg'
     props = rows.row_properties(3, [card], 'requests')
     assert props['silo.requests.3.1.request.type'] == 'series' and props['silo.requests.3.cards'] == '1'
     # A Requests row has the skin's 12 slots, not Home's 25.
@@ -734,3 +735,17 @@ def test_trailer_key_prefers_an_official_english_youtube_trailer():
     assert mapping.trailer_key({'videos': videos}) == 'en'
     assert mapping.trailer_key({'videos': videos[:2]}) == ''
     assert mapping.trailer_key({}) == ''
+
+
+def test_a_show_is_marked_watched_when_every_episode_is():
+    from resources.lib.silokodi.rows import watched_mark
+    assert watched_mark('tvshow', {'episode': 8, 'watchedepisodes': 8}) == '1'
+    assert watched_mark('tvshow', {'episode': 8, 'watchedepisodes': 7}) == ''
+    assert watched_mark('tvshow', {'episode': 0, 'watchedepisodes': 0}) == ''
+    assert watched_mark('movie', {'playcount': 2}) == '2'
+    assert watched_mark('movie', {}) == ''
+
+
+def test_the_hero_rating_dims_its_source_and_bolds_its_score():
+    assert rows_module.rating_markup('IMDb 6.6') == '[COLOR 66EDEDED]IMDb[/COLOR] [B]6.6[/B]'
+    assert rows_module.rating_markup('') == ''

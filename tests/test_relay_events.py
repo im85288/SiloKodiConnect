@@ -239,12 +239,13 @@ def test_skyline_properties_for_an_episode_and_a_show():
     assert props['silo.show_path'] == 'videodb://tvshows/titles/41/'
     assert props['silo.season_path'] == 'videodb://tvshows/titles/41/2/'
     assert props['silo.mpaa'] == 'TV-MA' and props['silo.genre'] == 'Crime'
+    assert props['silo.genres'] == 'Crime, Drama'
     assert props['silo.rating'] == 'IMDb 8.4'
     assert props['silo.cast'] == 'Tom Hardy, Helen Mirren, Pierce Brosnan'
     assert [props['silo.badge%d' % n] for n in (1, 2, 3)] == ['4K', 'DOLBY VISION', 'EAC3 5.1']
     show = mapping.skyline_properties('tvshow', {'mpaa': 'TV-14', 'genre': ['Horror'],
                                                  'ratings': {'themoviedb': {'rating': 8.3}}})
-    assert show == {'silo.mpaa': 'TV-14', 'silo.genre': 'Horror', 'silo.rating': 'TMDB 8.3', 'silo.cast': '',
+    assert show == {'silo.mpaa': 'TV-14', 'silo.genre': 'Horror', 'silo.genres': 'Horror', 'silo.rating': 'TMDB 8.3', 'silo.cast': '',
                     'silo.similar': mapping.similar_path('tvshow', 'Horror', ''),
                     'silo.rating.imdb': '', 'silo.rating.tmdb': '8.3',
                     'silo.version': '', 'silo.audio': '', 'silo.subtitles': 'None'}

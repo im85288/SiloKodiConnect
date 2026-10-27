@@ -41,7 +41,8 @@ def card(kind, details, show=None, tint=''):
         meta = ' · '.join(part for part in (code, title) if part)
         detail = ' · '.join(part for part in (props.get('silo.aired', ''), props.get('silo.cast', '')) if part)
     else:
-        meta = ' · '.join(part for part in (year, props.get('silo.rating', ''), props.get('silo.genre', '')) if part)
+        meta = ' · '.join(part for part in (year, props.get('silo.genre', ''), rating_markup(props.get('silo.rating', '')))
+                          if part)
         detail = props.get('silo.cast', '')
     return {
         'type': kind, 'dbid': str(details.get('%sid' % kind) or details.get('id') or ''),
@@ -54,7 +55,7 @@ def card(kind, details, show=None, tint=''):
         'mpaa': props.get('silo.mpaa', ''),
         'badge1': props.get('silo.badge1', ''), 'badge2': props.get('silo.badge2', ''),
         'badge3': props.get('silo.badge3', ''), 'tint': tint or '',
-        'percent': str(percent) if percent else '', 'playcount': str(details.get('playcount') or ''),
+        'percent': str(percent) if percent else '', 'playcount': watched_mark(kind, details),
         'art.poster': art.get('poster') or art.get('tvshow.poster') or art.get('thumb') or '',
         'art.landscape': (art.get('thumb') if episode and art.get('thumb') else
                           art.get('landscape') or art.get('fanart') or art.get('tvshow.fanart') or ''),
@@ -63,10 +64,28 @@ def card(kind, details, show=None, tint=''):
     }
 
 
+def rating_markup(rating):
+    """Silo's rating on the hero: the source dimmed, the score bold ("IMDb 6.6")."""
+    source, _, score = rating.rpartition(' ')
+    if not source:
+        return rating
+    return '[COLOR 66EDEDED]%s[/COLOR] [B]%s[/B]' % (source, score)
+
+
+def watched_mark(kind, details):
+    """A card's watched mark: a film or episode played, a show with every
+    episode watched (Kodi gives a show no play count)."""
+    if kind == 'tvshow':
+        episodes = details.get('episode') or 0
+        return '1' if episodes and (details.get('watchedepisodes') or 0) >= episodes else ''
+    return str(details.get('playcount') or '')
+
+
 def request_card(card):
     """A title Silo can request (mapping.request_card), as a card."""
     meta = ' · '.join(part for part in (str(card.get('year') or ''),
-                                        'TMDB %.1f' % card['rating'] if card.get('rating') else '') if part)
+                                        rating_markup('TMDB %.1f' % card['rating']) if card.get('rating') else '')
+                    if part)
     props = {
         'type': 'request', 'label': card.get('title') or '',
         'card.title': card.get('title') or '', 'card.sub': card.get('label') or '',

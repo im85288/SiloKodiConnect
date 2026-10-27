@@ -539,6 +539,7 @@ def skyline_properties(kind, details, show=None):
     props['silo.mpaa'] = details.get('mpaa') or (show or {}).get('mpaa') or ''
     genres = details.get('genre') or (show or {}).get('genre') or []
     props['silo.genre'] = genres[0] if genres else ''
+    props['silo.genres'] = ', '.join(genres[:2])
     ratings = details.get('ratings') or {}
     best = next((name for name, value in ratings.items() if value.get('default')), None) or \
         next(iter(ratings), None)

@@ -716,7 +716,9 @@ class Service(object):
                 return {'error': str(error)}
         elif name == 'widget' and query.get('collection'):
             try:
-                return {'items': self.collection_items(query.get('library'), query['collection'])}
+                # With the saved library details, as other rows: looking each
+                # title up in Kodi took 13 s for 191 on a SHIELD.
+                return {'items': self.with_details(self.collection_items(query.get('library'), query['collection']))}
             except (ApiError, requests.RequestException) as error:
                 return {'error': str(error)}
         elif name == 'widget' and query.get('section') in PERSONAL_LISTS:

@@ -723,3 +723,14 @@ def test_a_household_profile_keeps_every_title(syncer, silo, query):
     syncer.sync()
     assert syncer.household is True
     assert len(query('SELECT idMovie FROM movie')) == 2  # Thief stays in Kodi
+
+
+def test_trailer_key_prefers_an_official_english_youtube_trailer():
+    videos = [{'kind': 'featurette', 'site': 'youtube', 'site_key': 'f'},
+              {'kind': 'trailer', 'site': 'vimeo', 'site_key': 'v'},
+              {'kind': 'trailer', 'site': 'youtube', 'site_key': 'de', 'language': 'de', 'is_official': True},
+              {'kind': 'trailer', 'site': 'youtube', 'site_key': 'fan', 'language': 'en'},
+              {'kind': 'trailer', 'site': 'youtube', 'site_key': 'en', 'language': 'en', 'is_official': True}]
+    assert mapping.trailer_key({'videos': videos}) == 'en'
+    assert mapping.trailer_key({'videos': videos[:2]}) == ''
+    assert mapping.trailer_key({}) == ''

@@ -484,6 +484,17 @@ def aired_label(date):
         return ''
 
 
+def trailer_key(item):
+    """The YouTube id of a title's trailer from Silo's videos, '' when it has
+    none: an official trailer first, then English, then any."""
+    trailers = [video for video in item.get('videos') or []
+                if video.get('kind') == 'trailer' and video.get('site') == 'youtube' and video.get('site_key')]
+    if not trailers:
+        return ''
+    trailers.sort(key=lambda video: (not video.get('is_official'), video.get('language') not in ('en', '', None)))
+    return trailers[0]['site_key']
+
+
 def ambient_tint(thumbhash):
     """Silo's ambient page tint for a title as Kodi's ARGB hex ('' if none): the
     average colour a thumbhash carries in its header, scaled to a luminance of

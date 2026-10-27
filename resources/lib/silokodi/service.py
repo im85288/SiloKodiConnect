@@ -35,6 +35,7 @@ ITEM_QUIET = 10
 ITEM_LIMIT = 60
 DICEBEAR = 'https://api.dicebear.com/'
 COLLECTION_LIMIT = 500      # titles listed from one collection
+TRAILER_COVER_MAX = 10      # seconds the skin's trailer cover can wait for its page
 PERSONAL_QUIET = 30          # fetch the profile's lists again once its watch state settles...
 PERSONAL_WAIT = 300          # ...or this long after the first change
 # The profile's own lists, as Silo's avatar menu offers them: section -> (path, title string).
@@ -106,6 +107,19 @@ class Player(xbmc.Player):
     def _ended(self):
         for kind in upnext.MARKER_KINDS:
             kodi.clear_property('markers.' + kind)
+        # A trailer from a Silo-style skin's info page: reopen that page
+        # (silokodi.trailer_return, "<type>|<dbid>"). The skin covers the
+        # window under it meanwhile (silokodi.trailer_playing), and the page
+        # clears that as it opens; if it doesn't open, the cover goes anyway.
+        trailer_from = kodi.get_property('trailer_return')
+        if trailer_from:
+            kodi.clear_property('trailer_return')
+            kind, _, dbid = trailer_from.partition('|')
+            xbmc.executebuiltin('RunPlugin(plugin://plugin.video.silokodiconnect/?mode=info&type=%s&dbid=%s)'
+                                % (kind, dbid))
+            timer = threading.Timer(TRAILER_COVER_MAX, kodi.clear_property, ['trailer_playing'])
+            timer.daemon = True
+            timer.start()
         session = self.service.playback.on_stopped(self.last_time)
         if session:
             self.service.recently_played[session.content_id] = time.time()
@@ -598,12 +612,32 @@ class Service(object):
         elif name in ('sync', 'fullsync', 'reset'):
             self.enqueue(name)
         elif name == 'tint':
-            # A title's ambient page tint, for an info page opened by the plugin.
+            # For an info page opened by the plugin: the title's ambient tint,
+            # its trailer and (a film or series) whether it's on the watchlist.
             try:
                 item = self.client.item(query.get('id') or '')
             except (ApiError, requests.RequestException):
                 return {'tint': ''}
-            return {'tint': mapping.ambient_tint(item.get('poster_thumbhash') or '')}
+            answer = {'tint': mapping.ambient_tint(item.get('poster_thumbhash') or ''),
+                      'trailer': mapping.trailer_key(item), 'watchlist': ''}
+            if item.get('type') in ('movie', 'series'):
+                try:
+                    answer['watchlist'] = 'true' if self.client.in_watchlist(item['content_id']) else 'false'
+                except (ApiError, requests.RequestException):
+                    pass
+            return answer
+        elif name == 'watchlist':
+            # Add a title to the watchlist or take it off; the lists refresh.
+            content_id = query.get('id') or ''
+            try:
+                if query.get('add') == '1':
+                    self.client.add_to_watchlist(content_id)
+                else:
+                    self.client.remove_from_watchlist(content_id)
+            except (ApiError, requests.RequestException) as error:
+                return {'error': str(error)}
+            self.personal.refresh_soon(['/watchlist'])
+            return {'watchlist': 'true' if query.get('add') == '1' else 'false'}
         elif name == 'sections':
             try:
                 return {'sections': self.home_sections()}
@@ -759,6 +793,8 @@ class Service(object):
         home = xbmcgui.Window(10000)
         home.setProperty('silo.profile_name', name)
         home.setProperty('silo.profile_initial', name[:1].upper())
+        # The server's host, for the avatar card's header (as Silo's apps).
+        home.setProperty('silo.server', (self.client.server_url or '').split('://', 1)[-1].rstrip('/'))
         url = profile.get('avatar_url') or ''
         home.setProperty('silo.avatar', self.save_avatar(url, profile.get('avatar') or url) if url else '')
 

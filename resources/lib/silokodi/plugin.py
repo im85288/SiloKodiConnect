@@ -71,6 +71,8 @@ def run(argv):
         return more_actions(params.get('type'), params.get('dbid'))
     if mode == 'info':
         return info(params.get('type'), params.get('dbid'))
+    if mode == 'watchlist':
+        return toggle_watchlist(params.get('id') or '', params.get('add') == '1')
     if mode == 'sections':
         return sections(base, handle, params.get('type'))
     if mode == 'widget':
@@ -433,8 +435,29 @@ def info(kind, dbid):
         listitem.setPath(url)
         content_id = mapping.content_id_from_path(url)
         if content_id:
-            listitem.setProperty('silo.tint', ask_service('command/tint', timeout=5, id=content_id).get('tint') or '')
+            extra = ask_service('command/tint', timeout=5, id=content_id)
+            listitem.setProperty('silo.tint', extra.get('tint') or '')
+            # A Silo-style skin's Trailer button plays this through the YouTube
+            # add-on (or offers to install it); its Watchlist button toggles.
+            listitem.setProperty('silo.trailer', extra.get('trailer') or '')
+            listitem.setProperty('silo.content_id', content_id)
+            listitem.setProperty('silo.watchlist', extra.get('watchlist') or '')
+            # A toggle on an earlier page doesn't carry over to this one.
+            xbmcgui.Window(12003).clearProperty('silo.watchlist.for')
         xbmcgui.Dialog().info(listitem)
+
+
+def toggle_watchlist(content_id, add):
+    """Add a film or series to the profile's watchlist, or take it off, and
+    tell the open info page (Window(movieinformation) properties)."""
+    answer = ask_service('command/watchlist', timeout=10, id=content_id, add='1' if add else '0')
+    if answer.get('error'):
+        kodi.notify(answer['error'])
+        return
+    page = xbmcgui.Window(12003)
+    page.setProperty('silo.watchlist.now', answer.get('watchlist') or '')
+    page.setProperty('silo.watchlist.for', content_id)
+    kodi.notify(kodi.string(30163 if add else 30164))
 
 
 def library_item(kind, kodi_id, shows=None, cached=None):

@@ -244,6 +244,24 @@ class SiloClient(object):
     def events_ticket(self):
         return self.post('/events/ws-ticket')
 
+    # ----- watchlist -----
+
+    def in_watchlist(self, content_id):
+        """Whether the title is on the profile's watchlist (Silo answers 404 when not)."""
+        try:
+            self.get('/watchlist/%s' % content_id)
+            return True
+        except ApiError as error:
+            if error.status == 404:
+                return False
+            raise
+
+    def add_to_watchlist(self, content_id):
+        self.request('PUT', '/watchlist/%s' % content_id)
+
+    def remove_from_watchlist(self, content_id):
+        self.request('DELETE', '/watchlist/%s' % content_id)
+
     # ----- requests -----
 
     def my_requests(self):

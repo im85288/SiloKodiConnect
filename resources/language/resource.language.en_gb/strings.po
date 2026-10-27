@@ -269,3 +269,11 @@ msgstr ""
 msgctxt "#30162"
 msgid "History"
 msgstr ""
+
+msgctxt "#30163"
+msgid "Added to your watchlist"
+msgstr ""
+
+msgctxt "#30164"
+msgid "Removed from your watchlist"
+msgstr ""

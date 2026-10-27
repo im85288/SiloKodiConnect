@@ -36,6 +36,7 @@ ITEM_LIMIT = 60
 DICEBEAR = 'https://api.dicebear.com/'
 COLLECTION_LIMIT = 500      # titles listed from one collection
 TRAILER_COVER_MAX = 10      # seconds the skin's trailer cover can wait for its page
+TRAILER_START_MAX = 12      # ...or for a trailer to start (none found: back to the page)
 PERSONAL_QUIET = 30          # fetch the profile's lists again once its watch state settles...
 PERSONAL_WAIT = 300          # ...or this long after the first change
 # The profile's own lists, as Silo's avatar menu offers them: section -> (path, title string).
@@ -228,6 +229,7 @@ class Service(object):
         self.personal = PersonalLists(self.client, lambda: self.store.get('profile_id'), log=kodi.log)
         self.personal_events = Debouncer(quiet=PERSONAL_QUIET, limit=PERSONAL_WAIT)
         self.personal_due = True
+        self.trailer_wait_since = None  # when the skin's trailer cover went up without a video
 
     # ----- Kodi's database -----
 
@@ -267,6 +269,7 @@ class Service(object):
                 self.next_progress = now + (PROGRESS_POLL if connected else PROGRESS_POLL_OFFLINE)
                 self.enqueue('progress')
             self.player.tick()
+            self.check_trailer_start(now)
             self.note_viewed_page()
             self.note_refresh()
             if self.native_recheck and self.layout:
@@ -421,6 +424,27 @@ class Service(object):
             for library_id in self.db.libraries():
                 self.syncer.remove_library(library_id)
             self.db.clear()
+
+    def check_trailer_start(self, now):
+        """A trailer that never starts (the YouTube add-on found none) sends
+        no stop: after a few seconds without a video, take the skin's cover
+        down and reopen the info page it came from."""
+        if not kodi.get_property('trailer_playing') or self.playing():
+            self.trailer_wait_since = None
+            return
+        if self.trailer_wait_since is None:
+            self.trailer_wait_since = now
+            return
+        if now - self.trailer_wait_since < TRAILER_START_MAX:
+            return
+        self.trailer_wait_since = None
+        kodi.clear_property('trailer_playing')
+        trailer_from = kodi.get_property('trailer_return')
+        if trailer_from:
+            kodi.clear_property('trailer_return')
+            kind, _, dbid = trailer_from.partition('|')
+            xbmc.executebuiltin('RunPlugin(plugin://plugin.video.silokodiconnect/?mode=info&type=%s&dbid=%s)'
+                                % (kind, dbid))
 
     def wait_while_playing(self):
         """Pause a running sync while a video plays (it resumes afterwards)."""
@@ -722,8 +746,21 @@ class Service(object):
                 # Silo signs the poster link but gives it relative to the server.
                 if card['poster'].startswith('/'):
                     card['poster'] = self.client.server_url.rstrip('/') + card['poster']
+                card['fan'] = self.collection_fan(library_id, card['id'])
                 cards.append(card)
         return cards
+
+    def collection_fan(self, library_id, collection_id):
+        """A collection's first three posters, for a Silo-style skin's fanned
+        collection card (about 10 ms a collection)."""
+        server = self.client.server_url.rstrip('/')
+        try:
+            items = self.client.get('/library/%s/collections/%s/items' % (library_id, collection_id),
+                                    limit=3).get('items') or []
+        except (ApiError, requests.RequestException):
+            return []
+        return [server + url if url.startswith('/') else url
+                for url in (item.get('poster_url') or '' for item in items[:3]) if url]
 
     def collection_items(self, library_id, collection_id):
         """A library collection's titles as Kodi library ids, in Silo's order."""

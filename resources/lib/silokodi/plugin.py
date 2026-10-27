@@ -330,11 +330,16 @@ def collections(base, handle, library_ids):
         item.setProperty('silo.count', str(card.get('count') or ''))
         if card.get('poster'):
             item.setArt({'poster': card['poster'], 'thumb': card['poster']})
+        # Its first titles' posters, for a Silo-style skin's fanned card.
+        for number, url in enumerate(card.get('fan') or [], 1):
+            item.setProperty('silo.fan%d' % number, url)
         item.getVideoInfoTag().setPlot('%d titles' % (card.get('count') or 0))
         query = {'mode': 'widget', 'section': 'collection', 'library': card['library'], 'collection': card['id'],
                  'title': card['title']}
         xbmcplugin.addDirectoryItem(handle, '%s?%s' % (base, urlencode(query)), item, isFolder=True)
     xbmcplugin.setContent(handle, 'sets')
+    # A Silo-style skin shows this folder as fanned cards (Container.Property(silo.fans)).
+    xbmcplugin.setProperty(handle, 'silo.fans', 'true')
     xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
 
 

@@ -769,21 +769,24 @@ class Service(object):
                 # Silo signs the poster link but gives it relative to the server.
                 if card['poster'].startswith('/'):
                     card['poster'] = self.client.server_url.rstrip('/') + card['poster']
-                card['fan'] = self.collection_fan(library_id, card['id'])
+                card['fan'], card['backdrop'] = self.collection_fan(library_id, card['id'])
                 cards.append(card)
         return cards
 
     def collection_fan(self, library_id, collection_id):
         """A collection's first three posters, for a Silo-style skin's fanned
-        collection card (about 10 ms a collection)."""
+        collection card, and its first title's backdrop (about 10 ms a
+        collection)."""
         server = self.client.server_url.rstrip('/')
         try:
             items = self.client.get('/library/%s/collections/%s/items' % (library_id, collection_id),
                                     limit=3).get('items') or []
         except (ApiError, requests.RequestException):
-            return []
-        return [server + url if url.startswith('/') else url
-                for url in (item.get('poster_url') or '' for item in items[:3]) if url]
+            return [], ''
+        absolute = lambda url: server + url if url.startswith('/') else url
+        posters = [absolute(url) for url in (item.get('poster_url') or '' for item in items[:3]) if url]
+        backdrop = next((absolute(item['backdrop_url']) for item in items if item.get('backdrop_url')), '')
+        return posters, backdrop
 
     def collection_items(self, library_id, collection_id):
         """A library collection's titles as Kodi library ids, in Silo's order."""

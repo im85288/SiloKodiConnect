@@ -217,8 +217,9 @@ def widget(handle, section, library=None, collection=None, title=None, exclude_s
             listitem.setProperty('silo.tint', entry.get('tint') or '')
             kinds.add(entry['type'])
             xbmcplugin.addDirectoryItem(handle, url, listitem, isFolder=folder)
-    xbmcplugin.setContent(handle, 'movies' if kinds == {'movie'} else 'episodes' if kinds == {'episode'}
-                          else 'videos')
+    # A skin draws a folder by its content: posters for films and shows.
+    xbmcplugin.setContent(handle, {frozenset(['movie']): 'movies', frozenset(['episode']): 'episodes',
+                                   frozenset(['tvshow']): 'tvshows'}.get(frozenset(kinds), 'videos'))
     xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
     # How long a row takes, and where: the service (Silo) or Kodi's library.
     kodi.log('Row %s%s: %d items, %.2f s from the service, %.2f s from Kodi\'s library (%.2f s in JSON-RPC)'
@@ -332,8 +333,10 @@ def collections(base, handle, library_ids, top=0):
         item = xbmcgui.ListItem(card['title'], offscreen=True)
         # A property, not label2: Kodi overwrites a folder's label2 with sort details.
         item.setProperty('silo.count', str(card.get('count') or ''))
-        if card.get('poster'):
-            item.setArt({'poster': card['poster'], 'thumb': card['poster']})
+        art = {'poster': card['poster'], 'thumb': card['poster']} if card.get('poster') else {}
+        if card.get('backdrop'):
+            art['fanart'] = card['backdrop']  # its first title's: a skin's hero behind the card
+        item.setArt(art)
         # Its first titles' posters, for a Silo-style skin's fanned card.
         for number, url in enumerate(card.get('fan') or [], 1):
             item.setProperty('silo.fan%d' % number, url)

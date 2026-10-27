@@ -21,6 +21,7 @@ from .relay import DEFAULT_PORT, Relay
 from .store import Store
 from . import rows as home_cards
 from .library import DetailsCache
+from .personal import PersonalLists
 from .sync import MAX_ROWS, MOVIE_LIBRARY_TYPES, SHOW_LIBRARY_TYPES, Stopped, Syncer, collection_cards, home_row_items, page_of, skin_layout
 from .syncdb import SyncDB
 
@@ -34,7 +35,8 @@ ITEM_QUIET = 10
 ITEM_LIMIT = 60
 DICEBEAR = 'https://api.dicebear.com/'
 COLLECTION_LIMIT = 500      # titles listed from one collection
-PERSONAL_LIMIT = 200        # titles listed from the watchlist, favourites or history
+PERSONAL_QUIET = 30          # fetch the profile's lists again once its watch state settles...
+PERSONAL_WAIT = 300          # ...or this long after the first change
 # The profile's own lists, as Silo's avatar menu offers them: section -> (path, title string).
 PERSONAL_LISTS = {'watchlist': ('/watchlist', 30160), 'favorites': ('/favorites', 30161),
                   'history': ('/history', 30162)}
@@ -206,6 +208,12 @@ class Service(object):
         self.deferred = []
         self.library_events = Debouncer(quiet=LIBRARY_QUIET, limit=LIBRARY_LIMIT)
         self.item_events = Debouncer(quiet=ITEM_QUIET, limit=ITEM_LIMIT)
+        # Watchlist, favourites and history, kept for the skin's pages: fetched
+        # once signed in, and again after the watch state changes (not during
+        # playback, which sends a change with every progress report).
+        self.personal = PersonalLists(self.client, lambda: self.store.get('profile_id'), log=kodi.log)
+        self.personal_events = Debouncer(quiet=PERSONAL_QUIET, limit=PERSONAL_WAIT)
+        self.personal_due = True
 
     # ----- Kodi's database -----
 
@@ -264,6 +272,11 @@ class Service(object):
                 self.save_details()
             for task in self.library_events.due() + self.item_events.due():
                 self.enqueue(task)
+            if self.personal_events.due():
+                self.personal_due = True
+            if self.personal_due and not self.playing():
+                self.personal_due = False
+                self.personal.refresh_soon()
             if self.deferred and not self.playing():
                 for task in self.deferred:
                     self.enqueue(task)
@@ -488,6 +501,7 @@ class Service(object):
         elif channel == 'user_state' and event == 'user_state.changed':
             if data.get('profile_id') and data['profile_id'] != self.store.get('profile_id'):
                 return
+            self.personal_events.add('personal')
             content_id = data.get('content_id') or data.get('series_id')
             if content_id:
                 self.enqueue(('state', content_id))
@@ -689,13 +703,8 @@ class Service(object):
     def personal_items(self, path):
         """The profile's watchlist, favourites or history (newest first) as
         Kodi library ids; a history title watched twice is listed once."""
-        cards = []
-        for card in self.client.pages(path):
-            cards.append(card)
-            if len(cards) >= PERSONAL_LIMIT:
-                break
         items, seen = [], set()
-        for item in home_row_items({'items': cards}, 'personal', self.db):
+        for item in home_row_items({'items': self.personal.cards(path)}, 'personal', self.db):
             if (item['type'], item['kodi_id']) not in seen:
                 seen.add((item['type'], item['kodi_id']))
                 items.append(item)

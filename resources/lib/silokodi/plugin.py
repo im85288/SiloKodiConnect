@@ -90,7 +90,7 @@ def run(argv):
     if mode == 'request':
         return make_request(params.get('type') or 'movie', params.get('tmdb') or '')
     if mode == 'collections':
-        return collections(base, handle, params.get('libraries') or '')
+        return collections(base, handle, params.get('libraries') or '', int(params.get('top') or 0))
     if mode in ('sync', 'fullsync', 'libraries', 'reset'):
         return command(mode)
     return menu(base, handle)
@@ -317,14 +317,18 @@ def make_request(media_type, tmdb_id):
     kodi.set_property('library_updated', str(int(time.time())))
 
 
-def collections(base, handle, library_ids):
+def collections(base, handle, library_ids, top=0):
     """Silo's Collections section for a page's libraries: each collection a
-    folder with its poster and count, opening its titles."""
+    folder with its poster and count, opening its titles. top: only the
+    biggest few, then a "See all" folder (a page's Collections row)."""
     answer = ask_service('command/collections', timeout=20, libraries=library_ids)
     if answer.get('error'):
         kodi.notify(answer['error'])
     xbmcplugin.setPluginCategory(handle, 'Collections')
-    for card in answer.get('collections') or []:
+    cards = answer.get('collections') or []
+    if top:
+        cards = sorted(cards, key=lambda card: -(card.get('count') or 0))[:top]
+    for card in cards:
         item = xbmcgui.ListItem(card['title'], offscreen=True)
         # A property, not label2: Kodi overwrites a folder's label2 with sort details.
         item.setProperty('silo.count', str(card.get('count') or ''))
@@ -337,6 +341,11 @@ def collections(base, handle, library_ids):
         query = {'mode': 'widget', 'section': 'collection', 'library': card['library'], 'collection': card['id'],
                  'title': card['title']}
         xbmcplugin.addDirectoryItem(handle, '%s?%s' % (base, urlencode(query)), item, isFolder=True)
+    if top and len(answer.get('collections') or []) > len(cards):
+        more = xbmcgui.ListItem(kodi.string(30165), offscreen=True)
+        more.setProperty('silo.see_all', 'true')
+        xbmcplugin.addDirectoryItem(handle, '%s?%s' % (base, urlencode({'mode': 'collections', 'libraries': library_ids})),
+                                    more, isFolder=True)
     xbmcplugin.setContent(handle, 'sets')
     # A Silo-style skin shows this folder as fanned cards (Container.Property(silo.fans)).
     xbmcplugin.setProperty(handle, 'silo.fans', 'true')

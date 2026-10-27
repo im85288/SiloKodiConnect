@@ -37,6 +37,7 @@ DICEBEAR = 'https://api.dicebear.com/'
 COLLECTION_LIMIT = 500      # titles listed from one collection
 TRAILER_COVER_MAX = 10      # seconds the skin's trailer cover can wait for its page
 TRAILER_START_MAX = 12      # ...or for a trailer to start (none found: back to the page)
+TRAILER_QUIET = 0.75        # seconds after Kodi's busy spinner with no video: it failed
 PERSONAL_QUIET = 30          # fetch the profile's lists again once its watch state settles...
 PERSONAL_WAIT = 300          # ...or this long after the first change
 # The profile's own lists, as Silo's avatar menu offers them: section -> (path, title string).
@@ -229,7 +230,6 @@ class Service(object):
         self.personal = PersonalLists(self.client, lambda: self.store.get('profile_id'), log=kodi.log)
         self.personal_events = Debouncer(quiet=PERSONAL_QUIET, limit=PERSONAL_WAIT)
         self.personal_due = True
-        self.trailer_wait_since = None  # when the skin's trailer cover went up without a video
 
     # ----- Kodi's database -----
 
@@ -252,6 +252,9 @@ class Service(object):
         worker = threading.Thread(target=self.work, name='silokodi-worker')
         worker.daemon = True
         worker.start()
+        trailers = threading.Thread(target=self.watch_trailers, name='silokodi-trailers')
+        trailers.daemon = True
+        trailers.start()
         while not self.monitor.waitForAbort(1):
             if self.store.changed_on_disk():
                 self.store.reload()
@@ -269,7 +272,6 @@ class Service(object):
                 self.next_progress = now + (PROGRESS_POLL if connected else PROGRESS_POLL_OFFLINE)
                 self.enqueue('progress')
             self.player.tick()
-            self.check_trailer_start(now)
             self.note_viewed_page()
             self.note_refresh()
             if self.native_recheck and self.layout:
@@ -425,26 +427,47 @@ class Service(object):
                 self.syncer.remove_library(library_id)
             self.db.clear()
 
-    def check_trailer_start(self, now):
-        """A trailer that never starts (the YouTube add-on found none) sends
-        no stop: after a few seconds without a video, take the skin's cover
-        down and reopen the info page it came from."""
-        if not kodi.get_property('trailer_playing') or self.playing():
-            self.trailer_wait_since = None
-            return
-        if self.trailer_wait_since is None:
-            self.trailer_wait_since = now
-            return
-        if now - self.trailer_wait_since < TRAILER_START_MAX:
-            return
-        self.trailer_wait_since = None
-        kodi.clear_property('trailer_playing')
+    def watch_trailers(self):
+        """A trailer from a Silo-style skin's info page (silokodi.trailer_playing)
+        that never starts (the YouTube add-on found none, or can't play it
+        here) sends no stop. Once Kodi's busy spinner has gone with no video,
+        or after TRAILER_START_MAX, go back to the page. (Back from a trailer
+        that plays is the skin's: the window it returns to stops it.)"""
+        started = busy_seen = False
+        quiet_since = waiting_since = None
+        while not self.monitor.waitForAbort(0.25):
+            if not kodi.get_property('trailer_playing'):
+                started = busy_seen = False
+                quiet_since = waiting_since = None
+                continue
+            if started or self.player.isPlaying():
+                started = True  # stopping it reopens the page (Player._ended)
+                continue
+            now = time.time()
+            if waiting_since is None:
+                waiting_since = now
+            if xbmc.getCondVisibility('Window.IsActive(busydialog) | Window.IsActive(busydialognocancel)'):
+                busy_seen, quiet_since = True, None
+                continue
+            if busy_seen and quiet_since is None:
+                quiet_since = now
+            if (busy_seen and now - quiet_since > TRAILER_QUIET) or now - waiting_since > TRAILER_START_MAX:
+                started = True  # handled: wait for the page to clear the flag
+                self.back_from_trailer()
+
+    def back_from_trailer(self):
+        """The trailer didn't play: reopen the page, which takes the skin's
+        cover down as it opens (so the window under it never shows); if it
+        doesn't open, the cover comes down anyway after TRAILER_COVER_MAX."""
         trailer_from = kodi.get_property('trailer_return')
         if trailer_from:
             kodi.clear_property('trailer_return')
             kind, _, dbid = trailer_from.partition('|')
             xbmc.executebuiltin('RunPlugin(plugin://plugin.video.silokodiconnect/?mode=info&type=%s&dbid=%s)'
                                 % (kind, dbid))
+        timer = threading.Timer(TRAILER_COVER_MAX, kodi.clear_property, ['trailer_playing'])
+        timer.daemon = True
+        timer.start()
 
     def wait_while_playing(self):
         """Pause a running sync while a video plays (it resumes afterwards)."""

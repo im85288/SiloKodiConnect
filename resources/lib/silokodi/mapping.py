@@ -484,6 +484,41 @@ def aired_label(date):
         return ''
 
 
+def person_facts(person, today=None):
+    """Silo's person page facts (catalog/people/{id}) for a skin, as Silo's
+    Apple TV app shows them: 'Born 20 Jun 1967', '59 years old' (or 'Died 3 Jan
+    2020' and 'Aged 52'), the birthplace and the biography."""
+    def parsed(date):
+        try:
+            year, month, day = (int(part) for part in (date or '')[:10].split('-'))
+            return year, month, day
+        except ValueError:
+            return None
+    born, died = parsed(person.get('birth_date')), parsed(person.get('death_date'))
+    today = today or datetime.now().date().timetuple()[:3]
+    label = lambda date: '%d %s %d' % (date[2], MONTHS[date[1] - 1], date[0])
+    # The biography as one paragraph, as Silo's app runs it (Silo's has line breaks).
+    facts = {'name': person.get('name') or '', 'bio': ' '.join((person.get('bio') or '').split()),
+             'place': person.get('birthplace') or '', 'born': '', 'age': '', 'died': ''}
+    if born:
+        facts['born'] = 'Born %s' % label(born)
+        end = died or tuple(today)
+        years = end[0] - born[0] - ((end[1], end[2]) < (born[1], born[2]))
+        facts['age'] = ('Aged %d' if died else '%d years old') % years
+    if died:
+        facts['died'] = 'Died %s' % label(died)
+    return facts
+
+
+def person_id_in(item, name):
+    """The Silo id of the person called name in a title's cast or crew, or None."""
+    wanted = (name or '').strip().casefold()
+    for person in (item.get('cast') or []) + (item.get('crew') or []):
+        if (person.get('name') or '').strip().casefold() == wanted and person.get('person_id'):
+            return person['person_id']
+    return None
+
+
 def trailer_key(item):
     """The YouTube id of a title's trailer from Silo's videos, '' when it has
     none: an official trailer first, then English, then any."""

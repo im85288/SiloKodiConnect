@@ -209,6 +209,7 @@ class Service(object):
         self.details = DetailsCache()  # library details for rows, until they change
         self.home_cards = {}  # every page's rows as published properties (rows.py)
         self.page_sources = {}  # page -> [(row id, library id)], from the layout
+        self.row_titles = {}  # (library id, row id) -> the title Silo last gave it with its items
         self.home_cards_due = 0  # when to publish them again (0: not due)
         self.native_counts = {}  # (Kodi library row path, refresh token) -> has items
         self.native_recheck = False  # set by a library change while a row is held back
@@ -721,6 +722,16 @@ class Service(object):
                 return {'items': self.with_details(self.collection_items(query.get('library'), query['collection']))}
             except (ApiError, requests.RequestException) as error:
                 return {'error': str(error)}
+        elif name == 'widget' and query.get('person'):
+            try:
+                return {'items': self.with_details(self.person_items(query['person'], query.get('type')))}
+            except (ApiError, requests.RequestException) as error:
+                return {'error': str(error)}
+        elif name == 'person':
+            try:
+                return self.person(query.get('id'), query.get('name'))
+            except (ApiError, requests.RequestException) as error:
+                return {'error': str(error)}
         elif name == 'widget' and query.get('section') in PERSONAL_LISTS:
             try:
                 path, title = PERSONAL_LISTS[query['section']]
@@ -799,6 +810,33 @@ class Service(object):
                 break
         return home_row_items({'items': items}, 'collection', self.db)
 
+    def person(self, content_id, name):
+        """A person page's facts (mapping.person_facts) for a title's cast
+        member: Silo's id from the title's cast, else a search by name."""
+        person_id = mapping.person_id_in(self.client.item(content_id), name) if content_id else None
+        if not person_id and name:
+            found = self.client.get('/catalog/people', q=name, limit=1).get('items') or []
+            person_id = found[0].get('id') if found else None
+        if not person_id:
+            return {'error': 'not found'}
+        person = self.client.get('/catalog/people/%s' % person_id)
+        facts = mapping.person_facts(person)
+        photo = person.get('photo_url') or ''
+        # Silo signs the photo link but gives it relative to the server.
+        facts.update(id=str(person_id), photo=self.client.server_url.rstrip('/') + photo if photo.startswith('/') else photo)
+        return facts
+
+    def person_items(self, person_id, kind=None):
+        """A person's titles in the library, newest first as Silo's Apple TV
+        app lists them: films, series (kind movie or series) or both."""
+        items = []
+        for item in self.client.pages('/catalog', source='person', person_id=person_id, sort='-release_date',
+                                      type=kind if kind in ('movie', 'series') else 'video', skip_total='true'):
+            items.append(item)
+            if len(items) >= COLLECTION_LIMIT:
+                break
+        return home_row_items({'items': items}, 'person', self.db)
+
     def personal_items(self, path):
         """The profile's watchlist, favourites or history (newest first) as
         Kodi library ids; a history title watched twice is listed once."""
@@ -821,6 +859,10 @@ class Service(object):
                 if not section:
                     return []
             page = self.client.get('/home/sections/%s/items' % section)
+        # A row's title can change with what's watched ("Because You Watched ..."),
+        # and Silo sends the current one with its items.
+        if page.get('title'):
+            self.row_titles[(library_id or None, str(section))] = page['title']
         return home_row_items(page, section, self.db)
 
     def with_details(self, items):
@@ -996,6 +1038,8 @@ class Service(object):
         if not self.page_sources:
             return
         props = {}
+        home = xbmcgui.Window(10000)
+        retitled = False
         # Not Movies and Series: the rows Kodi can order load natively, and
         # every published slot costs the skin load time (see the skin).
         for page, count in PUBLISHED_PAGES.items():
@@ -1010,7 +1054,15 @@ class Service(object):
                     props.update({key: value for key, value in self.home_cards.items() if key.startswith(prefix)})
                     continue
                 props.update(home_cards.row_properties(row, cards[:count], page, count))
-        home = xbmcgui.Window(10000)
+                # The row's title as Silo gave it with these cards, when it has changed.
+                title = self.row_titles.get((library_id or None, str(row_id)))
+                key = 'silo.%s.%d.title' % (page, row)
+                if title and self.layout and self.layout.get(key) not in (None, title):
+                    self.layout[key] = title
+                    home.setProperty(key, title)
+                    retitled = True
+        if retitled:
+            self.db.set_meta('layout', self.layout)
         changed = 0
         for key, value in props.items():
             if self.home_cards.get(key) != value:

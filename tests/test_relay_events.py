@@ -258,3 +258,23 @@ def test_quality_badges_cover_common_files():
                                    'audio': [{'codec': 'truehd', 'channels': 8}]}) == ['4K', 'HDR10', 'TRUEHD 7.1']
     assert mapping.quality_badges(None) == []
     assert mapping.quality_badges({'video': [{'height': 2160}], 'audio': [{'codec': '', 'channels': 6}]}) == ['4K', '5.1']
+
+
+def test_person_facts_read_like_silos_person_page():
+    facts = mapping.person_facts({'name': 'Nicole Kidman', 'birth_date': '1967-06-20', 'birthplace': 'Honolulu, Hawaii, USA',
+                                  'bio': ' Nicole Mary\nKidman... '}, today=(2026, 10, 28))
+    assert facts == {'name': 'Nicole Kidman', 'bio': 'Nicole Mary Kidman...', 'place': 'Honolulu, Hawaii, USA',
+                     'born': 'Born 20 Jun 1967', 'age': '59 years old', 'died': ''}
+    # The day before a birthday, and someone who has died.
+    assert mapping.person_facts({'birth_date': '1967-10-29'}, today=(2026, 10, 28))['age'] == '58 years old'
+    gone = mapping.person_facts({'birth_date': '1940-02-01', 'death_date': '1992-01-31'})
+    assert (gone['age'], gone['died']) == ('Aged 51', 'Died 31 Jan 1992')
+    assert mapping.person_facts({})['born'] == ''
+
+
+def test_a_cast_members_silo_id_is_found_by_name():
+    item = {'cast': [{'name': 'Sandra Bullock', 'person_id': 'p1'}, {'name': 'Nicole Kidman', 'person_id': 'p2'}],
+            'crew': [{'name': 'Susanne Bier', 'person_id': 'p3'}]}
+    assert mapping.person_id_in(item, 'nicole kidman ') == 'p2'
+    assert mapping.person_id_in(item, 'Susanne Bier') == 'p3'
+    assert mapping.person_id_in(item, 'Someone Else') is None

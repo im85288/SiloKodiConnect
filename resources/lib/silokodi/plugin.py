@@ -79,7 +79,13 @@ def run(argv):
         return sections(base, handle, params.get('type'))
     if mode == 'widget':
         return widget(handle, params.get('section') or 'continue_watching', params.get('library'),
-                      params.get('collection'), params.get('title'), raw_tail(argv, 'exclude_show'))
+                      params.get('collection'), params.get('title'), raw_tail(argv, 'exclude_show'),
+                      params.get('person'), params.get('type'))
+    if mode == 'cast':
+        return cast(base, handle, params.get('type'), params.get('dbid'))
+    if mode == 'person':
+        # The name as the skin wrote it (it can't URL-encode one), last in the path.
+        return person_page(params.get('id'), raw_tail(argv, 'name'))
     if mode == 'requests':
         # The skin can't URL-encode the search words, so take them as written
         # (they may hold & or =), up to the refresh suffix.
@@ -180,6 +186,34 @@ def choose_libraries():
     ask_service('command/sync', timeout=10)
 
 
+def cast(base, handle, kind, dbid):
+    """A library title's cast for a Silo-style skin's info page: name, role
+    and photo. The skin's own list, as Kodi's (control 50) searches the
+    library for a name when one is chosen; the skin opens the person page."""
+    if kind in ('movie', 'tvshow', 'episode') and str(dbid or '').isdigit():
+        details, _ = details_of(kind, int(dbid))
+        for person in sorted((details or {}).get('cast') or [], key=lambda person: person.get('order', 999)):
+            listitem = xbmcgui.ListItem(person.get('name') or '', person.get('role') or '', offscreen=True)
+            listitem.setArt({'thumb': person.get('thumbnail') or '', 'icon': person.get('thumbnail') or ''})
+            xbmcplugin.addDirectoryItem(handle, base + '?mode=person', listitem, isFolder=False)
+    xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
+
+
+def person_page(content_id, name):
+    """Open a Silo-style skin's person page (window 1195) for a title's cast
+    member: the person's facts as Home window properties (silo.person.*);
+    the page lists their titles itself (mode=widget&person=...)."""
+    answer = ask_service('command/person', timeout=15, id=content_id or '', name=name or '')
+    if answer.get('error'):
+        kodi.notify('No details for %s' % name if answer['error'] == 'not found' else answer['error'])
+        return
+    home = xbmcgui.Window(10000)
+    for key in ('id', 'name', 'bio', 'born', 'age', 'died', 'place', 'photo'):
+        home.setProperty('silo.person.%s' % key, answer.get(key) or '')
+    home.setProperty('silo.person.type', '')  # All
+    xbmc.executebuiltin('ActivateWindow(1195)')
+
+
 def raw_tail(argv, key):
     """A parameter a skin can't URL-encode (a title, search words): taken as
     written, from key= to the end, so it must come last in the path."""
@@ -190,12 +224,15 @@ def raw_tail(argv, key):
     return unquote(query.split(key + '=', 1)[1])
 
 
-def widget(handle, section, library=None, collection=None, title=None, exclude_show=''):
+def widget(handle, section, library=None, collection=None, title=None, exclude_show='', person=None, kind=None):
     """A Silo row (a home row, Continue Watching by default, a library's own
     row, or one of its collections) for a skin widget, as the matching Kodi
     library items so art, resume and play behave as usual. exclude_show
-    leaves out a show's episodes (Up Next's row skips the show it offers)."""
+    leaves out a show's episodes (Up Next's row skips the show it offers).
+    person lists a person's titles (kind: movie, series or both)."""
     query = {'section': section}
+    if person:
+        query.update(person=person, type=kind or '')
     if library:
         query['library'] = library
     if collection:

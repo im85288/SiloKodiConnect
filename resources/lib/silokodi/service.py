@@ -727,6 +727,11 @@ class Service(object):
                 return {'items': self.with_details(self.person_items(query['person'], query.get('type')))}
             except (ApiError, requests.RequestException) as error:
                 return {'error': str(error)}
+        elif name == 'videos':
+            try:
+                return {'videos': mapping.title_videos(self.client.item(query.get('id') or ''))}
+            except (ApiError, requests.RequestException) as error:
+                return {'error': str(error)}
         elif name == 'person':
             try:
                 return self.person(query.get('id'), query.get('name'))

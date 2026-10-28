@@ -530,6 +530,15 @@ def trailer_key(item):
     return trailers[0]['site_key']
 
 
+def title_videos(item):
+    """A title's YouTube videos from Silo (trailers, teasers, featurettes), in
+    Silo's order, for a skin's Trailers & More row: name, YouTube id and
+    YouTube's thumbnail."""
+    return [{'name': video.get('name') or 'Trailer', 'key': video['site_key'], 'kind': video.get('kind') or '',
+             'thumb': 'https://i.ytimg.com/vi/%s/hqdefault.jpg' % video['site_key']}
+            for video in item.get('videos') or [] if video.get('site') == 'youtube' and video.get('site_key')]
+
+
 def ambient_tint(thumbhash):
     """Silo's ambient page tint for a title as Kodi's ARGB hex ('' if none): the
     average colour a thumbhash carries in its header, scaled to a luminance of

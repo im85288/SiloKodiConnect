@@ -81,6 +81,8 @@ def run(argv):
         return widget(handle, params.get('section') or 'continue_watching', params.get('library'),
                       params.get('collection'), params.get('title'), raw_tail(argv, 'exclude_show'),
                       params.get('person'), params.get('type'))
+    if mode == 'videos':
+        return videos(base, handle, params.get('id'))
     if mode == 'cast':
         return cast(base, handle, params.get('type'), params.get('dbid'))
     if mode == 'person':
@@ -184,6 +186,18 @@ def choose_libraries():
     excluded = [library['id'] for index, library in enumerate(libraries) if index not in chosen]
     kodi.set_setting('excluded_libraries', ','.join(excluded))
     ask_service('command/sync', timeout=10)
+
+
+def videos(base, handle, content_id):
+    """A title's YouTube videos (trailers and more, from Silo) for a Silo-style
+    skin's info page row; the skin plays one through the YouTube add-on."""
+    answer = ask_service('command/videos', timeout=15, id=content_id) if content_id else {}
+    for video in answer.get('videos') or []:
+        listitem = xbmcgui.ListItem(video['name'], 'YouTube', offscreen=True)
+        listitem.setArt({'thumb': video['thumb'], 'icon': video['thumb']})
+        listitem.setProperty('silo.video.key', video['key'])
+        xbmcplugin.addDirectoryItem(handle, base + '?mode=videos', listitem, isFolder=False)
+    xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
 
 
 def cast(base, handle, kind, dbid):

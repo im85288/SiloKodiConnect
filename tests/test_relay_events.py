@@ -278,3 +278,15 @@ def test_a_cast_members_silo_id_is_found_by_name():
     assert mapping.person_id_in(item, 'nicole kidman ') == 'p2'
     assert mapping.person_id_in(item, 'Susanne Bier') == 'p3'
     assert mapping.person_id_in(item, 'Someone Else') is None
+
+
+def test_a_titles_youtube_videos_are_listed_in_silos_order():
+    item = {'videos': [{'name': 'Official Trailer', 'kind': 'trailer', 'site': 'youtube', 'site_key': 'abc'},
+                       {'name': 'Clip', 'kind': 'clip', 'site': 'vimeo', 'site_key': 'v1'},
+                       {'name': 'Audiences are loving it', 'kind': 'featurette', 'site': 'youtube', 'site_key': 'def'},
+                       {'name': 'No key', 'site': 'youtube'}]}
+    assert mapping.title_videos(item) == [
+        {'name': 'Official Trailer', 'key': 'abc', 'kind': 'trailer', 'thumb': 'https://i.ytimg.com/vi/abc/hqdefault.jpg'},
+        {'name': 'Audiences are loving it', 'key': 'def', 'kind': 'featurette',
+         'thumb': 'https://i.ytimg.com/vi/def/hqdefault.jpg'}]
+    assert mapping.title_videos({}) == []

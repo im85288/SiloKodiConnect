@@ -4,6 +4,7 @@
 The plugin runs in a short-lived process per call. Everything that needs the
 Silo session goes through the service's loopback relay.
 """
+import calendar
 import json
 import time
 
@@ -81,6 +82,9 @@ def run(argv):
         return widget(handle, params.get('section') or 'continue_watching', params.get('library'),
                       params.get('collection'), params.get('title'), raw_tail(argv, 'exclude_show'),
                       params.get('person'), params.get('type'))
+    if mode == 'schedule':
+        # The name as the skin wrote it (it can't URL-encode one), last in the path.
+        return schedule(handle, params.get('number'), raw_tail(argv, 'name'))
     if mode == 'videos':
         return videos(base, handle, params.get('id'))
     if mode == 'cast':
@@ -186,6 +190,47 @@ def choose_libraries():
     excluded = [library['id'] for index, library in enumerate(libraries) if index not in chosen]
     kodi.set_setting('excluded_libraries', ','.join(excluded))
     ask_service('command/sync', timeout=10)
+
+
+SCHEDULE_ITEMS = 24
+
+
+def schedule(handle, number, name):
+    """A Live TV channel's programmes from the one on now, for a Silo-style
+    skin's quick guide (TiviMate's schedule beside its channel list): title,
+    start time (Kodi's time format) as Label2, silo.now on the one on now,
+    and a "Tomorrow" header row (silo.header) where the day changes. The
+    channel is the skin's focused one, by its number, else its name."""
+    channels = (kodi.jsonrpc('PVR.GetChannels', channelgroupid='alltv', properties=['channelnumber'])
+                or {}).get('channels') or []
+    channel = next((c for c in channels if str(c.get('channelnumber')) == str(number or '').strip()
+                    and (not name or c.get('label') == name)), None) or \
+        next((c for c in channels if c.get('label') == name), None)
+    if channel:
+        broadcasts = (kodi.jsonrpc('PVR.GetBroadcasts', channelid=channel['channelid'],
+                                   properties=['title', 'starttime', 'endtime', 'isactive'])
+                      or {}).get('broadcasts') or []
+        clock = xbmc.getRegion('time').replace(':%S', '')
+        now, shown, day = time.time(), 0, None
+        for broadcast in broadcasts:
+            start, end = (calendar.timegm(time.strptime(broadcast[key], '%Y-%m-%d %H:%M:%S'))
+                          for key in ('starttime', 'endtime'))
+            if end <= now:
+                continue
+            local = time.localtime(start)
+            if day is not None and local.tm_yday != day:
+                header = xbmcgui.ListItem('Tomorrow' if shown else '', offscreen=True)
+                header.setProperty('silo.header', '1')
+                xbmcplugin.addDirectoryItem(handle, '', header, isFolder=False)
+            day = local.tm_yday
+            item = xbmcgui.ListItem(broadcast.get('title') or broadcast.get('label') or '',
+                                    time.strftime(clock, local).lstrip('0'), offscreen=True)
+            item.setProperty('silo.now', '1' if broadcast.get('isactive') or start <= now < end else '')
+            xbmcplugin.addDirectoryItem(handle, '', item, isFolder=False)
+            shown += 1
+            if shown >= SCHEDULE_ITEMS:
+                break
+    xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
 
 
 def videos(base, handle, content_id):

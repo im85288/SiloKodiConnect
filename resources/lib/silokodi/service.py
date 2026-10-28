@@ -14,7 +14,7 @@ import requests
 import xbmc
 import xbmcgui
 
-from . import jump, kodi, kodidb, mapping, tracks, upnext, keymap
+from . import catchup, jump, kodi, kodidb, mapping, tracks, upnext, keymap
 from .api import ApiError, SignedOut, SiloClient
 from .events import Debouncer, EventListener
 from .playback import PlaybackError, PlaybackManager
@@ -204,6 +204,7 @@ class Service(object):
         self.playback = PlaybackManager(self.client, self.version, self.playback_settings, log=kodi.log,
                                         media_url=self.relay.media_url)
         self.player = Player(self)
+        self.catchup = catchup.Rewriter()
         # Tasks in order, but Home's cards first: they show the viewer's own
         # changes (a title marked watched) and would otherwise wait behind a
         # queue of syncs. (priority, sequence, task); None stops the worker.
@@ -274,6 +275,11 @@ class Service(object):
             ticks += 1
             if ticks % 10 == 0:  # the skin may have changed
                 self.sync_keymap()
+            if ticks % 30 == 0:  # Live TV's playlist, rewritten by its add-on now and then
+                try:
+                    self.catchup.check(self.playing())
+                except Exception as error:  # never let it stop the service
+                    kodi.log_warning('Catch-up rewrite: %s' % error)
             if self.store.changed_on_disk():
                 self.store.reload()
             self.publish_signed_in()

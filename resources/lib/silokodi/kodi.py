@@ -32,6 +32,10 @@ def profile_dir():
     return path
 
 
+def addon_data_dir():
+    return xbmcvfs.translatePath('special://profile/addon_data/')
+
+
 def database_dir():
     return xbmcvfs.translatePath('special://database/')
 

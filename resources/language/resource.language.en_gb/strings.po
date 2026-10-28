@@ -289,3 +289,7 @@ msgstr ""
 msgctxt "#30167"
 msgid "While Live TV plays in the Silo Skyline skin: OK shows recent channels, Left the quick guide, Up and Down change channel."
 msgstr ""
+
+msgctxt "#30168"
+msgid "Remove from recent channels"
+msgstr ""

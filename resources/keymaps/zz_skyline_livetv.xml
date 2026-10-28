@@ -4,7 +4,8 @@
        OK         the recently watched channels (Skyline's window 1196)
        Up / Down  the channel above or below, as in the guide (Kodi's Channel
                   Down / Up: lower and higher numbers)
-       Left       the quick guide (Kodi's channel list over the video) -->
+       Left       the quick guide (Kodi's channel list over the video)
+       Right      the channel watched before this one (SiloKodiConnect) -->
 <keymap>
   <FullscreenLiveTV>
     <keyboard>
@@ -13,12 +14,14 @@
       <up>ChannelDown</up>
       <down>ChannelUp</down>
       <left>ActivateWindow(PVROSDChannels)</left>
+      <right>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=previous_channel)</right>
     </keyboard>
     <remote>
       <select>ActivateWindow(1196)</select>
       <up>ChannelDown</up>
       <down>ChannelUp</down>
       <left>ActivateWindow(PVROSDChannels)</left>
+      <right>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=previous_channel)</right>
     </remote>
   </FullscreenLiveTV>
 </keymap>

@@ -21,7 +21,7 @@ import xbmcplugin
 # Kept light: Kodi starts a fresh Python for every play and widget refresh,
 # and on a 2 GB device the ~7 MB that requests costs is worth saving. Sign-in
 # code (which needs requests) is imported only when used.
-from . import kodi, mapping
+from . import channels, kodi, mapping
 from .library import CAST_LIMIT, details_of
 from .mapping import RELAY_PORT as DEFAULT_PORT
 from .store import Store
@@ -82,6 +82,14 @@ def run(argv):
         return widget(handle, params.get('section') or 'continue_watching', params.get('library'),
                       params.get('collection'), params.get('title'), raw_tail(argv, 'exclude_show'),
                       params.get('person'), params.get('type'))
+    if mode == 'recent_channels':
+        return recent_channels(base, handle)
+    if mode == 'play_channel':
+        return play_channel(params.get('id'))
+    if mode == 'previous_channel':
+        return previous_channel()
+    if mode == 'forget_channel':
+        return forget_channel(params.get('id'))
     if mode == 'schedule':
         # The name as the skin wrote it (it can't URL-encode one), last in the path.
         return schedule(handle, params.get('number'), raw_tail(argv, 'name'))
@@ -190,6 +198,61 @@ def choose_libraries():
     excluded = [library['id'] for index, library in enumerate(libraries) if index not in chosen]
     kodi.set_setting('excluded_libraries', ','.join(excluded))
     ask_service('command/sync', timeout=10)
+
+
+CHANNEL_FIELDS = ['channelnumber', 'icon', 'broadcastnow', 'hidden']
+
+
+def tv_channels():
+    return (kodi.jsonrpc('PVR.GetChannels', channelgroupid='alltv', properties=CHANNEL_FIELDS)
+            or {}).get('channels') or []
+
+
+def playing_channel():
+    """The Live TV channel playing, by its Kodi id, or None."""
+    for player in kodi.jsonrpc('Player.GetActivePlayers') or []:
+        item = (kodi.jsonrpc('Player.GetItem', playerid=player['playerid'], properties=[]) or {}).get('item') or {}
+        if item.get('type') == 'channel':
+            return item.get('id')
+    return None
+
+
+def recent_channels(base, handle):
+    """Live TV's recently watched channels for a Silo-style skin's row, as
+    TiviMate's: newest first, not the playing one, none the viewer removed.
+    silo.* properties carry what Kodi gives only to its own channel items."""
+    for channel in channels.recent(tv_channels(), channels.last_watched(), playing_channel(), channels.load_removed()):
+        now = channel.get('broadcastnow') or {}
+        item = xbmcgui.ListItem(channel.get('label') or '', offscreen=True)
+        item.setArt({'icon': channel.get('icon') or '', 'thumb': channel.get('icon') or ''})
+        item.setProperties({'silo.channelid': str(channel['channelid']), 'silo.channel': channel.get('label') or '',
+                            'silo.now': now.get('title') or '',
+                            'silo.progress': str(int(now.get('progresspercentage') or 0))})
+        item.addContextMenuItems([(kodi.string(30168), 'RunPlugin(%s?mode=forget_channel&id=%d)'
+                                   % (base, channel['channelid']))])
+        xbmcplugin.addDirectoryItem(handle, '%s?mode=play_channel&id=%d' % (base, channel['channelid']), item,
+                                    isFolder=False)
+    xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
+
+
+def play_channel(channel_id):
+    if str(channel_id or '').isdigit():
+        kodi.jsonrpc('Player.Open', item={'channelid': int(channel_id)})
+
+
+def previous_channel():
+    """Back to the channel watched before this one (Right in Skyline's Live TV keys)."""
+    channel = channels.previous(tv_channels(), channels.last_watched(), playing_channel())
+    if channel:
+        kodi.jsonrpc('Player.Open', item={'channelid': channel['channelid']})
+
+
+def forget_channel(channel_id):
+    """Leave a channel out of the recent row until it is watched again, and
+    have the skin reload the row (silokodi.recent_changed in its path)."""
+    if str(channel_id or '').isdigit():
+        channels.remove(channel_id, channels.last_watched())
+        kodi.set_property('recent_changed', str(int(time.time())))
 
 
 SCHEDULE_ITEMS = 24

@@ -3,6 +3,7 @@
 listens for Silo's realtime events and reports playback."""
 import gc
 import hashlib
+import itertools
 import json
 import os
 import queue
@@ -13,7 +14,7 @@ import requests
 import xbmc
 import xbmcgui
 
-from . import jump, kodi, kodidb, mapping, tracks, upnext
+from . import jump, kodi, kodidb, mapping, tracks, upnext, keymap
 from .api import ApiError, SignedOut, SiloClient
 from .events import Debouncer, EventListener
 from .playback import PlaybackError, PlaybackManager
@@ -44,6 +45,10 @@ PERSONAL_WAIT = 300          # ...or this long after the first change
 PERSONAL_LISTS = {'watchlist': ('/watchlist', 30160), 'favorites': ('/favorites', 30161),
                   'history': ('/history', 30162)}
 AVATAR_TYPES = {'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif'}
+
+
+# Tasks the worker takes before the others queued (see Service.tasks).
+URGENT_TASKS = ('homecards',)
 
 
 def kind_of(task):
@@ -155,6 +160,9 @@ class Monitor(xbmc.Monitor):
         xbmc.Monitor.__init__(self)
         self.service = service
 
+    def onSettingsChanged(self):
+        self.service.sync_keymap()
+
     def onNotification(self, sender, method, data):
         if jump.handle(sender, method):  # a skin's A-Z bar
             return
@@ -196,7 +204,11 @@ class Service(object):
         self.playback = PlaybackManager(self.client, self.version, self.playback_settings, log=kodi.log,
                                         media_url=self.relay.media_url)
         self.player = Player(self)
-        self.tasks = queue.Queue()
+        # Tasks in order, but Home's cards first: they show the viewer's own
+        # changes (a title marked watched) and would otherwise wait behind a
+        # queue of syncs. (priority, sequence, task); None stops the worker.
+        self.tasks = queue.PriorityQueue()
+        self.task_number = itertools.count()
         self.listener = None
         self.recently_played = {}
         self.art_attempts = {}
@@ -250,13 +262,18 @@ class Service(object):
             kodi.log_error('Cannot listen on 127.0.0.1:%d: %s' % (self.port, error))
             kodi.notify(kodi.string(30121) % self.port)
         self.start_quickly()
+        self.sync_keymap()
         worker = threading.Thread(target=self.work, name='silokodi-worker')
         worker.daemon = True
         worker.start()
         trailers = threading.Thread(target=self.watch_trailers, name='silokodi-trailers')
         trailers.daemon = True
         trailers.start()
+        ticks = 0
         while not self.monitor.waitForAbort(1):
+            ticks += 1
+            if ticks % 10 == 0:  # the skin may have changed
+                self.sync_keymap()
             if self.store.changed_on_disk():
                 self.store.reload()
             self.publish_signed_in()
@@ -308,9 +325,16 @@ class Service(object):
         self.playback.on_stopped(self.player.last_time)
         self.stop_listener()
         self.relay.stop()
-        self.tasks.put(None)
+        self.tasks.put((-1, next(self.task_number), None))
         worker.join(10)
         self.db.close()
+
+    def sync_keymap(self):
+        """The Live TV keymap for the Silo Skyline skin (keymap.py)."""
+        try:
+            keymap.sync()
+        except OSError as error:
+            kodi.log_warning('Live TV keymap: %s' % error)
 
     def start_quickly(self):
         """Give Home its rows as soon as Kodi starts: the last layout and the
@@ -355,12 +379,12 @@ class Service(object):
             self.listener = None
 
     def enqueue(self, task):
-        self.tasks.put(task)
+        self.tasks.put((0 if kind_of(task) in URGENT_TASKS else 1, next(self.task_number), task))
 
     def work(self):
         """One worker, so Kodi database writes never overlap."""
         while True:
-            task = self.tasks.get()
+            task = self.tasks.get()[2]
             if task is None or self.monitor.abortRequested():
                 return
             try:

@@ -20,6 +20,7 @@ from . import mapping
 
 CARDS = 25  # cards per row; Silo's rows go up to 50, Home shows far fewer
 FIELDS = ('type', 'dbid', 'label', 'card.title', 'card.sub', 'card.wide_sub', 'hero.title', 'hero.meta',
+          'hero.facts', 'rating.imdb', 'rating.tmdb',
           'hero.detail', 'plot', 'mpaa', 'badge1', 'badge2', 'badge3', 'tint', 'percent', 'playcount',
           'art.poster', 'art.landscape', 'art.fanart', 'art.clearlogo', 'request.type', 'request.tmdb',
           'status.tint', 'status.seg1', 'status.seg2', 'status.seg3', 'status.seg4')
@@ -52,6 +53,11 @@ def card(kind, details, show=None, tint=''):
         'card.wide_sub': ' • '.join(part for part in (code, title) if part) if episode else year,
         'hero.title': '' if logo else (show_title if episode else title),
         'hero.meta': meta, 'hero.detail': detail, 'plot': details.get('plot') or '',
+        # The info line in parts, for a skin that shows the ratings' marks
+        # (Skyline: IMDb's badge, TMDB's wordmark): an episode's has none.
+        'hero.facts': meta if episode else ' · '.join(part for part in (year, props.get('silo.genre', '')) if part),
+        'rating.imdb': '' if episode else props.get('silo.rating.imdb', ''),
+        'rating.tmdb': '' if episode else props.get('silo.rating.tmdb', ''),
         'mpaa': props.get('silo.mpaa', ''),
         'badge1': props.get('silo.badge1', ''), 'badge2': props.get('silo.badge2', ''),
         'badge3': props.get('silo.badge3', ''), 'tint': tint or '',
@@ -91,6 +97,8 @@ def request_card(card):
         'card.title': card.get('title') or '', 'card.sub': card.get('label') or '',
         'card.wide_sub': card.get('label') or '', 'hero.title': card.get('title') or '',
         'hero.meta': meta, 'hero.detail': card.get('label') or '', 'plot': card.get('overview') or '',
+        'hero.facts': str(card.get('year') or ''),
+        'rating.tmdb': '%.1f' % card['rating'] if card.get('rating') else '',
         'art.poster': card.get('poster') or '', 'art.landscape': card.get('backdrop') or '',
         'art.fanart': card.get('backdrop') or '',
         'request.type': card.get('type') or '', 'request.tmdb': str(card.get('tmdb') or ''),

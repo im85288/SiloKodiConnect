@@ -281,3 +281,11 @@ msgstr ""
 msgctxt "#30165"
 msgid "See all"
 msgstr ""
+
+msgctxt "#30166"
+msgid "Live TV keys as TiviMate (Silo Skyline)"
+msgstr ""
+
+msgctxt "#30167"
+msgid "While Live TV plays in the Silo Skyline skin: OK shows recent channels, Left the quick guide, Up and Down change channel."
+msgstr ""

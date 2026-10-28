@@ -290,3 +290,11 @@ def test_a_titles_youtube_videos_are_listed_in_silos_order():
         {'name': 'Audiences are loving it', 'key': 'def', 'kind': 'featurette',
          'thumb': 'https://i.ytimg.com/vi/def/hqdefault.jpg'}]
     assert mapping.title_videos({}) == []
+
+
+def test_a_long_biography_is_cut_at_a_word_with_an_ellipsis():
+    assert mapping.fitted('short') == 'short'
+    text = 'word ' * 200
+    cut = mapping.fitted(text.strip(), 52)
+    assert cut == 'word word word word word word word word word word…' and len(cut) <= 53
+    assert mapping.fitted('Born in Honolulu, she moved to Sydney, and then', 36) == 'Born in Honolulu, she moved to…'

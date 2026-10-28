@@ -91,6 +91,13 @@
           <control type="list" format="string"/>
         </setting>
       </group>
+      <group id="2">
+        <setting id="livetv_keys" type="boolean" label="30166" help="30167">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle"/>
+        </setting>
+      </group>
     </category>
     <category id="advanced" label="30030">
       <group id="1">

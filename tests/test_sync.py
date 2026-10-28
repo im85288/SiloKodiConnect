@@ -545,6 +545,7 @@ def test_home_cards_carry_silos_text_and_resolved_art():
     assert episode['card.title'] == 'Marshals' and episode['card.sub'] == 'S01E02'
     assert episode['card.wide_sub'] == 'S01E02 • Zone of Death' and episode['hero.title'] == ''
     assert episode['hero.meta'] == 'S01E02 · Zone of Death' and episode['percent'] == '25'
+    assert episode['hero.facts'] == 'S01E02 · Zone of Death' and episode['rating.imdb'] == ''
     assert (episode['art.poster'], episode['art.landscape'], episode['art.fanart'], episode['art.clearlogo']) == \
         ('poster.jpg', 'still.jpg', 'fanart.jpg', 'logo.png')
     assert episode['mpaa'] == 'TV-14' and episode['tint'] == 'FF223344'
@@ -575,6 +576,7 @@ def test_a_requestable_title_card_and_page_prefixes():
                               'label': 'Requested', 'overview': 'Work.', 'poster': 'p.jpg', 'backdrop': 'b.jpg'})
     assert card['type'] == 'request' and card['request.tmdb'] == '95396' and card['card.sub'] == 'Requested'
     assert card['hero.meta'] == '2022 · [COLOR 66EDEDED]TMDB[/COLOR] [B]8.4[/B]' and card['art.fanart'] == 'b.jpg'
+    assert (card['hero.facts'], card['rating.tmdb']) == ('2022', '8.4')
     props = rows.row_properties(3, [card], 'requests')
     assert props['silo.requests.3.1.request.type'] == 'series' and props['silo.requests.3.cards'] == '1'
     # A Requests row has the skin's 12 slots, not Home's 25.
@@ -749,3 +751,11 @@ def test_a_show_is_marked_watched_when_every_episode_is():
 def test_the_hero_rating_dims_its_source_and_bolds_its_score():
     assert rows_module.rating_markup('IMDb 6.6') == '[COLOR 66EDEDED]IMDb[/COLOR] [B]6.6[/B]'
     assert rows_module.rating_markup('') == ''
+
+
+def test_a_films_home_card_has_its_info_line_in_parts():
+    from resources.lib.silokodi import rows
+    film = rows.card('movie', {'movieid': 3, 'title': 'Heat', 'year': 1995, 'genre': ['Crime', 'Drama'],
+                               'ratings': {'imdb': {'rating': 8.3, 'default': True}, 'themoviedb': {'rating': 7.9}}})
+    assert film['hero.facts'] == '1995 · Crime'
+    assert (film['rating.imdb'], film['rating.tmdb']) == ('8.3', '7.9')

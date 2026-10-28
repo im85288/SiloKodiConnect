@@ -484,6 +484,19 @@ def aired_label(date):
         return ''
 
 
+# About what a skin's person page shows of a biography: seven of Skyline's lines (about 67 characters).
+BIO_LIMIT = 470
+
+
+def fitted(text, limit=BIO_LIMIT):
+    """text cut at a word near limit and ended with "…", as Silo's app ends a
+    long biography; shorter text as it is."""
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rsplit(' ', 1)[0].rstrip(',;:—–- ')
+    return cut + '…'
+
+
 def person_facts(person, today=None):
     """Silo's person page facts (catalog/people/{id}) for a skin, as Silo's
     Apple TV app shows them: 'Born 20 Jun 1967', '59 years old' (or 'Died 3 Jan
@@ -498,7 +511,7 @@ def person_facts(person, today=None):
     today = today or datetime.now().date().timetuple()[:3]
     label = lambda date: '%d %s %d' % (date[2], MONTHS[date[1] - 1], date[0])
     # The biography as one paragraph, as Silo's app runs it (Silo's has line breaks).
-    facts = {'name': person.get('name') or '', 'bio': ' '.join((person.get('bio') or '').split()),
+    facts = {'name': person.get('name') or '', 'bio': fitted(' '.join((person.get('bio') or '').split())),
              'place': person.get('birthplace') or '', 'born': '', 'age': '', 'died': ''}
     if born:
         facts['born'] = 'Born %s' % label(born)

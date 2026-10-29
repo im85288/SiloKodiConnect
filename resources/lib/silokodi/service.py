@@ -221,7 +221,6 @@ class Service(object):
         self.home_rows = []  # the profile's Silo home rows, as last published
         self.details = DetailsCache()  # library details for rows, until they change
         self.home_cards = {}  # every page's rows as published properties (rows.py)
-        self.wide_series_art = False  # the skin's SiloEpisodeSeriesArt setting
         self.page_sources = {}  # page -> [(row id, library id)], from the layout
         self.row_titles = {}  # (library id, row id) -> the title Silo last gave it with its items
         self.home_cards_due = 0  # when to publish them again (0: not due)
@@ -304,11 +303,6 @@ class Service(object):
                 self.native_recheck = False
                 self.native_counts.clear()
                 self.apply_layout()
-            wide_series_art = xbmc.getCondVisibility('Skin.HasSetting(SiloEpisodeSeriesArt)')
-            if wide_series_art != self.wide_series_art:
-                # The skin's setting changed (or Kodi started): the rows' wide art follows.
-                self.wide_series_art = wide_series_art
-                self.home_cards_due = self.home_cards_due or now
             if self.home_cards_due and now >= self.home_cards_due and self.store.signed_in:
                 self.home_cards_due = 0
                 self.enqueue('homecards')
@@ -1144,10 +1138,10 @@ class Service(object):
         return cards
 
     def series_art(self, source):
-        """With the skin's "series art" setting (Silo's Apple TV app), a
-        Continue Watching or Next Up episode's wide art: Silo's season or
-        series backdrop, through the relay. Else '' (the episode still)."""
-        if not (self.wide_series_art and source.get('backdrop')):
+        """A Continue Watching or Next Up episode's wide art as Silo's apps
+        show it: the season backdrop, else the series', through the relay.
+        Else '' (the episode still)."""
+        if not source.get('backdrop'):
             return ''
         key = 'row:%s' % source['content_id']
         for kind in self.db.set_art(key, {'fanart': source['backdrop']}):

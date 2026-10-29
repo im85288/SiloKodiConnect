@@ -221,6 +221,7 @@ class Service(object):
         self.home_rows = []  # the profile's Silo home rows, as last published
         self.details = DetailsCache()  # library details for rows, until they change
         self.home_cards = {}  # every page's rows as published properties (rows.py)
+        self.wide_series_art = False  # the skin's SiloEpisodeSeriesArt setting
         self.page_sources = {}  # page -> [(row id, library id)], from the layout
         self.row_titles = {}  # (library id, row id) -> the title Silo last gave it with its items
         self.home_cards_due = 0  # when to publish them again (0: not due)
@@ -303,6 +304,11 @@ class Service(object):
                 self.native_recheck = False
                 self.native_counts.clear()
                 self.apply_layout()
+            wide_series_art = xbmc.getCondVisibility('Skin.HasSetting(SiloEpisodeSeriesArt)')
+            if wide_series_art != self.wide_series_art:
+                # The skin's setting changed (or Kodi started): the rows' wide art follows.
+                self.wide_series_art = wide_series_art
+                self.home_cards_due = self.home_cards_due or now
             if self.home_cards_due and now >= self.home_cards_due and self.store.signed_in:
                 self.home_cards_due = 0
                 self.enqueue('homecards')
@@ -405,6 +411,12 @@ class Service(object):
                 kodi.log_error('Task %s crashed: %s' % (task, error))
             if kind_of(task) in ('sync', 'fullsync', 'library'):
                 release_memory()
+            if self.tasks.empty() and self.syncer.art_changed:
+                # Silo has a new image (a custom episode still): Kodi would
+                # keep showing its cached one under the same local address.
+                changed, self.syncer.art_changed = self.syncer.art_changed, set()
+                kodi.log('Art: %d images changed, %d dropped from Kodi\'s cache'
+                         % (len(changed), kodi.forget_textures(changed)))
             if self.tasks.empty() and self.syncer.changed:
                 structural = self.syncer.added_or_removed
                 if self.syncer.rewrote:
@@ -1123,12 +1135,24 @@ class Service(object):
                 continue
             cached = self.details.get(kind, kodi_id)
             if cached:
-                card = home_cards.card(kind, cached['details'], cached.get('show'), source.get('tint'))
+                card = home_cards.card(kind, cached['details'], cached.get('show'), source.get('tint'),
+                                       self.series_art(source))
                 if page == 'requests' and source.get('label'):
                     card['card.sub'] = card['card.wide_sub'] = source['label']
                     card.update(home_cards.request_status(source))
                 cards.append(card)
         return cards
+
+    def series_art(self, source):
+        """With the skin's "series art" setting (Silo's Apple TV app), a
+        Continue Watching or Next Up episode's wide art: Silo's season or
+        series backdrop, through the relay. Else '' (the episode still)."""
+        if not (self.wide_series_art and source.get('backdrop')):
+            return ''
+        key = 'row:%s' % source['content_id']
+        for kind in self.db.set_art(key, {'fanart': source['backdrop']}):
+            self.syncer.art_changed.add(mapping.art_url(self.port, key, kind))
+        return mapping.art_url(self.port, key, 'fanart')
 
     def note_viewed_page(self):
         """When the skin shows a page for the first time, give its rows their paths."""
@@ -1197,6 +1221,11 @@ class Service(object):
         if time.time() - self.art_attempts.get(content_id, 0) < ART_RETRY:
             return
         self.art_attempts[content_id] = time.time()
+        if content_id.startswith('row:'):
+            # A row card's own art (series_art): publishing the rows again
+            # brings Silo's current URL.
+            self.home_cards_soon()
+            return
         if content_id.startswith('person:'):
             person = self.client.get('/catalog/people/%s' % content_id.split(':', 1)[1])
             if person.get('photo_url'):

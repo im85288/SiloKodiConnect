@@ -26,8 +26,9 @@ FIELDS = ('type', 'dbid', 'label', 'card.title', 'card.sub', 'card.wide_sub', 'h
           'status.tint', 'status.seg1', 'status.seg2', 'status.seg3', 'status.seg4')
 
 
-def card(kind, details, show=None, tint=''):
-    """One card's fields, from Kodi's JSON-RPC details (and an episode's show)."""
+def card(kind, details, show=None, tint='', landscape=''):
+    """One card's fields, from Kodi's JSON-RPC details (and an episode's show).
+    landscape: the wide art to show instead (an episode's series art)."""
     props = mapping.skyline_properties(kind, details, show)
     art = details.get('art') or {}
     episode = kind == 'episode'
@@ -63,8 +64,8 @@ def card(kind, details, show=None, tint=''):
         'badge3': props.get('silo.badge3', ''), 'tint': tint or '',
         'percent': str(percent) if percent else '', 'playcount': watched_mark(kind, details),
         'art.poster': art.get('poster') or art.get('tvshow.poster') or art.get('thumb') or '',
-        'art.landscape': (art.get('thumb') if episode and art.get('thumb') else
-                          art.get('landscape') or art.get('fanart') or art.get('tvshow.fanart') or ''),
+        'art.landscape': landscape or (art.get('thumb') if episode and art.get('thumb') else
+                                       art.get('landscape') or art.get('fanart') or art.get('tvshow.fanart') or ''),
         'art.fanart': art.get('fanart') or art.get('tvshow.fanart') or art.get('landscape') or '',
         'art.clearlogo': logo,
     }

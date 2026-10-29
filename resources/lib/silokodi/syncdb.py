@@ -6,6 +6,8 @@ import os
 import sqlite3
 import threading
 
+from .mapping import unsigned
+
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS items (
     content_id TEXT PRIMARY KEY,
@@ -104,6 +106,13 @@ class SyncDB(object):
     def set_state(self, content_id, state):
         self._write('UPDATE items SET state = ? WHERE content_id = ?', (state, content_id))
 
+    def set_fingerprints(self, pairs):
+        """[(content_id, fingerprint)], in one commit."""
+        with self._lock:
+            self._conn.executemany('UPDATE items SET fingerprint = ? WHERE content_id = ?',
+                                   [(fingerprint, content_id) for content_id, fingerprint in pairs])
+            self._conn.commit()
+
     def forget_fingerprints(self):
         """Make the next sync rewrite every item."""
         self._write('UPDATE items SET fingerprint = NULL')
@@ -124,12 +133,17 @@ class SyncDB(object):
     # ----- artwork -----
 
     def set_art(self, content_id, urls):
-        """urls: {kind: Silo URL}; replaces the item's whole set."""
+        """urls: {kind: Silo URL}; replaces the item's whole set. Returns the
+        kinds whose image changed (its address, not just its signature): Kodi
+        holds the old one in its cache under the same local address."""
         with self._lock:
+            before = dict(self._conn.execute('SELECT kind, url FROM art WHERE content_id = ?', (content_id,)))
             self._conn.execute('DELETE FROM art WHERE content_id = ?', (content_id,))
             self._conn.executemany('INSERT INTO art(content_id, kind, url) VALUES (?, ?, ?)',
                                    [(content_id, kind, url) for kind, url in urls.items()])
             self._conn.commit()
+        return [kind for kind, url in urls.items()
+                if before.get(kind) and unsigned(before[kind]) != unsigned(url)]
 
     def art(self, content_id, kind):
         rows = self._query('SELECT url FROM art WHERE content_id = ? AND kind = ?', (content_id, kind))

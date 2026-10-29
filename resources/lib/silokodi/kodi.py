@@ -103,6 +103,19 @@ def jsonrpc(method, **params):
     return response.get('result')
 
 
+def forget_textures(urls):
+    """Drop images from Kodi's texture cache, so Kodi fetches them again
+    the next time they show. Returns how many were cached."""
+    dropped = 0
+    for url in urls:
+        found = jsonrpc('Textures.GetTextures', properties=['url'],
+                        filter={'field': 'url', 'operator': 'is', 'value': url}) or {}
+        for texture in found.get('textures') or []:
+            jsonrpc('Textures.RemoveTexture', textureid=texture['textureid'])
+            dropped += 1
+    return dropped
+
+
 def refresh_library_views(refresh_list=True, update_library=True):
     """Make Kodi show what was just written to its database. Returns False when
     a library update has to wait (in a library list or during playback).

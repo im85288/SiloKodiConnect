@@ -39,6 +39,17 @@ STATE_FIELDS = ('position_seconds', 'progress_updated_at', 'user_state', 'sort_m
                 'badges', 'upcoming_event', 'search_diagnostics')
 # Signed artwork URLs change daily; their path names the image.
 URL_FIELDS_SUFFIX = ('_url', '_urls')
+# The fields of a catalog card that reach Kodi's library (the title's own
+# details and art; season listings and item details fill in the rest). Only
+# these make a card count as changed, so a field Silo adds (a thumbhash, the
+# parent's artwork on episode cards) doesn't rewrite the library. A field
+# the rows use from here on belongs in this list.
+CARD_FIELDS = ('title', 'overview', 'tagline', 'sort_title', 'original_title', 'runtime', 'duration_seconds',
+               'content_rating', 'genres', 'studios', 'networks', 'countries', 'release_date', 'first_air_date',
+               'air_date', 'year', 'added_at', 'show_status', 'series_id', 'season_number', 'episode_number',
+               'play_content_id', 'rating_imdb', 'rating_tmdb', 'rating_sources', 'ratings', 'tmdb_id', 'imdb_id',
+               'tvdb_id', 'overlay_summary', 'poster_url', 'backdrop_url', 'logo_url', 'clearart_url', 'banner_url',
+               'disc_url', 'thumb_url', 'still_url')
 
 
 # ----- identity and paths -----
@@ -69,20 +80,32 @@ def art_url(port, content_id, kind):
     return 'http://127.0.0.1:%d/art/%s/%s' % (port, quote(content_id, safe=''), kind)
 
 
-def _strip_signature(value):
+def unsigned(value):
+    """A Silo URL without its signature (which changes daily)."""
     return value.split('?', 1)[0] if isinstance(value, str) else value
 
 
-def fingerprint(card):
-    """Hash of the parts of a card that describe the title, not its viewing state."""
+def _hash(card, keys):
     data = {}
-    for key, value in card.items():
-        if key in STATE_FIELDS:
-            continue
+    for key in keys:
+        value = card[key]
         if key.endswith(URL_FIELDS_SUFFIX):
-            value = [_strip_signature(v) for v in value] if isinstance(value, list) else _strip_signature(value)
+            value = [unsigned(v) for v in value] if isinstance(value, list) else unsigned(value)
         data[key] = value
     return hashlib.sha1(json.dumps(data, sort_keys=True).encode('utf-8')).hexdigest()
+
+
+def fingerprint(card):
+    """Hash of the card's fields that reach Kodi (CARD_FIELDS), not its
+    viewing state or anything else Silo adds."""
+    return _hash(card, [key for key in CARD_FIELDS if key in card])
+
+
+def legacy_fingerprint(card):
+    """The earlier fingerprint: every field but the viewing state. A
+    row saved with it is unchanged if it matches today's card, so the sync
+    swaps in the new fingerprint instead of rewriting the library."""
+    return _hash(card, [key for key in card if key not in STATE_FIELDS])
 
 
 # ----- dates and numbers -----

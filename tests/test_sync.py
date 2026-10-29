@@ -167,6 +167,47 @@ def test_signed_artwork_urls_changing_daily_do_not_count_as_changes(syncer, silo
     assert [c for c in silo.calls if c[0] == 'item'] == []
 
 
+def test_fields_silo_adds_to_cards_do_not_count_as_changes(syncer, silo):
+    # As Silo did in October 2026: the parents' artwork and thumbhashes on every episode card.
+    syncer.sync()
+    for episodes in silo.episodes_of.values():
+        for e in episodes:
+            e.update(season_poster_url='/api/v2/artwork/s1/w500.webp?sig=x', season_poster_thumbhash='abc',
+                     backdrop_is_episode_still=True)
+    silo.movies['movie-1']['poster_thumbhash'] = 'xyz'
+    silo.calls = []
+    assert syncer.sync() is False
+    assert [c for c in silo.calls if c[0] != 'catalog'] == []
+
+
+def test_rows_saved_with_the_old_fingerprint_are_upgraded_not_rewritten(syncer, silo):
+    syncer.sync()
+    cards = {c['content_id']: c for library, kind in (('1', 'movie'), ('2', 'series'), ('2', 'episode'))
+             for c in silo.catalog(library, kind)}
+    syncer.db.set_fingerprints([(cid, mapping.legacy_fingerprint(card)) for cid, card in cards.items()])
+    silo.calls = []
+    assert syncer.sync() is False
+    assert [c for c in silo.calls if c[0] != 'catalog'] == []
+    assert all(syncer.db.get(cid)['fingerprint'] == mapping.fingerprint(card) for cid, card in cards.items())
+
+
+def test_a_new_episode_still_is_dropped_from_kodis_image_cache(syncer, silo):
+    syncer.sync()
+    syncer.art_changed = set()
+    first = silo.episodes_of[('series-1', 1)][0]
+    # A custom still: Silo's episode card shows it as the poster too.
+    first.update(still_url='/api/v2/artwork/custom-e1.webp?sig=7', poster_url='/api/v2/artwork/custom-e1.webp?sig=7')
+    syncer.sync()
+    assert syncer.art_changed == {mapping.art_url(PORT, first['content_id'], 'thumb')}
+
+
+def test_only_a_new_image_counts_as_changed_art_not_a_new_signature(tmp_path):
+    db = SyncDB(str(tmp_path))
+    assert db.set_art('item', {'thumb': '/api/v2/artwork/a.webp?sig=1'}) == []
+    assert db.set_art('item', {'thumb': '/api/v2/artwork/a.webp?sig=2'}) == []
+    assert db.set_art('item', {'thumb': '/api/v2/artwork/b.webp?sig=2', 'fanart': '/f.webp'}) == ['thumb']
+
+
 def test_removed_titles_leave_kodi(syncer, silo, query):
     syncer.sync()
     del silo.movies['movie-2']
@@ -269,6 +310,24 @@ def test_home_rows_map_to_library_items(syncer, query):
     assert home_row_items({'section_type': 'collection', 'items': cards}, 'popular-imdb', syncer.db) \
         == [{'type': 'movie', 'kodi_id': movie_id, 'tint': TOY_STORY_TINT},
             {'type': 'tvshow', 'kodi_id': show_id, 'tint': ''}]
+
+
+def test_continue_watching_episodes_carry_silos_series_backdrop(syncer, query):
+    from resources.lib.silokodi.sync import home_row_items
+    syncer.sync()
+    card = {'content_id': 'series-1', 'type': 'series', 'play_content_id': 'series-1-s1e2',
+            'backdrop_url': '/api/v2/artwork/season-1-backdrop.webp?sig=1'}
+    [item] = home_row_items({'section_type': 'next_up', 'items': [card]}, 'next_up', syncer.db)
+    assert item['backdrop'] == card['backdrop_url'] and item['content_id'] == 'series-1-s1e2'
+    # Elsewhere a show card is the show, with its own art.
+    [item] = home_row_items({'section_type': 'collection', 'items': [card]}, 'popular', syncer.db)
+    assert 'backdrop' not in item
+
+
+def test_a_card_takes_the_series_art_given_instead_of_the_still():
+    details = {'title': 'Episode 2', 'art': {'thumb': 'still.jpg', 'tvshow.fanart': 'show.jpg'}}
+    assert rows_module.card('episode', details)['art.landscape'] == 'still.jpg'
+    assert rows_module.card('episode', details, landscape='row-art.jpg')['art.landscape'] == 'row-art.jpg'
 
 
 def test_last_played_comes_from_watch_history(silo, syncer, query):

@@ -50,7 +50,10 @@ def collection_cards(tab):
 def home_row_items(page, section, db):
     """A Silo home row's cards as [{'type', 'kodi_id', 'tint'}] in Silo's order.
     Titles not synced to Kodi (other media types, excluded libraries) are left
-    out. tint is the card's ambient page tint for a Silo-style skin."""
+    out. tint is the card's ambient page tint for a Silo-style skin. In Continue
+    Watching and Next Up an episode also has its card's 'backdrop' and
+    'content_id': Silo's apps show the season backdrop there, else the
+    series', instead of the episode still."""
     next_episode = (page.get('section_type') or section) in NEXT_EPISODE_SECTIONS
     items = []
     for card in page.get('items') or []:
@@ -59,8 +62,11 @@ def home_row_items(page, section, db):
             row = db.get(card['play_content_id'])
         row = row or db.get(card.get('content_id'))
         if row and row['kind'] in ('movie', 'episode', 'tvshow') and row.get('kodi_id'):
-            items.append({'type': row['kind'], 'kodi_id': row['kodi_id'],
-                          'tint': mapping.ambient_tint(card.get('poster_thumbhash') or '')})
+            item = {'type': row['kind'], 'kodi_id': row['kodi_id'],
+                    'tint': mapping.ambient_tint(card.get('poster_thumbhash') or '')}
+            if next_episode and row['kind'] == 'episode' and card.get('backdrop_url'):
+                item.update(backdrop=card['backdrop_url'], content_id=row['content_id'])
+            items.append(item)
     return items
 
 
@@ -221,6 +227,10 @@ class Syncer(object):
         # only the titles that profile may see; Kodi keeps every title then,
         # so nothing is removed, and only watch states follow the profile.
         self.household = False
+        # (content id, fingerprint) of rows saved with the old fingerprint.
+        self.upgraded = []
+        # Local art addresses whose image changed in Silo (see _save_art).
+        self.art_changed = set()
         self._base, self._span = 0.0, 100.0
 
     def step(self, fraction, message):
@@ -327,11 +337,12 @@ class Syncer(object):
             seen.add(content_id)
             row = self.db.get(content_id)
             fingerprint = mapping.fingerprint(card)
-            if not row or row['fingerprint'] != fingerprint or row['library_id'] != library_id:
+            if not self._unchanged(row, card, fingerprint) or row['library_id'] != library_id:
                 fetch.append((content_id, fingerprint))
             elif row['state'] != mapping.state_fingerprint(card):
                 states.append((row, {'user_state': card.get('user_state'), 'runtime': card.get('runtime'),
                                      'duration_seconds': card.get('duration_seconds')}))
+        self.save_upgraded()
         self.log('Library %s: %d movies, %d to write, %d watch-state updates'
                  % (library.get('name'), len(seen), len(fetch), len(states)))
         for number, batch in enumerate(chunks(fetch, BATCH)):
@@ -382,7 +393,7 @@ class Syncer(object):
         self.db.put(content_id=content_id, kind='movie', library_id=str(library['id']), kodi_id=kodi_id,
                     kodi_file_id=file_id, kodi_path_id=path_id, fingerprint=fingerprint,
                     state=mapping.state_fingerprint(item))
-        self.db.set_art(content_id, remote_art)
+        self._save_art(content_id, remote_art)
         self._save_person_art(item)
         self.changed = True
         self.touched.add(('movie', kodi_id))
@@ -404,7 +415,7 @@ class Syncer(object):
             series_id = card['content_id']
             seen_series.add(series_id)
             row = self.db.get(series_id)
-            if not row or row['fingerprint'] != mapping.fingerprint(card) or row['library_id'] != library_id:
+            if not self._unchanged(row, card) or row['library_id'] != library_id:
                 changed_series.append(card)
         # A big library has tens of thousands of episode cards, over 100 MB
         # as Python objects, which got Kodi killed for memory on a 2 GB
@@ -421,12 +432,13 @@ class Syncer(object):
             seen_episodes.add(content_id)
             row = self.db.get(content_id)
             fingerprint = mapping.fingerprint(card)
-            if not row or row['fingerprint'] != fingerprint:
+            if not self._unchanged(row, card, fingerprint):
                 stale_seasons.setdefault((card['series_id'], card.get('season_number')), {})[content_id] = {
                     'added_at': card.get('added_at'), 'fingerprint': fingerprint}
             elif row['state'] != mapping.state_fingerprint(card):
                 states.append((row, {'user_state': card.get('user_state'), 'runtime': card.get('runtime'),
                                      'duration_seconds': card.get('duration_seconds')}))
+        self.save_upgraded()
         self.log('Library %s: %d shows (%d changed), %d episodes'
                  % (library.get('name'), len(series_cards), len(changed_series), episodes))
         # Shows first: episodes need their show and season rows.
@@ -468,6 +480,32 @@ class Syncer(object):
                 with self.open_kodi() as kodi:
                     self._remove_show(kodi, row)
 
+    def _unchanged(self, row, card, fingerprint=None):
+        """Whether a saved row still matches its card. A row saved with the
+        old fingerprint that matches counts as unchanged; its new fingerprint
+        is saved by save_upgraded."""
+        if not row or not row['fingerprint']:
+            return False
+        fingerprint = fingerprint or mapping.fingerprint(card)
+        if row['fingerprint'] == fingerprint:
+            return True
+        if row['fingerprint'] == mapping.legacy_fingerprint(card):
+            self.upgraded.append((row['content_id'], fingerprint))
+            return True
+        return False
+
+    def save_upgraded(self):
+        if self.upgraded:
+            self.db.set_fingerprints(self.upgraded)
+            self.log('Saved %d fingerprints in the new form' % len(self.upgraded))
+            self.upgraded = []
+
+    def _save_art(self, key, urls):
+        """Save an item's Silo art; a changed image's local address goes in
+        art_changed, for the service to drop from Kodi's texture cache."""
+        for kind in self.db.set_art(key, urls):
+            self.art_changed.add(mapping.art_url(self.port, key, kind))
+
     def _fetch_show(self, card):
         series_id = card['content_id']
         return self.client.item(series_id), self.client.seasons(series_id)
@@ -494,7 +532,7 @@ class Syncer(object):
         self.db.put(content_id=series_id, kind='tvshow', library_id=library_id, kodi_id=kodi_id,
                     kodi_path_id=path_id, fingerprint=mapping.fingerprint(card) if card else None,
                     state=None)
-        self.db.set_art(series_id, remote_art)
+        self._save_art(series_id, remote_art)
         self._save_person_art(item)
         wanted = set()
         for season in seasons:
@@ -509,7 +547,7 @@ class Syncer(object):
             kodi.set_art(season_id, 'season', local_art)
             self.db.put(content_id=key, kind='season', library_id=library_id, parent_id=series_id,
                         season_number=number, kodi_id=season_id)
-            self.db.set_art(key, remote_art)
+            self._save_art(key, remote_art)
         for season_row in self.db.children(series_id, 'season'):
             if season_row['content_id'] not in wanted and not self._season_has_episodes(season_row):
                 kodi.remove_season(season_row['kodi_id'])
@@ -574,7 +612,7 @@ class Syncer(object):
                         kodi_path_id=show['kodi_path_id'],
                         fingerprint=card['fingerprint'] if card else None,
                         state=mapping.state_fingerprint(episode))
-            self.db.set_art(content_id, remote_art)
+            self._save_art(content_id, remote_art)
             self.touched.add(('episode', kodi_id))
         self.changed = True
 
@@ -744,4 +782,4 @@ class Syncer(object):
 
     def _save_person_art(self, item):
         for key, url in mapping.person_art(item).items():
-            self.db.set_art(key, {'thumb': url})
+            self._save_art(key, {'thumb': url})

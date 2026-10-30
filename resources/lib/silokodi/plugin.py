@@ -283,12 +283,13 @@ def schedule(base, handle, number, name, full=False):
 
 def schedule_days(handle, number, name):
     """The days of a channel's full schedule, for the quick guide's day
-    column, as TiviMate's: "Tue, 27 Oct", silo.day its number (as the
+    column, as TiviMate's: "Tue," over "27 Oct", silo.day its number (as the
     schedule's rows), silo.first the row of its first programme, silo.today."""
     channel = channels.find_channel(number, name)
     for index, row in enumerate(channels.channel_schedule(channel) if channel else []):
         if row.get('header'):
-            item = xbmcgui.ListItem(channels.day_label(row['date']), offscreen=True)
+            # On two lines in the skin's tall rows, as TiviMate's: "Fri," over "30 Oct".
+            item = xbmcgui.ListItem(channels.day_label(row['date']).replace(', ', ',[CR]'), offscreen=True)
             item.setProperties({'silo.day': str(row['day']), 'silo.first': str(index + 1),
                                 'silo.today': '1' if row['today'] else ''})
             xbmcplugin.addDirectoryItem(handle, '', item, isFolder=False)

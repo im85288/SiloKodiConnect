@@ -14,7 +14,7 @@ import requests
 import xbmc
 import xbmcgui
 
-from . import catchup, jump, kodi, kodidb, mapping, tracks, upnext, keymap
+from . import catchup, jump, kodi, kodidb, mapping, quick, tracks, upnext, keymap
 from .api import ApiError, SignedOut, SiloClient
 from .events import Debouncer, EventListener
 from .playback import PlaybackError, PlaybackManager
@@ -270,6 +270,10 @@ class Service(object):
         trailers = threading.Thread(target=self.watch_trailers, name='silokodi-trailers')
         trailers.daemon = True
         trailers.start()
+        # The Live TV quick guide's short schedule (idle unless it's open).
+        guide = threading.Thread(target=quick.QuickGuide(self.monitor).watch, name='silokodi-quick-guide')
+        guide.daemon = True
+        guide.start()
         ticks = 0
         while not self.monitor.waitForAbort(1):
             ticks += 1

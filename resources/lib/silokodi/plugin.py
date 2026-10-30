@@ -4,7 +4,6 @@
 The plugin runs in a short-lived process per call. Everything that needs the
 Silo session goes through the service's loopback relay.
 """
-import calendar
 import json
 import time
 
@@ -259,59 +258,22 @@ def forget_channel(channel_id):
         kodi.set_property('recent_changed', str(int(time.time())))
 
 
-def find_channel(number, name):
-    """A Live TV channel by the skin's number, else its name (with catch-up)."""
-    found = (kodi.jsonrpc('PVR.GetChannels', channelgroupid='alltv', properties=['channelnumber', 'hasarchive'])
-             or {}).get('channels') or []
-    return next((c for c in found if str(c.get('channelnumber')) == str(number or '').strip()
-                 and (not name or c.get('label') == name)), None) or \
-        next((c for c in found if c.get('label') == name), None)
-
-
-def channel_schedule(channel):
-    """The channel's programmes as channels.schedule_rows, from Kodi's guide."""
-    broadcasts = (kodi.jsonrpc('PVR.GetBroadcasts', channelid=channel['channelid'],
-                               properties=['title', 'starttime', 'endtime', 'plot'])
-                  or {}).get('broadcasts') or []
-    for broadcast in broadcasts:
-        broadcast['start'], broadcast['end'] = (calendar.timegm(time.strptime(broadcast[key], '%Y-%m-%d %H:%M:%S'))
-                                                for key in ('starttime', 'endtime'))
-    return channels.schedule_rows(broadcasts, time.time(), bool(channel.get('hasarchive')))
-
-
 def schedule(base, handle, number, name, full=False):
     """A Live TV channel's programmes for a Silo-style skin's quick guide, as
-    TiviMate's: from just before the one on now (full: from the catch-up days
-    back to a week ahead), with day headers (silo.header). Label2 is the start
-    time in Kodi's time format; silo.now marks the one on now, silo.archive a
-    past one catch-up can play; silo.day is the row's day (the day column's),
-    silo.timeline and silo.plot fill the skin's programme card.
-    silokodi.schedule_now is the row on now, for the skin to focus."""
-    channel = find_channel(number, name)
-    rows = channel_schedule(channel) if channel else []
+    TiviMate's: from just before the one on now (full: from the catch-up
+    days back to a week ahead), as channels.items.
+    silokodi.schedule_now is the row on now, for the skin to focus. (The
+    short schedule beside the channel list comes from the service: quick.py.)"""
+    channel = channels.find_channel(number, name)
+    rows = channels.channel_schedule(channel) if channel else []
     if not full:
         rows = channels.around_now(rows)
     clock = xbmc.getRegion('time').replace(':%S', '')
-
-    def at(epoch):
-        return time.strftime(clock, time.localtime(epoch)).lstrip('0')
-    for index, row in enumerate(rows):
-        if row.get('header'):
-            item = xbmcgui.ListItem(row['header'], offscreen=True)
-            item.setProperties({'silo.header': '1', 'silo.day': str(row['day']),
-                                'silo.today': '1' if row['today'] else ''})
-            xbmcplugin.addDirectoryItem(handle, '', item, isFolder=False)
-            continue
-        item = xbmcgui.ListItem(row['title'], at(row['start']), offscreen=True)
-        item.setProperties({'silo.day': str(row['day']), 'silo.plot': row['plot'],
-                            'silo.timeline': '%s, %s — %s' % (channels.day_label(row['date']), at(row['start']), at(row['end'])),
-                            'silo.now': '1' if row['when'] == 'now' else '',
-                            'silo.past': '1' if row['when'] == 'past' else '',
-                            'silo.archive': '1' if row.get('archive') else '',
-                            'silo.when': row['when'],
-                            'silo.broadcastid': str(row['broadcastid']), 'silo.channelid': str(channel['channelid'])})
+    for index, (label, label2, props) in enumerate(channels.items(rows, channel, clock)):
+        item = xbmcgui.ListItem(label, label2, offscreen=True)
+        item.setProperties(props)
         xbmcplugin.addDirectoryItem(handle, '', item, isFolder=False)
-        if full and row['when'] == 'now':
+        if full and props.get('silo.when') == 'now':
             kodi.set_property('schedule_now', str(index))
     if full:
         # Which channel schedule_now is for: the skin waits for this one's.
@@ -323,8 +285,8 @@ def schedule_days(handle, number, name):
     """The days of a channel's full schedule, for the quick guide's day
     column, as TiviMate's: "Tue, 27 Oct", silo.day its number (as the
     schedule's rows), silo.first the row of its first programme, silo.today."""
-    channel = find_channel(number, name)
-    for index, row in enumerate(channel_schedule(channel) if channel else []):
+    channel = channels.find_channel(number, name)
+    for index, row in enumerate(channels.channel_schedule(channel) if channel else []):
         if row.get('header'):
             item = xbmcgui.ListItem(channels.day_label(row['date']), offscreen=True)
             item.setProperties({'silo.day': str(row['day']), 'silo.first': str(index + 1),

@@ -2,11 +2,13 @@
 """Live TV's recently watched channels for a Silo-style skin, as TiviMate
 keeps them: newest first, not the one playing, and without any the viewer
 removed (until they watch it again; Kodi itself can't forget a channel)."""
+import calendar
 import glob
 import json
 import os
 import re
 import sqlite3
+import time
 
 from . import kodi
 
@@ -118,3 +120,50 @@ def around_now(rows, before=2):
     header = next((i for i in range(start, -1, -1) if rows[i].get('header')), None) if rows else None
     picked = rows[start:]
     return ([rows[header]] + picked) if header is not None and header < start else picked
+
+
+def find_channel(number, name, found=None):
+    """A Live TV channel by the skin's number, else its name (with catch-up).
+    found: Kodi's channel list, if already read."""
+    if found is None:
+        found = (kodi.jsonrpc('PVR.GetChannels', channelgroupid='alltv', properties=['channelnumber', 'hasarchive'])
+                 or {}).get('channels') or []
+    return next((c for c in found if str(c.get('channelnumber')) == str(number or '').strip()
+                 and (not name or c.get('label') == name)), None) or \
+        next((c for c in found if c.get('label') == name), None)
+
+
+def channel_schedule(channel, now=None):
+    """The channel's programmes as schedule_rows, from Kodi's guide."""
+    broadcasts = (kodi.jsonrpc('PVR.GetBroadcasts', channelid=channel['channelid'],
+                               properties=['title', 'starttime', 'endtime', 'plot'])
+                  or {}).get('broadcasts') or []
+    for broadcast in broadcasts:
+        broadcast['start'], broadcast['end'] = (calendar.timegm(time.strptime(broadcast[key], '%Y-%m-%d %H:%M:%S'))
+                                                for key in ('starttime', 'endtime'))
+    return schedule_rows(broadcasts, now or time.time(), bool(channel.get('hasarchive')))
+
+
+def items(rows, channel, clock):
+    """Schedule rows as a skin's list items: (label, label2, properties).
+    Label2 is the start time in Kodi's time format (clock); silo.header
+    marks a day header, silo.now the one on now, silo.archive a past one
+    catch-up can play; silo.day is the row's day (the day column's),
+    silo.timeline and silo.plot fill the skin's programme card."""
+    def at(epoch):
+        return time.strftime(clock, time.localtime(epoch)).lstrip('0')
+    found = []
+    for row in rows:
+        if row.get('header'):
+            found.append((row['header'], '', {'silo.header': '1', 'silo.day': str(row['day']),
+                                              'silo.today': '1' if row['today'] else ''}))
+            continue
+        found.append((row['title'], at(row['start']), {
+            'silo.day': str(row['day']), 'silo.plot': row['plot'],
+            'silo.timeline': '%s, %s — %s' % (day_label(row['date']), at(row['start']), at(row['end'])),
+            'silo.now': '1' if row['when'] == 'now' else '',
+            'silo.past': '1' if row['when'] == 'past' else '',
+            'silo.archive': '1' if row.get('archive') else '',
+            'silo.when': row['when'],
+            'silo.broadcastid': str(row['broadcastid']), 'silo.channelid': str(channel['channelid'])}))
+    return found

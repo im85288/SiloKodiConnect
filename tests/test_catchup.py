@@ -14,6 +14,13 @@ def test_a_live_address_catch_up_becomes_the_providers_archive():
     assert catchup.rewrite(text) == (text, 0)                                     # once only
 
 
+def test_live_stream_modes_become_timeshift_so_any_channel_pauses():
+    text = '#KODIPROP:inputstream.ffmpegdirect.stream_mode=live\n#EXTINF:-1,Sky News\nhttps://host.example/x.ts\n'
+    rewritten, count = catchup.rewrite(text)
+    assert count == 1 and 'stream_mode=timeshift' in rewritten and 'stream_mode=live' not in rewritten
+    assert catchup.rewrite(rewritten) == (rewritten, 0)
+
+
 def test_the_playlists_come_from_iptv_simples_local_instances(tmp_path):
     folder = tmp_path / 'pvr.iptvsimple'
     folder.mkdir()

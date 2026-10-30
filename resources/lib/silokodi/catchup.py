@@ -7,7 +7,12 @@ that ignore it then stream live TV for any past programme. Their archive is
 streaming/timeshift.php, so this rewrites each such catch-up-source in the
 playlists Kodi's IPTV Simple add-on reads from a local file, whenever the
 file changes, and has Kodi reload them. Logs give counts, never addresses
-(they carry the provider login)."""
+(they carry the provider login).
+
+The same playlists fix every channel's stream mode as live, which keeps
+IPTV Simple's timeshift from applying: channels without catch-up couldn't
+be paused. They're made timeshift (catch-up channels play in catch-up mode
+either way)."""
 import glob
 import os
 import re
@@ -19,13 +24,18 @@ from . import kodi
 LIVE_CATCHUP = re.compile(r'catchup-source="(https?://[^/"]+)/live/([^/"]+)/([^/"]+)/(\d+)\.(?:ts|m3u8)\?utc=[^"]*"')
 ARCHIVE = ('catchup-source="{0}/streaming/timeshift.php?username={1}&password={2}&stream={3}'
            '&start={{Y}}-{{m}}-{{d}}:{{H}}-{{M}}&duration={{duration:60}}"')
+LIVE_MODE = '#KODIPROP:inputstream.ffmpegdirect.stream_mode=live'
+TIMESHIFT_MODE = '#KODIPROP:inputstream.ffmpegdirect.stream_mode=timeshift'
 SETTING = re.compile(r'<setting id="(m3uPathType|m3uPath)"(?: default="true")?>([^<]*)</setting>')
 
 
 def rewrite(text):
     """The playlist with each live-address catch-up-source made an archive
-    one, and how many were changed."""
-    return LIVE_CATCHUP.subn(lambda m: ARCHIVE.format(*m.groups()), text)
+    one and each live stream mode made timeshift, and how many lines were
+    changed."""
+    text, archives = LIVE_CATCHUP.subn(lambda m: ARCHIVE.format(*m.groups()), text)
+    modes = text.count(LIVE_MODE)
+    return text.replace(LIVE_MODE, TIMESHIFT_MODE), archives + modes
 
 
 def playlists(addon_data):
@@ -66,7 +76,7 @@ class Rewriter(object):
                     handle.write(text)
                 os.replace(temporary, path)
                 self.reload_due = True
-                kodi.log('Catch-up: %d channels now play from the archive' % count)
+                kodi.log('Catch-up: %d playlist lines rewritten (archive, timeshift)' % count)
             self.seen[path] = os.path.getmtime(path)
         if self.reload_due and not playing:
             self.reload_due = False

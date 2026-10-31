@@ -250,3 +250,18 @@ def test_a_4k_hls_plan_is_refused_and_released(store):
         mgr.start('movie-1')
     assert client.session.sent[-1][0] == 'DELETE'
     assert mgr.pending is None
+
+
+def test_watchlist_membership_add_and_remove(store):
+    client = client_with(store, [
+        ('GET', '/api/v2/watchlist/movie-1', Response(200, {'item_id': 'movie-1'})),
+        ('GET', '/api/v2/watchlist/movie-2', Response(404, {'code': 'not_found', 'detail': 'not found'})),
+        ('PUT', '/api/v2/watchlist/movie-2', Response(204)),
+        ('DELETE', '/api/v2/watchlist/movie-1', Response(204)),
+    ])
+    assert client.in_watchlist('movie-1') is True
+    assert client.in_watchlist('movie-2') is False
+    client.add_to_watchlist('movie-2')
+    client.remove_from_watchlist('movie-1')
+    assert [(method, url.rsplit('/', 1)[1]) for method, url, *_ in client.session.sent] == [
+        ('GET', 'movie-1'), ('GET', 'movie-2'), ('PUT', 'movie-2'), ('DELETE', 'movie-1')]

@@ -231,18 +231,23 @@ class KodiVideoDB(object):
                 self.cursor.execute('INSERT INTO art(media_id, media_type, type, url) VALUES (?, ?, ?, ?)',
                                     (kodi_id, kodi_type, kind, url))
         if kodi_type != 'actor':
-            for kind in current - set(art):
+            # The hero's extras are kept by set_hero_extras.
+            for kind in current - set(art) - set(mapping.HERO_EXTRAS):
                 self.cursor.execute('DELETE FROM art WHERE media_id = ? AND media_type = ? AND type = ?',
                                     (kodi_id, kodi_type, kind))
 
-    def set_rating(self, kodi_id, kodi_type, rating):
-        """rating: (type, value, votes) or None. Returns the rating_id."""
+    def set_rating(self, kodi_id, kodi_type, ratings):
+        """ratings: [(type, value, votes)], the default first (a single tuple
+        or None also do). Returns the default's rating_id."""
         self.cursor.execute('DELETE FROM rating WHERE media_id = ? AND media_type = ?', (kodi_id, kodi_type))
-        if not rating:
-            return None
-        self.cursor.execute('INSERT INTO rating(media_id, media_type, rating_type, rating, votes) VALUES (?, ?, ?, ?, ?)',
-                            (kodi_id, kodi_type, rating[0], rating[1], rating[2]))
-        return self.cursor.lastrowid
+        if ratings and isinstance(ratings[0], str):
+            ratings = [ratings]
+        first = None
+        for rating in ratings or []:
+            self.cursor.execute('INSERT INTO rating(media_id, media_type, rating_type, rating, votes) '
+                                'VALUES (?, ?, ?, ?, ?)', (kodi_id, kodi_type, rating[0], rating[1], rating[2]))
+            first = first or self.cursor.lastrowid
+        return first
 
     def set_unique_ids(self, kodi_id, kodi_type, ids):
         """ids: [(type, value)], most preferred first. Returns the default uniqueid_id."""
@@ -253,6 +258,65 @@ class KodiVideoDB(object):
                                 (kodi_id, kodi_type, value, kind))
             first = first or self.cursor.lastrowid
         return first
+
+    # ----- the hero's extras (mapping.hero_extras) -----
+
+    def hero_details(self, kodi_type):
+        """{kodi id: details} for every movie or tvshow: its genres, cast and
+        stream details as Kodi's JSON-RPC gives them, and under 'extras' the
+        hero extras it has now."""
+        if kodi_type == 'movie':
+            self.cursor.execute('SELECT idMovie, c14, idFile FROM movie')
+        else:
+            self.cursor.execute('SELECT idShow, c08, NULL FROM tvshow')
+        details, files = {}, {}
+        for kodi_id, genre, file_id in self.cursor.fetchall():
+            details[kodi_id] = {'genre': [g for g in (genre or '').split(' / ') if g], 'cast': [],
+                                'streamdetails': {'video': [], 'audio': []}, 'extras': {}}
+            if file_id is not None:
+                files[file_id] = kodi_id
+        self.cursor.execute('''
+            SELECT actor_link.media_id, actor.name, actor_link.cast_order FROM actor_link
+            JOIN actor ON actor.actor_id = actor_link.actor_id
+            WHERE actor_link.media_type = ? ORDER BY actor_link.media_id, actor_link.cast_order
+        ''', (kodi_type,))
+        for kodi_id, name, order in self.cursor.fetchall():
+            if kodi_id in details:
+                details[kodi_id]['cast'].append({'name': name, 'order': order})
+        if files:
+            self.cursor.execute('''
+                SELECT idFile, iStreamType, strVideoCodec, iVideoWidth, iVideoHeight, strHdrType, strAudioCodec,
+                       iAudioChannels
+                FROM streamdetails WHERE iStreamType IN (0, 1) AND idFile IN (SELECT idFile FROM movie)
+                ORDER BY rowid
+            ''')
+            for file_id, kind, vcodec, width, height, hdr, acodec, channels in self.cursor.fetchall():
+                streams = details[files[file_id]]['streamdetails'] if file_id in files else None
+                if streams is None:
+                    continue
+                if kind == 0:
+                    streams['video'].append({'codec': vcodec or '', 'width': width or 0, 'height': height or 0,
+                                             'hdrtype': hdr or ''})
+                else:
+                    streams['audio'].append({'codec': acodec or '', 'channels': channels or 0})
+        # A test build kept them as unique ids, which Kodi's lists don't load.
+        self.cursor.execute('DELETE FROM uniqueid WHERE media_type = ? AND type IN (%s)'
+                            % ','.join('?' * len(mapping.HERO_EXTRAS)), (kodi_type,) + mapping.HERO_EXTRAS)
+        self.cursor.execute('SELECT media_id, type, url FROM art WHERE media_type = ? AND type IN (%s)'
+                            % ','.join('?' * len(mapping.HERO_EXTRAS)), (kodi_type,) + mapping.HERO_EXTRAS)
+        for kodi_id, kind, value in self.cursor.fetchall():
+            if kodi_id in details:
+                details[kodi_id]['extras'][kind] = value
+        return details
+
+    def set_hero_extras(self, kodi_id, kodi_type, extras):
+        """Replace a title's hero extras ({type: text}; empty ones aren't kept)."""
+        self.cursor.execute('DELETE FROM art WHERE media_id = ? AND media_type = ? AND type IN (%s)'
+                            % ','.join('?' * len(mapping.HERO_EXTRAS)), (kodi_id, kodi_type) + mapping.HERO_EXTRAS)
+        for kind, value in extras.items():
+            if value:
+                self.cursor.execute('INSERT INTO art(media_id, media_type, type, url) VALUES (?, ?, ?, ?)',
+                                    (kodi_id, kodi_type, kind, value))
 
     def set_streams(self, file_id, details, runtime):
         self.cursor.execute('DELETE FROM streamdetails WHERE idFile = ?', (file_id,))

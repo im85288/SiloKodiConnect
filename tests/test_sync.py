@@ -2,6 +2,8 @@
 import pytest
 
 from resources.lib.silokodi import mapping
+from resources.lib.silokodi import rows as rows_module
+from resources.lib.silokodi import sync as sync_module
 from resources.lib.silokodi.sync import Syncer
 from resources.lib.silokodi.syncdb import SyncDB
 
@@ -40,6 +42,11 @@ def test_first_sync_writes_movies_into_kodi(syncer, query):
     # Library features skins rely on.
     assert query("SELECT type, value FROM uniqueid WHERE media_type = 'movie' AND media_id = ? ORDER BY type",
                  (heat[0],)) == [('imdb', 'tt0113277'), ('tmdb', '949')]
+    # The hero's extras, for the rows Kodi lists itself.
+    extras = dict(query("SELECT type, url FROM art WHERE media_type = 'movie' AND media_id = ? "
+                        "AND type LIKE 'silo%'", (heat[0],)))
+    assert extras == {'silogenre': 'Crime', 'silocast': 'Al Pacino, Robert De Niro', 'silobadge1': '4K',
+                      'silobadge2': 'DOLBY VISION', 'silobadge3': 'TRUEHD 7.1'}
     assert query("SELECT rating, votes FROM rating WHERE media_id = ? AND media_type = 'movie'", (heat[0],)) \
         == [(8.3, 673852)]
     assert query("SELECT name FROM tag JOIN tag_link USING (tag_id) WHERE media_id = ? AND media_type = 'movie'",
@@ -121,6 +128,28 @@ def test_watch_state_change_updates_without_refetching(syncer, silo, query):
         == [(1,)]
 
 
+def test_a_watch_state_change_names_only_that_title_for_the_cache(syncer, silo, query):
+    syncer.sync()
+    assert len(syncer.touched) == 6 and not syncer.rewrote  # the first sync wrote every title
+    syncer.rewrote, syncer.touched = False, set()
+    silo.movies['movie-1']['user_state'] = {'played': True}
+    syncer.sync()
+    heat = query("SELECT idMovie FROM movie WHERE c00 = 'Heat'")[0][0]
+    assert not syncer.rewrote and syncer.touched == {('movie', heat)}
+
+
+def test_rewriting_a_title_names_it_and_removing_one_forgets_all(syncer, silo, query):
+    syncer.sync()
+    syncer.touched = set()
+    silo.movies['movie-1']['title'] = 'Heat (Director\'s Definitive Edition)'
+    syncer.sync()
+    heat = query("SELECT idMovie FROM movie WHERE c00 LIKE 'Heat%'")[0][0]
+    assert syncer.touched == {('movie', heat)} and not syncer.rewrote
+    del silo.movies['movie-1']
+    syncer.sync()
+    assert syncer.rewrote
+
+
 def test_changed_metadata_rewrites_the_same_row(syncer, silo, query):
     syncer.sync()
     before = query("SELECT idMovie, idFile FROM movie WHERE c00 = 'Heat'")
@@ -141,6 +170,47 @@ def test_signed_artwork_urls_changing_daily_do_not_count_as_changes(syncer, silo
     silo.calls = []
     syncer.sync()
     assert [c for c in silo.calls if c[0] == 'item'] == []
+
+
+def test_fields_silo_adds_to_cards_do_not_count_as_changes(syncer, silo):
+    # As Silo did in October 2026: the parents' artwork and thumbhashes on every episode card.
+    syncer.sync()
+    for episodes in silo.episodes_of.values():
+        for e in episodes:
+            e.update(season_poster_url='/api/v2/artwork/s1/w500.webp?sig=x', season_poster_thumbhash='abc',
+                     backdrop_is_episode_still=True)
+    silo.movies['movie-1']['poster_thumbhash'] = 'xyz'
+    silo.calls = []
+    assert syncer.sync() is False
+    assert [c for c in silo.calls if c[0] != 'catalog'] == []
+
+
+def test_rows_saved_with_the_old_fingerprint_are_upgraded_not_rewritten(syncer, silo):
+    syncer.sync()
+    cards = {c['content_id']: c for library, kind in (('1', 'movie'), ('2', 'series'), ('2', 'episode'))
+             for c in silo.catalog(library, kind)}
+    syncer.db.set_fingerprints([(cid, mapping.legacy_fingerprint(card)) for cid, card in cards.items()])
+    silo.calls = []
+    assert syncer.sync() is False
+    assert [c for c in silo.calls if c[0] != 'catalog'] == []
+    assert all(syncer.db.get(cid)['fingerprint'] == mapping.fingerprint(card) for cid, card in cards.items())
+
+
+def test_a_new_episode_still_is_dropped_from_kodis_image_cache(syncer, silo):
+    syncer.sync()
+    syncer.art_changed = set()
+    first = silo.episodes_of[('series-1', 1)][0]
+    # A custom still: Silo's episode card shows it as the poster too.
+    first.update(still_url='/api/v2/artwork/custom-e1.webp?sig=7', poster_url='/api/v2/artwork/custom-e1.webp?sig=7')
+    syncer.sync()
+    assert syncer.art_changed == {mapping.art_url(PORT, first['content_id'], 'thumb')}
+
+
+def test_only_a_new_image_counts_as_changed_art_not_a_new_signature(tmp_path):
+    db = SyncDB(str(tmp_path))
+    assert db.set_art('item', {'thumb': '/api/v2/artwork/a.webp?sig=1'}) == []
+    assert db.set_art('item', {'thumb': '/api/v2/artwork/a.webp?sig=2'}) == []
+    assert db.set_art('item', {'thumb': '/api/v2/artwork/b.webp?sig=2', 'fanart': '/f.webp'}) == ['thumb']
 
 
 def test_removed_titles_leave_kodi(syncer, silo, query):
@@ -212,7 +282,7 @@ def test_progress_moves_within_libraries(silo, open_kodi, tmp_path):
     Syncer(silo, SyncDB(str(tmp_path)), open_kodi, PORT, progress=lambda p, m: seen.append((p, m))).sync()
     percents = [p for p, _ in seen]
     assert percents == sorted(percents) and percents[-1] == 100
-    assert 'Movies: 25 / 62' in [m for _, m in seen]
+    assert 'Movies: 50 / 62' in [m for _, m in seen]
     assert any(m.startswith('TV: 0 / 2 seasons') for _, m in seen)
 
 
@@ -245,6 +315,24 @@ def test_home_rows_map_to_library_items(syncer, query):
     assert home_row_items({'section_type': 'collection', 'items': cards}, 'popular-imdb', syncer.db) \
         == [{'type': 'movie', 'kodi_id': movie_id, 'tint': TOY_STORY_TINT},
             {'type': 'tvshow', 'kodi_id': show_id, 'tint': ''}]
+
+
+def test_continue_watching_episodes_carry_silos_series_backdrop(syncer, query):
+    from resources.lib.silokodi.sync import home_row_items
+    syncer.sync()
+    card = {'content_id': 'series-1', 'type': 'series', 'play_content_id': 'series-1-s1e2',
+            'backdrop_url': '/api/v2/artwork/season-1-backdrop.webp?sig=1'}
+    [item] = home_row_items({'section_type': 'next_up', 'items': [card]}, 'next_up', syncer.db)
+    assert item['backdrop'] == card['backdrop_url'] and item['content_id'] == 'series-1-s1e2'
+    # Elsewhere a show card is the show, with its own art.
+    [item] = home_row_items({'section_type': 'collection', 'items': [card]}, 'popular', syncer.db)
+    assert 'backdrop' not in item
+
+
+def test_a_card_takes_the_series_art_given_instead_of_the_still():
+    details = {'title': 'Episode 2', 'art': {'thumb': 'still.jpg', 'tvshow.fanart': 'show.jpg'}}
+    assert rows_module.card('episode', details)['art.landscape'] == 'still.jpg'
+    assert rows_module.card('episode', details, landscape='row-art.jpg')['art.landscape'] == 'row-art.jpg'
 
 
 def test_last_played_comes_from_watch_history(silo, syncer, query):
@@ -290,8 +378,9 @@ def test_skin_layout_follows_silo_home_and_libraries():
     assert layout['silo.home.count'] == '2'
     assert layout['silo.home.1.style'] == 'landscape' and layout['silo.home.2.style'] == 'poster'
     assert layout['silo.home.2.path'] == 'plugin://plugin.video.silokodiconnect/?mode=widget&section=abc%201'
-    assert layout['silo.movies.1.path'] == \
-        'plugin://plugin.video.silokodiconnect/?library=1&mode=widget&section=recent'
+    # Recently Added is a row Kodi's library can list in Silo's order: native.
+    assert layout['silo.movies.1.path'] == sync_module.native_path(
+        {'section_type': 'recently_added'}, libraries[0])
     assert layout['silo.series.count'] == str(MAX_ROWS)
     # Unused slots are cleared, so rows removed in Silo don't linger in the skin.
     assert layout['silo.home.3.title'] == '' and layout['silo.home.%d.path' % MAX_ROWS] == ''
@@ -333,6 +422,14 @@ def test_similar_path_encodes_the_genre_and_leaves_the_title_out():
         {'field': 'title', 'operator': 'isnot', 'value': ['Vigil']}]
 
 
+def test_an_episode_page_has_its_series_more_like_this():
+    from resources.lib.silokodi.mapping import similar_path, skyline_properties
+    show = {'title': 'Vigil', 'genre': ['Crime', 'Drama']}
+    props = skyline_properties('episode', {'season': 1, 'episode': 2, 'title': 'Two'}, show)
+    assert props['silo.similar'] == similar_path('tvshow', 'Crime', 'Vigil')
+    assert 'silo.similar' not in skyline_properties('episode', {'season': 1, 'episode': 2}, None)
+
+
 def test_content_id_comes_from_play_urls_and_show_folders():
     from resources.lib.silokodi.mapping import SHOWS_PATH, content_id_from_path, play_url
     assert content_id_from_path(play_url(SHOWS_PATH + 'series-1/', 'episode-1-3-3', 'episode')) == 'episode-1-3-3'
@@ -357,3 +454,525 @@ def test_skin_layout_links_each_page_to_its_collections():
     assert props['silo.movies.collections'] == \
         'plugin://plugin.video.silokodiconnect/?mode=collections&libraries=1%2C4'
     assert props['silo.series.collections'] == ''
+
+
+def test_request_cards_show_silos_state_and_tmdb_art():
+    from resources.lib.silokodi.mapping import request_card
+    result = {'media_type': 'movie', 'tmdb_id': 949, 'title': 'Heat', 'year': 1995, 'poster_path': '/p.jpg',
+              'backdrop_path': '/b.jpg', 'vote_average': 7.94, 'availability': 'missing',
+              'request': {'requestable': True}}
+    card = request_card(result)
+    assert card['poster'] == 'https://image.tmdb.org/t/p/w500/p.jpg' and card['rating'] == 7.9
+    assert card['requestable'] and card['state'] == '' and card['label'] == ''
+    mine = {'media_type': 'series', 'tmdb_id': 1, 'title': 'Vigil', 'state': 'processing', 'status': 'queued',
+            'outcome': 'active'}
+    assert request_card(mine)['label'] == 'Queued' and not request_card(mine)['requestable']
+    assert request_card(mine)['long'] == 'Queued for download' and request_card(mine)['tint'] == 'FF38BDF8'
+    held = dict(result, availability='available', library_content_id='movie-1', request={})
+    assert request_card(held)['label'] == 'In library' and request_card(held)['content_id'] == 'movie-1'
+
+
+def test_yours_splits_requests_on_the_way_from_those_you_can_watch():
+    from resources.lib.silokodi import service as service_module
+
+    class Client(object):
+        def my_requests(self):
+            return [{'media_type': 'movie', 'tmdb_id': 1, 'title': 'Dune', 'state': 'processing', 'status': 'queued'},
+                    {'media_type': 'series', 'tmdb_id': 2, 'title': 'Industry', 'library_content_id': 'show-2'},
+                    {'media_type': 'movie', 'tmdb_id': 3, 'title': 'Heat', 'state': 'available'}]
+
+    class Db(object):
+        def get(self, content_id):
+            return {'kind': 'tvshow', 'kodi_id': 7}
+    service = service_module.Service.__new__(service_module.Service)
+    service.client, service.db = Client(), Db()
+    assert [c['title'] for c in service.request_cards('mine:active')] == ['Dune']
+    assert [c['title'] for c in service.request_cards('mine:available')] == ['Industry', 'Heat']
+    assert len(service.request_cards('mine')) == 3
+
+
+def test_request_progress_reads_as_silos_tv_app():
+    progress = mapping.request_progress
+    assert progress('pending')['label'] == 'Pending' and progress('pending')['tint'] == 'FFF59E0B'
+    assert progress('processing', 'downloading')['label'] == 'Downloading'
+    assert progress('processing')['label'] == 'On the way'
+    assert progress('partially_available')['label'] == 'Partly in library'
+    assert (progress('available')['done'], progress('available')['step']) == (4, 0)
+    assert progress('failed')['long'] == 'Request failed' and progress('declined')['tint'] == 'FFFB7185'
+    # No state (an older server): status and outcome decide.
+    assert progress('', 'completed', 'active')['label'] == 'In library'
+    assert progress('', 'queued', 'declined')['label'] == 'Declined'
+    # A title nobody asked for: nothing to show, it can just be requested.
+    assert progress('', requestable=True) is None
+    assert progress('', available=True)['label'] == 'In library'
+
+
+def test_request_body_carries_the_title_as_silo_needs_it():
+    from resources.lib.silokodi.mapping import request_body
+    detail = {'media_type': 'series', 'tmdb_id': 5, 'title': 'Vigil', 'year': '2021', 'tvdb_id': 9, 'imdb_id': '',
+              'poster_path': '/p.jpg', 'seasons': [{'season_number': 1}]}
+    assert request_body(detail) == {'media_type': 'series', 'tmdb_id': 5, 'title': 'Vigil', 'year': 2021,
+                                    'tvdb_id': 9, 'poster_path': '/p.jpg'}
+
+
+def test_skin_layout_adds_a_requests_page_when_the_profile_can_request():
+    from resources.lib.silokodi.sync import skin_layout
+    props = skin_layout([], [], {}, [('mine:active', 'In progress', 'poster', 'yours'),
+                                     ('trending_movies', 'Trending Movies')])
+    assert props['silo.pages'] == 'home,requests' and props['silo.requests.count'] == '2'
+    assert props['silo.requests.2.title'] == 'Trending Movies'
+    assert props['silo.requests.2.path'] == 'plugin://plugin.video.silokodiconnect/?mode=requests&row=trending_movies'
+    # Which pill shows the row: Yours, or Discover (none).
+    assert props['silo.requests.1.section'] == 'yours' and props['silo.requests.2.section'] == ''
+    assert 'requests' not in skin_layout([], [], {})['silo.pages']
+
+
+def test_a_rows_path_is_also_published_under_its_style():
+    from resources.lib.silokodi import sync
+    props = sync.skin_layout([{'id': 'cw', 'title': 'Continue', 'section_type': 'continue_watching'},
+                              {'id': 'top', 'title': 'Top'}], [], {})
+    assert props['silo.home.1.landscape'] == props['silo.home.1.path'] and props['silo.home.1.poster'] == ''
+    assert props['silo.home.1.type'] == 'continue_watching' and props['silo.home.2.type'] == ''
+    assert props['silo.home.2.poster'] == props['silo.home.2.path'] and props['silo.home.2.landscape'] == ''
+    assert sync.page_of('silo.movies.3.poster') == 'movies'
+    assert sync.page_of('silo.movies.3.path') is None and sync.page_of('silo.pages') is None
+
+
+def test_the_details_cache_looks_up_once_until_told_of_a_change():
+    from resources.lib.silokodi.library import DetailsCache
+    calls = []
+
+    def fetch(kind, kodi_id, shows):
+        calls.append((kind, kodi_id))
+        return {'title': '%s %d' % (kind, kodi_id)}, None
+    cache = DetailsCache(fetch)
+    assert cache.get('episode', 1)['details']['title'] == 'episode 1'
+    cache.get('episode', 1)
+    cache.get('tvshow', 9)
+    assert calls == [('episode', 1), ('tvshow', 9)]
+    cache.forget('episode', 1)  # Kodi changed an uncached-show episode: shows are read again
+    cache.get('episode', 1)
+    cache.get('tvshow', 9)
+    assert calls[2:] == [('episode', 1), ('tvshow', 9)]
+    cache.clear()
+    cache.get('episode', 1)
+    assert len(calls) == 5
+
+
+def test_an_episode_change_forgets_only_its_own_show():
+    from resources.lib.silokodi.library import DetailsCache
+    calls = []
+
+    def fetch(kind, kodi_id, shows):
+        calls.append((kind, kodi_id))
+        return ({'tvshowid': 9} if kind == 'episode' else {'title': 'show'}), None
+    cache = DetailsCache(fetch)
+    for key in (('episode', 1), ('tvshow', 9), ('tvshow', 10)):
+        cache.get(*key)
+    cache.forget('episode', 1)
+    for key in (('episode', 1), ('tvshow', 9), ('tvshow', 10)):
+        cache.get(*key)
+    assert calls[3:] == [('episode', 1), ('tvshow', 9)]
+
+
+def test_the_details_cache_survives_a_restart_and_is_rechecked(tmp_path):
+    from resources.lib.silokodi.library import DetailsCache
+    library = {('episode', 1): {'title': 'Pilot', 'playcount': 0}, ('movie', 2): {'title': 'Heat'}}
+
+    def fetch(kind, kodi_id, shows):
+        details = library.get((kind, kodi_id))
+        return (dict(details) if details else None), None
+    path = str(tmp_path / 'details.json')
+    before = DetailsCache(fetch)
+    before.get('episode', 1)
+    before.get('movie', 2)
+    assert before.dirty
+    before.save(path)
+    assert not before.dirty
+
+    after = DetailsCache(fetch)
+    assert after.load(path) == 2
+    assert after.get('episode', 1)['details']['title'] == 'Pilot'
+    assert not after.recheck()  # nothing changed while Kodi was off
+    library[('episode', 1)]['playcount'] = 1
+    del library[('movie', 2)]
+    assert after.recheck()
+    assert after.get('episode', 1)['details']['playcount'] == 1
+    assert ('movie', 2) not in after.titles
+    assert DetailsCache(fetch).load(str(tmp_path / 'missing.json')) == 0
+
+
+def test_episode_badges_take_silos_hdr_and_audio_labels():
+    details = mapping.episode_stream_details({
+        'files': [{'codec_video': 'hevc', 'hdr': True, 'audio_channels': 6, 'resolution': '2160p'}],
+        'overlay_summary': {'hdr': 'HDR10+', 'audio': 'EAC3', 'audio_channels': '5.1'}})
+    assert details['video'][0]['hdr'] == 'hdr10plus' and details['audio'][0]['codec'] == 'eac3'
+    # As Kodi's JSON-RPC hands the stored details back (hdr is read as hdrtype):
+    stored = {'video': [{'height': 2160, 'hdrtype': details['video'][0]['hdr']}], 'audio': details['audio']}
+    assert mapping.quality_badges(stored) == ['4K', 'HDR10+', 'EAC3 5.1']
+    # Without the summary, as before.
+    plain = mapping.episode_stream_details({'files': [{'codec_video': 'hevc', 'hdr': True, 'audio_channels': 6}]})
+    assert plain['video'][0]['hdr'] == 'hdr10' and plain['audio'][0]['codec'] == ''
+
+
+def test_tech_lines_and_both_ratings():
+    lines = mapping.tech_lines({'video': [{'height': 2160, 'hdrtype': 'hdr10plus'}],
+                                'audio': [{'codec': 'eac3', 'channels': 6, 'language': 'eng'}],
+                                'subtitle': [{'language': 'eng'}, {'language': 'fre'}, {'language': 'eng'}]})
+    assert lines == {'silo.version': '4K · HDR10+', 'silo.audio': 'English · EAC3 · 5.1',
+                     'silo.subtitles': 'English, French'}
+    assert mapping.tech_lines({})['silo.subtitles'] == 'None'
+    assert mapping.ratings({'rating_imdb': 8.7, 'rating_tmdb': 8}) == [('imdb', 8.7, 0), ('themoviedb', 8.0, 0)]
+    props = mapping.skyline_properties('episode', {'season': 7, 'episode': 6, 'ratings': {}},
+                                       {'ratings': {'imdb': {'rating': 8.7}, 'themoviedb': {'rating': 8.0}}})
+    assert props['silo.rating.imdb'] == '8.7' and props['silo.rating.tmdb'] == '8.0'
+
+
+def test_home_cards_carry_silos_text_and_resolved_art():
+    from resources.lib.silokodi import rows
+    episode = rows.card('episode', {
+        'episodeid': 7, 'title': 'Zone of Death', 'showtitle': 'Marshals', 'season': 1, 'episode': 2,
+        'firstaired': '2026-03-08', 'resume': {'position': 600, 'total': 2400}, 'playcount': 0,
+        'art': {'thumb': 'still.jpg', 'tvshow.poster': 'poster.jpg', 'tvshow.fanart': 'fanart.jpg',
+                'tvshow.clearlogo': 'logo.png'}}, {'mpaa': 'TV-14', 'genre': ['Drama']}, 'FF223344')
+    assert episode['type'] == 'episode' and episode['dbid'] == '7'
+    assert episode['card.title'] == 'Marshals' and episode['card.sub'] == 'S01E02'
+    assert episode['card.wide_sub'] == 'S01E02 · Zone of Death' and episode['hero.title'] == ''
+    assert episode['hero.meta'] == 'S01E02 · Zone of Death' and episode['percent'] == '25'
+    assert episode['hero.facts'] == 'S01E02 · Zone of Death' and episode['rating.imdb'] == ''
+    assert (episode['art.poster'], episode['art.landscape'], episode['art.fanart'], episode['art.clearlogo']) == \
+        ('poster.jpg', 'still.jpg', 'fanart.jpg', 'logo.png')
+    assert episode['mpaa'] == 'TV-14' and episode['tint'] == 'FF223344'
+    movie = rows.card('movie', {'movieid': 3, 'title': 'Heat', 'year': 1995, 'art': {'poster': 'p.jpg'}})
+    assert movie['card.title'] == 'Heat' and movie['card.sub'] == '1995' and movie['hero.title'] == 'Heat'
+    props = rows.row_properties(2, [movie])
+    assert props['silo.home.2.1.label'] == 'Heat' and props['silo.home.2.cards'] == '1'
+    assert props['silo.home.2.2.label'] == '' and 'silo.home.2.%d.label' % rows.CARDS in props
+
+
+def test_quickstart_sets_home_from_what_the_service_saved(tmp_path):
+    from resources.lib.silokodi import quickstart
+    from resources.lib.silokodi.syncdb import SyncDB
+    assert quickstart.saved(str(tmp_path)) == ({}, {})
+    db = SyncDB(str(tmp_path))
+    db.set_meta('layout', {'silo.pages': 'home,movies', 'silo.home.1.landscape': 'plugin://x/?a=1',
+                           'silo.movies.1.poster': 'plugin://x/?b=2', 'silo.movies.1.title': 'Recently Added'})
+    db.set_meta('home_cards', {'silo.home.1.1.label': 'Heat'})
+    db.close()
+    props = quickstart.home_properties(*quickstart.saved(str(tmp_path)))
+    assert props['silo.home.1.landscape'] == 'plugin://x/?a=1' and props['silo.movies.1.poster'] == ''
+    assert props['silo.movies.1.title'] == 'Recently Added' and props['silo.home.1.1.label'] == 'Heat'
+
+
+def test_a_requestable_title_card_and_page_prefixes():
+    from resources.lib.silokodi import rows
+    card = rows.request_card({'type': 'series', 'tmdb': 95396, 'title': 'Severance', 'year': 2022, 'rating': 8.4,
+                              'label': 'Requested', 'overview': 'Work.', 'poster': 'p.jpg', 'backdrop': 'b.jpg'})
+    assert card['type'] == 'request' and card['request.tmdb'] == '95396' and card['card.sub'] == 'SERIES · 2022'
+    assert card['request.state'] == 'Requested' and card['request.library'] == ''
+    assert card['hero.meta'] == '2022 · [COLOR 66EDEDED]TMDB[/COLOR] [B]8.4[/B]' and card['art.fanart'] == 'b.jpg'
+    assert (card['hero.facts'], card['rating.tmdb']) == ('2022', '8.4')
+    props = rows.row_properties(3, [card], 'requests')
+    assert props['silo.requests.3.1.request.type'] == 'series' and props['silo.requests.3.cards'] == '1'
+    # A Requests row has the skin's 12 slots, not Home's 25.
+    props = rows.row_properties(3, [card] * 20, 'requests', 12)
+    assert props['silo.requests.3.cards'] == '12' and 'silo.requests.3.12.type' in props
+    assert 'silo.requests.3.13.type' not in props
+
+
+def test_library_rows_kodi_can_order_load_natively():
+    from resources.lib.silokodi import sync
+    import json
+    from urllib.parse import unquote
+    movies = {'id': 1, 'type': 'movies', 'name': 'Films'}
+    path = sync.native_path({'section_type': 'continue_watching'}, movies)
+    assert path.startswith('videodb://movies/titles/?xsp=')
+    query = json.loads(unquote(path.split('xsp=', 1)[1]))
+    assert 'order' not in query and 'limit' not in query  # Kodi's list sorts, then cuts
+    assert {'field': 'inprogress', 'operator': 'true', 'value': []} in query['rules']['and']
+    assert {'field': 'tag', 'operator': 'is', 'value': ['Films']} in query['rules']['and']
+    shows = {'id': 2, 'type': 'series', 'name': 'TV'}
+    assert sync.native_path({'section_type': 'recently_added'}, shows).startswith('videodb://tvshows/titles/')
+    assert sync.native_path({'section_type': 'continue_watching'}, shows) is None  # Silo's next-up
+    assert sync.native_path({'section_type': 'recommended_for_you'}, movies) is None
+    entry = sync.row_entry({'id': 'x', 'section_type': 'random', 'title': 'Random'}, '1', movies)
+    assert entry['path'].startswith('videodb://')
+    assert (entry['sort'], entry['order'], entry['limit']) == ('random', 'ascending', '25')
+    plugin = sync.row_entry({'id': 'y', 'section_type': 'imdb_popular', 'title': 'IMDb'}, '1', movies)
+    assert (plugin['sort'], plugin['order'], plugin['limit']) == ('', '', '')
+
+
+def test_an_empty_kodi_library_row_gets_no_path(monkeypatch):
+    from resources.lib.silokodi import kodi, service as service_module
+    set_props = {}
+
+    class Window(object):
+        def __init__(self, *args):
+            pass
+
+        def setProperty(self, key, value):
+            set_props[key] = value
+
+    monkeypatch.setattr(service_module.xbmcgui, 'Window', Window)
+    monkeypatch.setattr(kodi, 'get_property', lambda name: '7')
+    asked = []
+
+    def jsonrpc(method, **params):
+        asked.append(params['directory'])
+        return {'limits': {'total': 0 if 'inprogress' in params['directory'] else 3}}
+    monkeypatch.setattr(kodi, 'jsonrpc', jsonrpc)
+    service = service_module.Service.__new__(service_module.Service)
+    service.viewed_pages, service.loading_until, service.native_counts = {'movies'}, {}, {}
+    service.layout = {'silo.movies.1.path': 'videodb://movies/titles/?xsp=inprogress',
+                      'silo.movies.1.landscape': 'videodb://movies/titles/?xsp=inprogress',
+                      'silo.movies.2.path': 'videodb://movies/titles/?xsp=recent',
+                      'silo.movies.2.poster': 'videodb://movies/titles/?xsp=recent',
+                      'silo.movies.3.poster': 'plugin://x/?mode=widget'}
+    service.apply_layout()
+    assert set_props['silo.movies.1.path'] == '' and set_props['silo.movies.1.landscape'] == ''
+    assert set_props['silo.movies.2.poster'] == 'videodb://movies/titles/?xsp=recent&refresh=7'
+    assert set_props['silo.movies.3.poster'] == 'plugin://x/?mode=widget&refresh=7'
+    assert len(asked) == 2  # each path asked once, until the library changes
+
+
+def test_dolby_vision_hdr10_plus_and_atmos_as_silo_names_them():
+    from resources.lib.silokodi import mapping
+    # MobLand S2E3 as Silo lists it: Dolby Vision with HDR10+, Atmos in EAC3.
+    episode = {'files': [{'resolution': '2160p', 'codec_video': 'hevc', 'hdr': True, 'audio_channels': 6}],
+               'overlay_summary': {'hdr': 'DV HDR10+', 'audio': 'Atmos'}}
+    details = mapping.episode_stream_details(episode)
+    assert details['video'][0]['hdr'] == 'dolbyvision'
+    assert details['audio'][0]['codec'] == 'eac3_ddp_atmos'
+    version = {'video_tracks': [{'codec': 'hevc', 'width': 3840, 'height': 1600, 'dolby_vision': 'Profile 8',
+                                 'video_range_type': 'DOVIWithHDR10Plus'}],
+               'audio_tracks': [{'codec': 'eac3', 'profile': 'Dolby Digital Plus + Dolby Atmos', 'channels': 6,
+                                 'language': 'en'}]}
+    full = mapping.stream_details(version)
+    assert full['video'][0]['hdr'] == 'dolbyvision' and full['audio'][0]['codec'] == 'eac3_ddp_atmos'
+    assert mapping.hdr_type({'video_range_type': 'HDR10Plus'}, {}) == 'hdr10plus'
+    assert mapping.overlay_hdr('HDR10+') == 'hdr10plus' and mapping.overlay_hdr('', 'hdr10') == 'hdr10'
+    kodi = {'video': [{'width': 3840, 'height': 1600, 'hdrtype': 'dolbyvision'}],
+            'audio': [{'codec': 'eac3_ddp_atmos', 'channels': 6, 'language': 'en'}]}
+    assert mapping.quality_badges(kodi) == ['4K', 'DOLBY VISION', 'ATMOS 5.1']
+    assert mapping.tech_lines(kodi)['silo.audio'] == 'English · EAC3 Atmos · 5.1'
+    assert mapping.tech_lines(kodi)['silo.version'] == '4K · Dolby Vision'
+
+
+
+def test_a_second_sync_keeps_the_first_ones_change_pending(syncer):
+    # A full resync, then the regular sync queued behind it before the
+    # service handled the first one's change: it must still be flagged.
+    assert syncer.sync() is True
+    assert syncer.sync() is False
+    assert syncer.changed is True
+    syncer.changed = False  # the service handled it
+    assert syncer.sync() is False and syncer.changed is False
+
+
+def test_library_facts_line():
+    from resources.lib.silokodi.service import library_facts
+    assert library_facts({'movie': 1087, 'tvshow': 529, 'episode': 28374, 'season': 2125}) == \
+        '1,087 films  ·  529 series  ·  28,374 episodes'
+    assert library_facts({'movie': 1}) == '1 film'
+    assert library_facts({}) == ''
+
+
+def test_switching_profile_keeps_the_current_one_on_cancel(monkeypatch, tmp_path):
+    from resources.lib.silokodi import auth
+    from resources.lib.silokodi.store import Store
+    store = Store(str(tmp_path))
+    store.update(profile_id='me', profile_name='Ian')
+
+    class Client(object):
+        def profiles(self):
+            return [{'id': 'me', 'name': 'Ian'}, {'id': 'aurora', 'name': 'Aurora'}]
+
+    picks = []
+
+    class Dialog(object):
+        def select(self, heading, names, preselect=-1):
+            picks.append(preselect)
+            return answer[0]
+    monkeypatch.setattr(auth.xbmcgui, 'Dialog', Dialog)
+    answer = [-1]
+    assert auth.choose_profile(store, Client(), switching=True) is False
+    assert store.get('profile_id') == 'me' and picks == [0]  # the current profile preselected
+    answer = [0]
+    assert auth.choose_profile(store, Client(), switching=True) is False  # the same one: nothing to do
+    answer = [1]
+    assert auth.choose_profile(store, Client(), switching=True) is True
+    assert store.get('profile_id') == 'aurora' and store.get('profile_name') == 'Aurora'
+
+
+def test_a_household_profiles_libraries_come_from_its_own_list(syncer, silo):
+    # The sync's list needs the primary profile; the layout's doesn't.
+    assert [lib['id'] for lib in syncer.libraries(primary=False)] == [lib['id'] for lib in syncer.libraries()]
+
+
+def test_a_household_profile_keeps_every_title(syncer, silo, query):
+    from resources.lib.silokodi.api import ApiError
+    syncer.sync()
+    assert len(query('SELECT idMovie FROM movie')) == 2
+    # As a household profile: /libraries is refused and Silo lists fewer titles.
+    def refused():
+        raise ApiError(403, 'permission_denied', "Admin access requires the account's primary profile")
+    silo.libraries = refused
+    del silo.movies['movie-2']
+    syncer.sync()
+    assert syncer.household is True
+    assert len(query('SELECT idMovie FROM movie')) == 2  # Thief stays in Kodi
+
+
+def test_trailer_key_prefers_an_official_english_youtube_trailer():
+    videos = [{'kind': 'featurette', 'site': 'youtube', 'site_key': 'f'},
+              {'kind': 'trailer', 'site': 'vimeo', 'site_key': 'v'},
+              {'kind': 'trailer', 'site': 'youtube', 'site_key': 'de', 'language': 'de', 'is_official': True},
+              {'kind': 'trailer', 'site': 'youtube', 'site_key': 'fan', 'language': 'en'},
+              {'kind': 'trailer', 'site': 'youtube', 'site_key': 'en', 'language': 'en', 'is_official': True}]
+    assert mapping.trailer_key({'videos': videos}) == 'en'
+    assert mapping.trailer_key({'videos': videos[:2]}) == ''
+    assert mapping.trailer_key({}) == ''
+
+
+def test_a_show_is_marked_watched_when_every_episode_is():
+    from resources.lib.silokodi.rows import watched_mark
+    assert watched_mark('tvshow', {'episode': 8, 'watchedepisodes': 8}) == '1'
+    assert watched_mark('tvshow', {'episode': 8, 'watchedepisodes': 7}) == ''
+    assert watched_mark('tvshow', {'episode': 0, 'watchedepisodes': 0}) == ''
+    assert watched_mark('movie', {'playcount': 2}) == '2'
+    assert watched_mark('movie', {}) == ''
+
+
+def test_the_hero_rating_dims_its_source_and_bolds_its_score():
+    assert rows_module.rating_markup('IMDb 6.6') == '[COLOR 66EDEDED]IMDb[/COLOR] [B]6.6[/B]'
+    assert rows_module.rating_markup('') == ''
+
+
+def test_a_films_home_card_has_its_info_line_in_parts():
+    from resources.lib.silokodi import rows
+    film = rows.card('movie', {'movieid': 3, 'title': 'Heat', 'year': 1995, 'genre': ['Crime', 'Drama'],
+                               'ratings': {'imdb': {'rating': 8.3, 'default': True}, 'themoviedb': {'rating': 7.9}}})
+    assert film['hero.facts'] == '1995 · Crime'
+    assert (film['rating.imdb'], film['rating.tmdb']) == ('8.3', '7.9')
+
+
+def test_writes_inside_a_batch_commit_together(tmp_path):
+    import sqlite3
+    db = SyncDB(str(tmp_path))
+    other = sqlite3.connect(db.path)
+
+    def seen():
+        return other.execute('SELECT COUNT(*) FROM items').fetchone()[0]
+    with db.batch():
+        db.put(content_id='a', kind='movie')
+        with db.batch():
+            db.put(content_id='b', kind='movie')
+        assert seen() == 0            # not committed yet
+    assert seen() == 2
+    db.put(content_id='c', kind='movie')
+    assert seen() == 3                # outside a batch, at once
+
+
+def test_brand_cards_open_silos_browse_pages():
+    studio = rows_module.brand_card({'slug': 'pixar', 'display_name': 'Pixar', 'logo_url': 'https://x/p.png'}, 'studio')
+    assert studio['type'] == 'brand' and studio['request.more'] == 'browse:studio:pixar'
+    assert studio['request.logo'] == 'https://x/p.png' and studio['card.title'] == 'Pixar'
+    genre = rows_module.brand_card({'slug': 'action', 'display_name': 'Action', 'gradient_from': '#dc2626',
+                                    'gradient_to': '#7f1d1d'}, 'genre')
+    assert genre['request.from'] == 'FFDC2626' and genre['request.to'] == 'FF7F1D1D'
+    pictured = rows_module.brand_card({'slug': 'pixar', 'display_name': 'Pixar'}, 'studio',
+                                      {'backdrop': 'https://x/b.jpg', 'tint': 'FF101820'})
+    assert pictured['art.fanart'] == 'https://x/b.jpg' and pictured['tint'] == 'FF101820'
+
+
+def test_an_available_title_carries_silos_library_tags():
+    card = rows_module.request_card({'type': 'movie', 'tmdb': 1, 'title': 'Heat', 'year': 1995, 'state': 'available'})
+    assert card['request.library'] == '1' and card['request.state'] == 'Available' and card['card.sub'] == 'MOVIE · 1995'
+
+
+def test_an_episode_without_videos_shows_its_series_trailers():
+    from resources.lib.silokodi import service as service_module
+    trailer = {'site': 'youtube', 'site_key': 'abc', 'name': 'Season 2 Trailer'}
+
+    class Client(object):
+        def item(self, content_id):
+            return {'ep-1': {'id': 'ep-1', 'series_id': 'show-1'},
+                    'show-1': {'id': 'show-1', 'videos': [trailer]}}[content_id]
+    service = service_module.Service.__new__(service_module.Service)
+    service.client = Client()
+    assert [video['key'] for video in service.title_videos('ep-1')] == ['abc']
+    assert [video['key'] for video in service.title_videos('show-1')] == ['abc']
+
+
+def test_home_publishes_cards_for_its_first_rows_only(monkeypatch):
+    from resources.lib.silokodi import service as service_module
+    props = {}
+
+    class Window(object):
+        def __init__(self, *args):
+            pass
+
+        def setProperty(self, key, value):
+            props[key] = value
+
+        def clearProperty(self, key):
+            props.pop(key, None)
+
+    class Db(object):
+        def set_meta(self, key, value):
+            pass
+    monkeypatch.setattr(service_module.xbmcgui, 'Window', Window)
+    service = service_module.Service.__new__(service_module.Service)
+    service.db, service.home_cards = Db(), {}
+    service.page_sources = {'home': [('row%d' % n, None) for n in range(1, 8)], 'requests': []}
+    service.layout = {'silo.home.%d.title' % n: 'Row %d' % n for n in range(1, 8)}
+    # Silo renamed row 6, which loads from its path: its title follows.
+    service.row_titles = {(None, 'row6'): 'Because You Watched Heat'}
+    asked = []
+
+    def page_cards(page, row_id, library_id):
+        asked.append(row_id)
+        return [{'type': 'movie', 'label': row_id}]
+    service.page_cards = page_cards
+    service.publish_home_cards()
+    assert asked == ['row1', 'row2', 'row3', 'row4']
+    assert props['silo.home.4.cards'] == '1' and 'silo.home.5.cards' not in props
+    assert props['silo.home.6.title'] == 'Because You Watched Heat'
+
+
+def test_rows_wait_for_playback_to_stop_before_reloading(monkeypatch):
+    from resources.lib.silokodi import kodi, service as service_module
+    monkeypatch.setattr(kodi, 'get_property', lambda name: '8')
+    service = service_module.Service.__new__(service_module.Service)
+    service.layout, service.refresh_token, service.home_cards_due = {'silo.home.5.poster': 'x'}, '7', 0
+    applied = []
+    service.apply_layout = lambda page=None: applied.append(page)
+    service.playing = lambda: True
+    service.note_refresh()
+    assert applied == []          # a film is playing: the rows keep their paths
+    service.playing = lambda: False
+    service.note_refresh()
+    assert applied == [None]      # stopped: they reload
+
+
+def test_the_playing_episode_has_its_series_ratings_and_silos_badges(monkeypatch):
+    from resources.lib.silokodi import kodi, service as service_module
+    published = {}
+    monkeypatch.setattr(kodi, 'set_property', lambda key, value: published.__setitem__(key, value))
+
+    class Db(object):
+        def get(self, content_id):
+            return {'kind': 'episode', 'kodi_id': 5}
+
+    class Details(object):
+        def get(self, kind, kodi_id):
+            return {'details': {'season': 3, 'episode': 5, 'firstaired': '2026-07-19', 'ratings': {},
+                                'streamdetails': {'video': [{'width': 3840, 'height': 2160, 'hdrtype': 'dolbyvision'}],
+                                                  'audio': [{'codec': 'eac3_ddp_atmos', 'channels': 6}]}},
+                    'show': {'mpaa': 'TV-MA', 'ratings': {'imdb': {'rating': 8.2}, 'themoviedb': {'rating': 8.4}}}}
+    service = service_module.Service.__new__(service_module.Service)
+    service.db, service.details = Db(), Details()
+    service.publish_playing('episode-1')
+    assert (published['playing.rating.imdb'], published['playing.rating.tmdb']) == ('8.2', '8.4')
+    assert published['playing.badge3'] == 'ATMOS 5.1' and published['playing.mpaa'] == 'TV-MA'
+    assert published['playing.air_date'] == 'Jul 19, 2026'

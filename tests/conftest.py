@@ -32,7 +32,8 @@ _module('xbmc', LOGDEBUG=0, LOGINFO=1, LOGWARNING=2, LOGERROR=3, log=lambda *a: 
         executeJSONRPC=lambda *a: '{}', getGlobalIdleTime=lambda: 0)
 _module('xbmcaddon', Addon=_Anything)
 _module('xbmcgui', Window=_Anything, Dialog=_Anything, DialogProgress=_Anything,
-        DialogProgressBG=_Anything, ListItem=_Anything)
+        DialogProgressBG=_Anything, ListItem=_Anything, WindowDialog=_Anything, ControlImage=_Anything,
+        ControlLabel=_Anything, ControlTextBox=_Anything)
 _module('xbmcvfs', translatePath=lambda path: path, exists=lambda path: True, mkdirs=lambda path: True)
 _module('xbmcplugin', setResolvedUrl=lambda *a: None, setPluginCategory=lambda *a: None,
         addDirectoryItem=lambda *a, **k: None, endOfDirectory=lambda *a, **k: None)

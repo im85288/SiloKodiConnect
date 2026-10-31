@@ -7,7 +7,9 @@ Only new or changed titles are fetched in full; a card whose title is
 unchanged but whose watch state moved only updates Kodi's playcount and
 resume point. Titles that left Silo are removed from Kodi.
 """
+import json
 from collections import OrderedDict
+from contextlib import contextmanager
 from urllib.parse import quote, urlencode
 from concurrent.futures import ThreadPoolExecutor
 
@@ -16,7 +18,10 @@ from .api import ApiError
 
 MOVIE_LIBRARY_TYPES = ('movies', 'mixed')
 SHOW_LIBRARY_TYPES = ('series', 'tv', 'tvshows', 'mixed')
-BATCH = 25
+# Titles, and seasons, written per transaction: each commit to Kodi's
+# database cost the SHIELD about a third of a second, so fewer is faster.
+BATCH = 50
+SEASON_BATCH = 50
 FETCH_WORKERS = 4
 
 
@@ -49,7 +54,10 @@ def collection_cards(tab):
 def home_row_items(page, section, db):
     """A Silo home row's cards as [{'type', 'kodi_id', 'tint'}] in Silo's order.
     Titles not synced to Kodi (other media types, excluded libraries) are left
-    out. tint is the card's ambient page tint for a Silo-style skin."""
+    out. tint is the card's ambient page tint for a Silo-style skin. In Continue
+    Watching and Next Up an episode also has its card's 'backdrop' and
+    'content_id': Silo's apps show the season backdrop there, else the
+    series', instead of the episode still."""
     next_episode = (page.get('section_type') or section) in NEXT_EPISODE_SECTIONS
     items = []
     for card in page.get('items') or []:
@@ -58,32 +66,73 @@ def home_row_items(page, section, db):
             row = db.get(card['play_content_id'])
         row = row or db.get(card.get('content_id'))
         if row and row['kind'] in ('movie', 'episode', 'tvshow') and row.get('kodi_id'):
-            items.append({'type': row['kind'], 'kodi_id': row['kodi_id'],
-                          'tint': mapping.ambient_tint(card.get('poster_thumbhash') or '')})
+            item = {'type': row['kind'], 'kodi_id': row['kodi_id'],
+                    'tint': mapping.ambient_tint(card.get('poster_thumbhash') or '')}
+            if next_episode and row['kind'] == 'episode' and card.get('backdrop_url'):
+                item.update(backdrop=card['backdrop_url'], content_id=row['content_id'])
+            items.append(item)
     return items
 
 
 # The skin's pages and row slots. Rows beyond MAX_ROWS are left out.
-MAX_ROWS = 12
+MAX_ROWS = 18  # Silo's Home has up to 18 rows
 WIDE_SECTIONS = ('continue_watching', 'next_up', 'next_in_series')
 PLUGIN = 'plugin://plugin.video.silokodiconnect/'
 
 
-def row_entry(section, library_id=None):
+# A library's rows that Kodi's own library can list in Silo's order: these
+# load as native Kodi lists (about 0.2 s on a SHIELD, against 0.7 s for a
+# plugin row). The rest come through the plugin.
+NATIVE_ORDERS = {'recently_added': ('dateadded', 'descending', None),
+                 'random': ('random', 'ascending', None),
+                 'continue_watching': ('lastplayed', 'descending', 'inprogress')}
+NATIVE_LIMIT = 25
+
+
+def native_path(section, library):
+    """A Kodi library path for a library's row, or None. Kodi's lists ignore
+    the path's own order, so the order is native_sort's, for the skin."""
+    kind = (library or {}).get('type', '').lower()
+    content = 'movies' if kind == 'movies' else 'tvshows' if kind in ('series', 'tv', 'tvshows') else None
+    order = NATIVE_ORDERS.get(section.get('section_type'))
+    if not content or not order or not library.get('name'):
+        return None
+    method, direction, only = order
+    if only and content != 'movies':  # a series' Continue Watching is Silo's next-up episodes
+        return None
+    rules = [{'field': 'tag', 'operator': 'is', 'value': [library['name']]}]
+    if only == 'inprogress':
+        rules.append({'field': 'inprogress', 'operator': 'true', 'value': []})
+    query = {'type': content, 'rules': {'and': rules}}
+    return 'videodb://%s/titles/?xsp=%s' % (content, quote(json.dumps(query, separators=(',', ':')), safe=''))
+
+
+def native_sort(section):
+    """(sort, order, limit) for a skin's list of a native row's path."""
+    method, direction, _ = NATIVE_ORDERS[section.get('section_type')]
+    return method, direction, str(NATIVE_LIMIT)
+
+
+def row_entry(section, library_id=None, library=None):
     query = {'mode': 'widget', 'section': section['id']}
     if library_id:
         query['library'] = library_id
+    path = native_path(section, library) if library else None
     return {'title': section.get('title') or section['id'],
-            'path': PLUGIN + '?' + '&'.join('%s=%s' % (k, quote(str(v), safe='')) for k, v in sorted(query.items())),
-            'style': 'landscape' if section.get('section_type') in WIDE_SECTIONS else 'poster'}
+            'path': path or PLUGIN + '?' + '&'.join('%s=%s' % (k, quote(str(v), safe='')) for k, v in sorted(query.items())),
+            'style': 'landscape' if section.get('section_type') in WIDE_SECTIONS else 'poster',
+            # Silo's row type: a skin marks some rows (Continue Watching's play icon).
+            'type': section.get('section_type') or '',
+            **dict(zip(('sort', 'order', 'limit'), native_sort(section) if path else ('', '', '')))}
 
 
-def skin_layout(home_sections, libraries, library_sections):
+def skin_layout(home_sections, libraries, library_sections, request_rows=None):
     """The pages and rows a Silo-style skin shows, as Home window properties.
 
     home_sections:     Silo's home rows, in order
     libraries:         the synced movie and series libraries, in Silo's order
     library_sections:  {library id: that library's rows, in order}
+    request_rows:      [(row key, title[, style])] for the Requests page, or None
 
     Pages are Home plus one per library type present, as in Silo's top bar;
     a type with several libraries shows their rows one library after another.
@@ -95,23 +144,46 @@ def skin_layout(home_sections, libraries, library_sections):
         for library in libraries:
             if (library.get('type') or '').lower() in types:
                 ids.append(str(library['id']))
-                rows += [row_entry(s, str(library['id'])) for s in library_sections.get(str(library['id'])) or []]
+                rows += [row_entry(s, str(library['id']), library) for s in library_sections.get(str(library['id'])) or []]
         if rows:
             pages[page] = rows
         # The page's libraries' collections, as Silo's Collections section.
         collections[page] = '%s?%s' % (PLUGIN, urlencode({'mode': 'collections', 'libraries': ','.join(ids)})) \
             if ids else ''
+    if request_rows:
+        # Silo's Requests: Yours' rows, then Discover's (section: which pill shows them).
+        pages['requests'] = [{'title': row[1], 'style': row[2] if len(row) > 2 else 'poster',
+                              'section': row[3] if len(row) > 3 else '',
+                              'path': '%s?%s' % (PLUGIN, urlencode({'mode': 'requests', 'row': row[0]}))}
+                             for row in request_rows]
     properties = {'silo.pages': ','.join(pages)}
     for page, path in collections.items():
         properties['silo.%s.collections' % page] = path
-    for page in ('home', 'movies', 'series'):
+    for page in ('home', 'movies', 'series', 'requests'):
         rows = pages.get(page, [])[:MAX_ROWS]
         properties['silo.%s.count' % page] = str(len(rows))
         for index in range(1, MAX_ROWS + 1):
             row = rows[index - 1] if index <= len(rows) else {}
-            for key in ('title', 'path', 'style'):
+            for key in ('title', 'path', 'style', 'section', 'type', 'sort', 'order', 'limit'):
                 properties['silo.%s.%d.%s' % (page, index, key)] = row.get(key, '')
+            # The path again under the row's style, which is the only list
+            # a skin should load from (it has one list per style per slot).
+            for style in ROW_STYLES:
+                properties['silo.%s.%d.%s' % (page, index, style)] = \
+                    row.get('path', '') if row.get('style') == style else ''
     return properties
+
+
+ROW_STYLES = ('poster', 'landscape')
+
+
+def page_of(key):
+    """The page a row's style-keyed path belongs to ('silo.movies.3.poster'
+    -> 'movies'), or None for any other layout property."""
+    parts = key.split('.')
+    if len(parts) == 4 and parts[0] == 'silo' and parts[3] in ROW_STYLES:
+        return parts[1]
+    return None
 
 
 class Stopped(Exception):
@@ -151,6 +223,21 @@ class Syncer(object):
         # Titles were added or removed (not just updated): Kodi and skins need
         # a library update then, which skin helpers answer with a full rescan.
         self.added_or_removed = False
+        # For the service's cache of library details: whether titles were
+        # removed (rewrote: forget them all), and the (kind, kodi id) titles
+        # written or whose play state moved (forget just those).
+        self.rewrote = False
+        self.touched = set()
+        # On a household profile (not the account's primary one) Silo lists
+        # only the titles that profile may see; Kodi keeps every title then,
+        # so nothing is removed, and only watch states follow the profile.
+        self.household = False
+        # (content id, fingerprint) of rows saved with the old fingerprint.
+        self.upgraded = []
+        # Local art addresses whose image changed in Silo (see _save_art).
+        self.art_changed = set()
+        # {content id: Silo's ambient tint}, from the cards each sync lists.
+        self.tints = {}
         self._base, self._span = 0.0, 100.0
 
     def step(self, fraction, message):
@@ -175,9 +262,12 @@ class Syncer(object):
 
     # ----- whole sync -----
 
-    def libraries(self, excluded=()):
+    def libraries(self, excluded=(), primary=True):
+        """The movie and series libraries to use: all of them (primary, the
+        sync's, which needs the account's primary profile), or the ones the
+        current profile can see."""
         wanted = []
-        for library in self.client.libraries():
+        for library in (self.client.libraries() if primary else self.client.user_libraries()):
             kind = (library.get('type') or '').lower()
             if not library.get('enabled', True) or str(library['id']) in excluded:
                 continue
@@ -186,14 +276,25 @@ class Syncer(object):
         return wanted
 
     def sync(self, excluded=()):
-        """Sync every chosen library. Returns True if Kodi's library changed."""
-        self.changed = False
-        with self.open_kodi() as kodi:
+        """Sync every chosen library. Returns True if this sync changed Kodi's
+        library. A change an earlier sync made stays flagged until the
+        service has handled it (its cache, Kodi's lists, Home's cards): a
+        sync queued right behind a full resync must not wipe it out."""
+        pending, self.changed = self.changed, False
+        with self.writing() as kodi:
             kodi.setup_root_paths()
-        libraries = self.libraries(excluded)
+        try:
+            libraries = self.libraries(excluded)
+            self.household = False
+        except ApiError as error:
+            if error.status != 403:
+                raise
+            # Only the primary profile can list every library.
+            libraries = self.libraries(excluded, primary=False)
+            self.household = True
         wanted = set(str(library['id']) for library in libraries)
         for library_id in self.db.libraries():
-            if library_id not in wanted:
+            if library_id not in wanted and not self.household:
                 self.log('Removing library %s from Kodi' % library_id)
                 self.remove_library(library_id)
         for index, library in enumerate(libraries):
@@ -202,8 +303,31 @@ class Syncer(object):
             self._base = index * self._span
             self.progress(int(self._base), library.get('name') or '')
             self.sync_library(library)
+        self.save_hero_extras()
         self.progress(100, '')
-        return self.changed
+        changed, self.changed = self.changed, self.changed or pending
+        return changed
+
+    def save_hero_extras(self):
+        """Keep each movie's and show's hero extras (mapping.hero_extras) in
+        Kodi's library, for the rows Kodi lists itself (Movies' and Series'
+        Recently Added, Random...): only where they changed."""
+        for kind in ('movie', 'tvshow'):
+            ours = {row['kodi_id']: row['content_id'] for row in self.db.items(kind) if row['kodi_id'] is not None}
+            written = 0
+            with self.writing() as kodi:
+                for kodi_id, details in kodi.hero_details(kind).items():
+                    if kodi_id not in ours:
+                        continue
+                    # A title this sync didn't list keeps the tint it has.
+                    tint = self.tints.get(ours[kodi_id], details['extras'].get('silotint', ''))
+                    extras = mapping.hero_extras(kind, details, tint)
+                    if {k: v for k, v in extras.items() if v} != details['extras']:
+                        kodi.set_hero_extras(kodi_id, kind, extras)
+                        written += 1
+            if written:
+                self.log('Hero details: %d %ss' % (written, kind))
+                self.changed = True
 
     def sync_library(self, library):
         kind = (library.get('type') or '').lower()
@@ -222,13 +346,13 @@ class Syncer(object):
         movies = self.db.items('movie', library_id)
         shows = self.db.items('tvshow', library_id)
         for batch in chunks(movies, BATCH):
-            with self.open_kodi() as kodi:
+            with self.writing() as kodi:
                 for row in batch:
                     self._remove_movie(kodi, row)
         for show in shows:
-            with self.open_kodi() as kodi:
+            with self.writing() as kodi:
                 self._remove_show(kodi, show)
-        self.changed = True
+        self.changed = self.rewrote = True
 
     # ----- movies -----
 
@@ -240,13 +364,15 @@ class Syncer(object):
         for card in self.client.catalog(library_id, 'movie'):
             content_id = card['content_id']
             seen.add(content_id)
+            self.tints[content_id] = mapping.ambient_tint(card.get('poster_thumbhash') or '')
             row = self.db.get(content_id)
             fingerprint = mapping.fingerprint(card)
-            if not row or row['fingerprint'] != fingerprint or row['library_id'] != library_id:
+            if not self._unchanged(row, card, fingerprint) or row['library_id'] != library_id:
                 fetch.append((content_id, fingerprint))
             elif row['state'] != mapping.state_fingerprint(card):
                 states.append((row, {'user_state': card.get('user_state'), 'runtime': card.get('runtime'),
                                      'duration_seconds': card.get('duration_seconds')}))
+        self.save_upgraded()
         self.log('Library %s: %d movies, %d to write, %d watch-state updates'
                  % (library.get('name'), len(seen), len(fetch), len(states)))
         for number, batch in enumerate(chunks(fetch, BATCH)):
@@ -254,14 +380,15 @@ class Syncer(object):
             done = number * BATCH
             self.step(float(done) / len(fetch), '%s: %d / %d' % (library.get('name') or '', done, len(fetch)))
             items = self.fetch_all(lambda pair: self.client.item(pair[0]), batch)
-            with self.open_kodi() as kodi:
+            with self.writing() as kodi:
                 for (content_id, fingerprint), item in zip(batch, items):
                     if item:
                         self.write_movie(kodi, item, library, fingerprint)
         self.apply_states(states)
-        gone = [row for row in self.db.items('movie', library_id) if row['content_id'] not in seen]
+        gone = [] if self.household else \
+            [row for row in self.db.items('movie', library_id) if row['content_id'] not in seen]
         for batch in chunks(gone, BATCH):
-            with self.open_kodi() as kodi:
+            with self.writing() as kodi:
                 for row in batch:
                     self._remove_movie(kodi, row)
 
@@ -278,7 +405,7 @@ class Syncer(object):
             or kodi.new_id('movie', 'idMovie')
         self.added_or_removed |= not row.get('kodi_id')
         people = mapping.people(item, self.port)
-        rating_id = kodi.set_rating(kodi_id, 'movie', mapping.rating(item))
+        rating_id = kodi.set_rating(kodi_id, 'movie', mapping.ratings(item))
         unique_id = kodi.set_unique_ids(kodi_id, 'movie', mapping.unique_ids(item))
         kodi.write_movie(kodi_id, file_id, fields, rating_id, unique_id, people, path_id)
         kodi.set_people(kodi_id, 'movie', people)
@@ -296,15 +423,16 @@ class Syncer(object):
         self.db.put(content_id=content_id, kind='movie', library_id=str(library['id']), kodi_id=kodi_id,
                     kodi_file_id=file_id, kodi_path_id=path_id, fingerprint=fingerprint,
                     state=mapping.state_fingerprint(item))
-        self.db.set_art(content_id, remote_art)
+        self._save_art(content_id, remote_art)
         self._save_person_art(item)
         self.changed = True
+        self.touched.add(('movie', kodi_id))
 
     def _remove_movie(self, kodi, row):
         if row.get('kodi_id'):
             kodi.remove_movie(row['kodi_id'], row['kodi_file_id'])
         self.db.remove(row['content_id'])
-        self.changed = self.added_or_removed = True
+        self.changed = self.added_or_removed = self.rewrote = True
 
     # ----- TV -----
 
@@ -316,8 +444,9 @@ class Syncer(object):
         for card in series_cards:
             series_id = card['content_id']
             seen_series.add(series_id)
+            self.tints[series_id] = mapping.ambient_tint(card.get('poster_thumbhash') or '')
             row = self.db.get(series_id)
-            if not row or row['fingerprint'] != mapping.fingerprint(card) or row['library_id'] != library_id:
+            if not self._unchanged(row, card) or row['library_id'] != library_id:
                 changed_series.append(card)
         # A big library has tens of thousands of episode cards, over 100 MB
         # as Python objects, which got Kodi killed for memory on a 2 GB
@@ -334,12 +463,13 @@ class Syncer(object):
             seen_episodes.add(content_id)
             row = self.db.get(content_id)
             fingerprint = mapping.fingerprint(card)
-            if not row or row['fingerprint'] != fingerprint:
+            if not self._unchanged(row, card, fingerprint):
                 stale_seasons.setdefault((card['series_id'], card.get('season_number')), {})[content_id] = {
                     'added_at': card.get('added_at'), 'fingerprint': fingerprint}
             elif row['state'] != mapping.state_fingerprint(card):
                 states.append((row, {'user_state': card.get('user_state'), 'runtime': card.get('runtime'),
                                      'duration_seconds': card.get('duration_seconds')}))
+        self.save_upgraded()
         self.log('Library %s: %d shows (%d changed), %d episodes'
                  % (library.get('name'), len(series_cards), len(changed_series), episodes))
         # Shows first: episodes need their show and season rows.
@@ -350,7 +480,7 @@ class Syncer(object):
             self.step(0.2 * done / len(changed_series),
                       '%s: %d / %d' % (library.get('name') or '', done, len(changed_series)))
             details = self.fetch_all(self._fetch_show, batch)
-            with self.open_kodi() as kodi:
+            with self.writing() as kodi:
                 for card, detail in zip(batch, details):
                     if detail:
                         self.write_show(kodi, detail[0], detail[1], library, card)
@@ -358,26 +488,61 @@ class Syncer(object):
         self.log('Library %s: %d seasons to write, %d watch-state updates'
                  % (library.get('name'), len(stale_seasons), len(states)))
         keys = list(stale_seasons)
-        for number, batch in enumerate(chunks(keys, 10)):
+        for number, batch in enumerate(chunks(keys, SEASON_BATCH)):
             self.check_stop()
-            done = number * 10
+            done = number * SEASON_BATCH
             self.step(0.2 + 0.8 * done / len(keys),
                       '%s: %d / %d seasons' % (library.get('name') or '', done, len(keys)))
             listings = self.fetch_all(lambda key: self.client.season_episodes(key[0], key[1]), batch)
-            with self.open_kodi() as kodi:
+            with self.writing() as kodi:
                 for key, episodes in zip(batch, listings):
                     if episodes is not None:
                         self.write_episodes(kodi, key[0], key[1], episodes, stale_seasons[key])
         self.apply_states(states)
-        # Remove what left Silo.
-        with self.open_kodi() as kodi:
+        # Remove what left Silo (not what a household profile can't see).
+        if self.household:
+            return
+        with self.writing() as kodi:
             for row in self.db.items('episode', library_id):
                 if row['content_id'] not in seen_episodes:
                     self._remove_episode(kodi, row)
         for row in self.db.items('tvshow', library_id):
             if row['content_id'] not in seen_series:
-                with self.open_kodi() as kodi:
+                with self.writing() as kodi:
                     self._remove_show(kodi, row)
+
+    @contextmanager
+    def writing(self):
+        """One write transaction on Kodi's database, with this add-on's own
+        bookkeeping for the same titles committed once alongside it."""
+        with self.db.batch(), self.open_kodi() as kodi:
+            yield kodi
+
+    def _unchanged(self, row, card, fingerprint=None):
+        """Whether a saved row still matches its card. A row saved with the
+        old fingerprint that matches counts as unchanged; its new fingerprint
+        is saved by save_upgraded."""
+        if not row or not row['fingerprint']:
+            return False
+        fingerprint = fingerprint or mapping.fingerprint(card)
+        if row['fingerprint'] == fingerprint:
+            return True
+        if row['fingerprint'] == mapping.legacy_fingerprint(card):
+            self.upgraded.append((row['content_id'], fingerprint))
+            return True
+        return False
+
+    def save_upgraded(self):
+        if self.upgraded:
+            self.db.set_fingerprints(self.upgraded)
+            self.log('Saved %d fingerprints in the new form' % len(self.upgraded))
+            self.upgraded = []
+
+    def _save_art(self, key, urls):
+        """Save an item's Silo art; a changed image's local address goes in
+        art_changed, for the service to drop from Kodi's texture cache."""
+        for kind in self.db.set_art(key, urls):
+            self.art_changed.add(mapping.art_url(self.port, key, kind))
 
     def _fetch_show(self, card):
         series_id = card['content_id']
@@ -393,7 +558,7 @@ class Syncer(object):
         kodi_id = row.get('kodi_id') or self._show_for_path(kodi, path_id) or kodi.new_id('tvshow', 'idShow')
         self.added_or_removed |= not row.get('kodi_id')
         people = mapping.people(item, self.port)
-        rating_id = kodi.set_rating(kodi_id, 'tvshow', mapping.rating(item))
+        rating_id = kodi.set_rating(kodi_id, 'tvshow', mapping.ratings(item))
         unique_id = kodi.set_unique_ids(kodi_id, 'tvshow', mapping.unique_ids(item))
         kodi.write_show(kodi_id, fields, rating_id, unique_id, path_id)
         kodi.set_people(kodi_id, 'tvshow', people)
@@ -405,7 +570,7 @@ class Syncer(object):
         self.db.put(content_id=series_id, kind='tvshow', library_id=library_id, kodi_id=kodi_id,
                     kodi_path_id=path_id, fingerprint=mapping.fingerprint(card) if card else None,
                     state=None)
-        self.db.set_art(series_id, remote_art)
+        self._save_art(series_id, remote_art)
         self._save_person_art(item)
         wanted = set()
         for season in seasons:
@@ -420,12 +585,13 @@ class Syncer(object):
             kodi.set_art(season_id, 'season', local_art)
             self.db.put(content_id=key, kind='season', library_id=library_id, parent_id=series_id,
                         season_number=number, kodi_id=season_id)
-            self.db.set_art(key, remote_art)
+            self._save_art(key, remote_art)
         for season_row in self.db.children(series_id, 'season'):
             if season_row['content_id'] not in wanted and not self._season_has_episodes(season_row):
                 kodi.remove_season(season_row['kodi_id'])
                 self.db.remove(season_row['content_id'])
         self.changed = True
+        self.touched.add(('tvshow', kodi_id))
 
     def _season_has_episodes(self, season_row):
         return any(row['season_number'] == season_row['season_number']
@@ -468,7 +634,7 @@ class Syncer(object):
                 or kodi.new_id('episode', 'idEpisode')
             self.added_or_removed |= not row.get('kodi_id')
             people = mapping.people(episode, self.port)
-            rating_id = kodi.set_rating(kodi_id, 'episode', mapping.rating(episode))
+            rating_id = kodi.set_rating(kodi_id, 'episode', mapping.ratings(episode))
             unique_id = kodi.set_unique_ids(kodi_id, 'episode', mapping.unique_ids(episode))
             kodi.write_episode(kodi_id, file_id, fields, rating_id, unique_id, people, show['kodi_id'],
                                season_id, filename, show['kodi_path_id'])
@@ -484,14 +650,15 @@ class Syncer(object):
                         kodi_path_id=show['kodi_path_id'],
                         fingerprint=card['fingerprint'] if card else None,
                         state=mapping.state_fingerprint(episode))
-            self.db.set_art(content_id, remote_art)
+            self._save_art(content_id, remote_art)
+            self.touched.add(('episode', kodi_id))
         self.changed = True
 
     def _remove_episode(self, kodi, row):
         if row.get('kodi_id'):
             kodi.remove_episode(row['kodi_id'], row['kodi_file_id'])
         self.db.remove(row['content_id'])
-        self.changed = self.added_or_removed = True
+        self.changed = self.added_or_removed = self.rewrote = True
 
     def _remove_show(self, kodi, row):
         for child in self.db.children(row['content_id']):
@@ -501,7 +668,7 @@ class Syncer(object):
         if row.get('kodi_id'):
             kodi.remove_show(row['kodi_id'], row.get('kodi_path_id'))
         self.db.remove(row['content_id'])
-        self.changed = self.added_or_removed = True
+        self.changed = self.added_or_removed = self.rewrote = True
 
     # ----- single items, from realtime events -----
 
@@ -511,7 +678,8 @@ class Syncer(object):
             item = self.client.item(content_id)
         except ApiError as error:
             if error.status == 404:
-                self.remove_item(content_id)
+                if not self.household:
+                    self.remove_item(content_id)
                 return
             raise
         kind = item.get('type')
@@ -519,13 +687,13 @@ class Syncer(object):
         if kind == 'movie':
             library = self.library_by_id(library_id or row.get('library_id'))
             if library:
-                with self.open_kodi() as kodi:
+                with self.writing() as kodi:
                     self.write_movie(kodi, item, library)
         elif kind == 'series':
             library = self.library_by_id(library_id or row.get('library_id'))
             if library:
                 seasons = self.client.seasons(content_id)
-                with self.open_kodi() as kodi:
+                with self.writing() as kodi:
                     self.write_show(kodi, item, seasons, library)
                 for season in seasons:
                     if season.get('season_number') is not None:
@@ -538,14 +706,14 @@ class Syncer(object):
 
     def resync_season(self, series_id, season_number):
         episodes = self.client.season_episodes(series_id, season_number)
-        with self.open_kodi() as kodi:
+        with self.writing() as kodi:
             self.write_episodes(kodi, series_id, season_number, episodes)
 
     def remove_item(self, content_id):
         row = self.db.get(content_id)
         if not row:
             return
-        with self.open_kodi() as kodi:
+        with self.writing() as kodi:
             if row['kind'] == 'movie':
                 self._remove_movie(kodi, row)
             elif row['kind'] == 'tvshow':
@@ -558,13 +726,14 @@ class Syncer(object):
     def apply_states(self, pairs):
         """pairs: [(sync row, card or item)] whose watch state changed."""
         for batch in chunks(pairs, 100):
-            with self.open_kodi() as kodi:
+            with self.writing() as kodi:
                 for row, source in batch:
                     count, resume, total, last = mapping.play_state(source)
                     if row.get('kodi_file_id'):
                         kodi.set_play_state(row['kodi_file_id'], count, resume, total, last)
                     self.db.set_state(row['content_id'], mapping.state_fingerprint(source))
                     self.changed = True
+                    self.touched.add((row['kind'], row.get('kodi_id')))
 
     def refresh_state(self, content_id):
         """Re-read one title's watch state after Silo reports a change."""
@@ -623,12 +792,14 @@ class Syncer(object):
         for content_id, stamp in latest.items():
             row = self.db.get(content_id)
             if row and row['kind'] in ('movie', 'episode') and row.get('kodi_file_id'):
-                pairs.append((row['kodi_file_id'], mapping.kodi_datetime(stamp)))
+                pairs.append((row['kodi_file_id'], mapping.kodi_datetime(stamp), (row['kind'], row.get('kodi_id'))))
         updated = 0
         for batch in chunks(pairs, 200):
-            with self.open_kodi() as kodi:
-                for file_id, last_played in batch:
-                    updated += kodi.set_last_played(file_id, last_played)
+            with self.writing() as kodi:
+                for file_id, last_played, title in batch:
+                    if kodi.set_last_played(file_id, last_played):
+                        updated += 1
+                        self.touched.add(title)
         if updated:
             self.changed = True
         self.log('Watch history: %d entries read (%d undated, sources %s), %d titles, %d last-played dates '
@@ -649,4 +820,4 @@ class Syncer(object):
 
     def _save_person_art(self, item):
         for key, url in mapping.person_art(item).items():
-            self.db.set_art(key, {'thumb': url})
+            self._save_art(key, {'thumb': url})

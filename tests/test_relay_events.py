@@ -239,13 +239,16 @@ def test_skyline_properties_for_an_episode_and_a_show():
     assert props['silo.show_path'] == 'videodb://tvshows/titles/41/'
     assert props['silo.season_path'] == 'videodb://tvshows/titles/41/2/'
     assert props['silo.mpaa'] == 'TV-MA' and props['silo.genre'] == 'Crime'
+    assert props['silo.genres'] == 'Crime, Drama'
     assert props['silo.rating'] == 'IMDb 8.4'
     assert props['silo.cast'] == 'Tom Hardy, Helen Mirren, Pierce Brosnan'
-    assert [props['silo.badge%d' % n] for n in (1, 2, 3)] == ['4K', 'DOLBY VISION', 'DD+ 5.1']
+    assert [props['silo.badge%d' % n] for n in (1, 2, 3)] == ['4K', 'DOLBY VISION', 'EAC3 5.1']
     show = mapping.skyline_properties('tvshow', {'mpaa': 'TV-14', 'genre': ['Horror'],
                                                  'ratings': {'themoviedb': {'rating': 8.3}}})
-    assert show == {'silo.mpaa': 'TV-14', 'silo.genre': 'Horror', 'silo.rating': 'TMDB 8.3', 'silo.cast': '',
-                    'silo.similar': mapping.similar_path('tvshow', 'Horror', '')}
+    assert show == {'silo.mpaa': 'TV-14', 'silo.genre': 'Horror', 'silo.genres': 'Horror', 'silo.rating': 'TMDB 8.3', 'silo.cast': '',
+                    'silo.similar': mapping.similar_path('tvshow', 'Horror', ''),
+                    'silo.rating.imdb': '', 'silo.rating.tmdb': '8.3',
+                    'silo.version': '', 'silo.audio': '', 'silo.subtitles': 'None'}
 
 
 def test_quality_badges_cover_common_files():
@@ -255,3 +258,43 @@ def test_quality_badges_cover_common_files():
                                    'audio': [{'codec': 'truehd', 'channels': 8}]}) == ['4K', 'HDR10', 'TRUEHD 7.1']
     assert mapping.quality_badges(None) == []
     assert mapping.quality_badges({'video': [{'height': 2160}], 'audio': [{'codec': '', 'channels': 6}]}) == ['4K', '5.1']
+
+
+def test_person_facts_read_like_silos_person_page():
+    facts = mapping.person_facts({'name': 'Nicole Kidman', 'birth_date': '1967-06-20', 'birthplace': 'Honolulu, Hawaii, USA',
+                                  'bio': ' Nicole Mary\nKidman... '}, today=(2026, 10, 28))
+    assert facts == {'name': 'Nicole Kidman', 'bio': 'Nicole Mary Kidman...', 'place': 'Honolulu, Hawaii, USA',
+                     'born': 'Born 20 Jun 1967', 'age': '59 years old', 'died': ''}
+    # The day before a birthday, and someone who has died.
+    assert mapping.person_facts({'birth_date': '1967-10-29'}, today=(2026, 10, 28))['age'] == '58 years old'
+    gone = mapping.person_facts({'birth_date': '1940-02-01', 'death_date': '1992-01-31'})
+    assert (gone['age'], gone['died']) == ('Aged 51', 'Died 31 Jan 1992')
+    assert mapping.person_facts({})['born'] == ''
+
+
+def test_a_cast_members_silo_id_is_found_by_name():
+    item = {'cast': [{'name': 'Sandra Bullock', 'person_id': 'p1'}, {'name': 'Nicole Kidman', 'person_id': 'p2'}],
+            'crew': [{'name': 'Susanne Bier', 'person_id': 'p3'}]}
+    assert mapping.person_id_in(item, 'nicole kidman ') == 'p2'
+    assert mapping.person_id_in(item, 'Susanne Bier') == 'p3'
+    assert mapping.person_id_in(item, 'Someone Else') is None
+
+
+def test_a_titles_youtube_videos_are_listed_in_silos_order():
+    item = {'videos': [{'name': 'Official Trailer', 'kind': 'trailer', 'site': 'youtube', 'site_key': 'abc'},
+                       {'name': 'Clip', 'kind': 'clip', 'site': 'vimeo', 'site_key': 'v1'},
+                       {'name': 'Audiences are loving it', 'kind': 'featurette', 'site': 'youtube', 'site_key': 'def'},
+                       {'name': 'No key', 'site': 'youtube'}]}
+    assert mapping.title_videos(item) == [
+        {'name': 'Official Trailer', 'key': 'abc', 'kind': 'trailer', 'thumb': 'https://i.ytimg.com/vi/abc/hqdefault.jpg'},
+        {'name': 'Audiences are loving it', 'key': 'def', 'kind': 'featurette',
+         'thumb': 'https://i.ytimg.com/vi/def/hqdefault.jpg'}]
+    assert mapping.title_videos({}) == []
+
+
+def test_a_long_biography_is_cut_at_a_word_with_an_ellipsis():
+    assert mapping.fitted('short') == 'short'
+    text = 'word ' * 200
+    cut = mapping.fitted(text.strip(), 52)
+    assert cut == 'word word word word word word word word word word…' and len(cut) <= 53
+    assert mapping.fitted('Born in Honolulu, she moved to Sydney, and then', 36) == 'Born in Honolulu, she moved to…'

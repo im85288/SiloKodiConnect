@@ -203,6 +203,11 @@ class SiloClient(object):
     def libraries(self):
         return self.get('/libraries').get('items') or []
 
+    def user_libraries(self):
+        """The libraries this profile can see (any profile; /libraries is
+        the primary profile's only), the ones it hid from its menus too."""
+        return self.get('/user/libraries', include_hidden='true').get('items') or []
+
     def catalog(self, library_id, media_type):
         """Every card of one type in a library, in a stable order."""
         return self.pages('/catalog', library_id=library_id, type=media_type, sort='added_at',
@@ -238,6 +243,64 @@ class SiloClient(object):
 
     def events_ticket(self):
         return self.post('/events/ws-ticket')
+
+    # ----- watchlist -----
+
+    def in_watchlist(self, content_id):
+        """Whether the title is on the profile's watchlist (Silo answers 404 when not)."""
+        try:
+            self.get('/watchlist/%s' % content_id)
+            return True
+        except ApiError as error:
+            if error.status == 404:
+                return False
+            raise
+
+    def add_to_watchlist(self, content_id):
+        self.request('PUT', '/watchlist/%s' % content_id)
+
+    def remove_from_watchlist(self, content_id):
+        self.request('DELETE', '/watchlist/%s' % content_id)
+
+    # ----- requests -----
+
+    def my_requests(self):
+        """The profile's requests, newest first (one page of up to 50)."""
+        return self.get('/requests/mine', limit=50).get('items') or []
+
+    def discover_sections(self):
+        """Silo's request discovery rows (trending, popular, upcoming...)."""
+        return self.get('/requests/discover').get('items') or []
+
+    def discover_section(self, key):
+        return self.get('/requests/discover/%s' % key).get('results') or []
+
+    def discover_page(self):
+        """The Discover tab as Silo lays it out: its rows' cards (items) and
+        every row in the admin's order (row_order), the Studios, Networks
+        and Genres rows too, which carry no cards."""
+        return self.get('/requests/discover')
+
+    def discover_brands(self, kind):
+        """The Studios, Networks or Genres row's cards (kind: studios,
+        networks, genres): name, slug, TMDB logo or gradient colours."""
+        return self.get('/requests/discover/%s' % kind).get('items') or []
+
+    def discover_browse(self, kind, slug, media_type=None):
+        """Titles from a studio, network or genre (kind: studio, network,
+        genre) Silo can request, most popular first."""
+        # A genre is browsed for one media type (movies unless asked).
+        params = {'media_type': media_type or 'movie'} if kind == 'genre' or media_type else {}
+        return self.get('/requests/discover/browse/%s/%s' % (kind, slug), **params).get('results') or []
+
+    def request_search(self, query):
+        return self.get('/requests/search', q=query, media_type='all').get('results') or []
+
+    def request_detail(self, media_type, tmdb_id):
+        return self.get('/requests/detail/%s/%s' % (media_type, tmdb_id))
+
+    def create_request(self, body):
+        return self.post('/requests', body)
 
     # ----- playback -----
 

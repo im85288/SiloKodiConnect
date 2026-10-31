@@ -3,6 +3,7 @@
 listens for Silo's realtime events and reports playback."""
 import gc
 import hashlib
+import itertools
 import json
 import os
 import queue
@@ -13,13 +14,16 @@ import requests
 import xbmc
 import xbmcgui
 
-from . import kodi, kodidb, mapping, upnext
+from . import catchup, jump, kodi, kodidb, mapping, quick, tracks, upnext, keymap
 from .api import ApiError, SignedOut, SiloClient
 from .events import Debouncer, EventListener
 from .playback import PlaybackError, PlaybackManager
 from .relay import DEFAULT_PORT, Relay
 from .store import Store
-from .sync import Stopped, Syncer, collection_cards, home_row_items, skin_layout
+from . import rows as home_cards
+from .library import DetailsCache
+from .personal import PersonalLists
+from .sync import MAX_ROWS, MOVIE_LIBRARY_TYPES, SHOW_LIBRARY_TYPES, Stopped, Syncer, collection_cards, home_row_items, page_of, skin_layout
 from .syncdb import SyncDB
 
 PROGRESS_POLL = 300          # seconds between resume-point checks while the socket is up
@@ -32,7 +36,19 @@ ITEM_QUIET = 10
 ITEM_LIMIT = 60
 DICEBEAR = 'https://api.dicebear.com/'
 COLLECTION_LIMIT = 500      # titles listed from one collection
+TRAILER_COVER_MAX = 10      # seconds the skin's trailer cover can wait for its page
+TRAILER_START_MAX = 12      # ...or for a trailer to start (none found: back to the page)
+TRAILER_QUIET = 0.75        # seconds after Kodi's busy spinner with no video: it failed
+PERSONAL_QUIET = 30          # fetch the profile's lists again once its watch state settles...
+PERSONAL_WAIT = 300          # ...or this long after the first change
+# The profile's own lists, as Silo's avatar menu offers them: section -> (path, title string).
+PERSONAL_LISTS = {'watchlist': ('/watchlist', 30160), 'favorites': ('/favorites', 30161),
+                  'history': ('/history', 30162)}
 AVATAR_TYPES = {'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif'}
+
+
+# Tasks the worker takes before the others queued (see Service.tasks).
+URGENT_TASKS = ('homecards',)
 
 
 def kind_of(task):
@@ -51,6 +67,26 @@ def release_memory():
         pass  # not Android, or an older one
 
 
+# After Kodi starts, how long the sync and the check of the saved details
+# wait, so Home's rows load first on a small device.
+# Pages whose rows are published as cards, with how many cards a row has
+# (the skin's slots: every slot costs it load time).
+PUBLISHED_PAGES = {'home': 20, 'requests': 12}
+# Home's first rows only are published (a skin has them at once); the rest
+# load from their paths as Movies' rows do. Skyline's HOME_PUBLISHED_ROWS.
+PUBLISHED_ROWS = {'home': 4, 'requests': 12}
+# The playing title's details for a skin's player (silokodi.playing.*).
+PLAYING_FIELDS = ('rating.imdb', 'rating.tmdb', 'badge1', 'badge2', 'badge3', 'mpaa', 'air_date')
+STARTUP_QUIET = 60
+PAGE_LOADING = 6  # seconds a page's rows show while they start loading (then empty ones hide)
+DETAILS_SAVE_INTERVAL = 30
+
+
+# Silo's brand rows on the Discover tab, and the kind each one browses.
+BRAND_ROWS = {'studios': 'studio', 'networks': 'network', 'genres': 'genre'}
+BRAND_PICTURE_FOR = 24 * 3600
+
+
 class Player(xbmc.Player):
     def __init__(self, service):
         xbmc.Player.__init__(self)
@@ -63,6 +99,8 @@ class Player(xbmc.Player):
             self.last_time = None
             self.service.recently_played[session.content_id] = time.time()
             self.service.tell_upnext(session)
+            self.show_markers(session)
+            self.service.publish_playing(session.content_id)
 
     def onPlayBackStopped(self):
         self._ended()
@@ -73,7 +111,35 @@ class Player(xbmc.Player):
     def onPlayBackError(self):
         self._ended()
 
+    def show_markers(self, session):
+        """Silo's intro, recap, credits and preview markers for the skin's
+        seek bar (silokodi.markers.<kind>), as Silo's players colour them."""
+        try:
+            total = self.getTotalTime()
+        except RuntimeError:
+            total = 0
+        ranges = upnext.marker_ranges(session.markers or [], total, session.origin)
+        for kind in upnext.MARKER_KINDS:
+            kodi.set_property('markers.' + kind, ranges.get(kind, ''))
+
     def _ended(self):
+        for kind in upnext.MARKER_KINDS:
+            kodi.clear_property('markers.' + kind)
+        for field in PLAYING_FIELDS:
+            kodi.clear_property('playing.' + field)
+        # A trailer from a Silo-style skin's info page: reopen that page
+        # (silokodi.trailer_return, "<type>|<dbid>"). The skin covers the
+        # window under it meanwhile (silokodi.trailer_playing), and the page
+        # clears that as it opens; if it doesn't open, the cover goes anyway.
+        trailer_from = kodi.get_property('trailer_return')
+        if trailer_from:
+            kodi.clear_property('trailer_return')
+            kind, _, dbid = trailer_from.partition('|')
+            xbmc.executebuiltin('RunPlugin(plugin://plugin.video.silokodiconnect/?mode=info&type=%s&dbid=%s)'
+                                % (kind, dbid))
+            timer = threading.Timer(TRAILER_COVER_MAX, kodi.clear_property, ['trailer_playing'])
+            timer.daemon = True
+            timer.start()
         session = self.service.playback.on_stopped(self.last_time)
         if session:
             self.service.recently_played[session.content_id] = time.time()
@@ -93,12 +159,28 @@ class Player(xbmc.Player):
         self.service.playback.on_tick(self.last_time, paused)
 
 
+def library_facts(counts):
+    """'1,087 films · 529 series · 28,374 episodes', leaving out what's missing."""
+    parts = [('{:,} %s' % (single if n == 1 else plural)).format(n)
+             for kind, single, plural in (('movie', 'film', 'films'), ('tvshow', 'series', 'series'),
+                                          ('episode', 'episode', 'episodes'))
+             for n in [counts.get(kind) or 0] if n]
+    return '  ·  '.join(parts)
+
+
 class Monitor(xbmc.Monitor):
     def __init__(self, service):
         xbmc.Monitor.__init__(self)
         self.service = service
 
+    def onSettingsChanged(self):
+        self.service.sync_keymap()
+
     def onNotification(self, sender, method, data):
+        if jump.handle(sender, method):  # a skin's A-Z bar
+            return
+        if tracks.handle(sender, method):  # a skin's player sheet
+            return
         if method.endswith(upnext.PLAY_ACTION):
             # Up Next chose to play the next episode: open it as the library item.
             info = upnext.decode(data) or {}
@@ -107,9 +189,22 @@ class Monitor(xbmc.Monitor):
             return
         if method == 'VideoLibrary.OnUpdate':
             try:
-                self.service.kodi_updated(json.loads(data))
+                update = json.loads(data)
+                item = update.get('item') or {}
+                if item.get('type') and item.get('id') is not None:
+                    self.service.details.forget(item['type'], item['id'])
+                    self.service.home_cards_soon()
+                if not all(self.service.native_counts.values()):
+                    self.service.native_recheck = True
+                self.service.kodi_updated(update)
             except Exception as error:
                 kodi.log_warning('Could not handle a Kodi library update: %s' % error)
+
+
+def requested_available(card):
+    """Whether a requested title can be watched: in the library (as its
+    LIBRARY tag says) or Silo has it."""
+    return bool(card.get('kodi_id')) or card.get('state') == 'available'
 
 
 class Service(object):
@@ -128,7 +223,12 @@ class Service(object):
         self.playback = PlaybackManager(self.client, self.version, self.playback_settings, log=kodi.log,
                                         media_url=self.relay.media_url)
         self.player = Player(self)
-        self.tasks = queue.Queue()
+        self.catchup = catchup.Rewriter()
+        # Tasks in order, but Home's cards first: they show the viewer's own
+        # changes (a title marked watched) and would otherwise wait behind a
+        # queue of syncs. (priority, sequence, task); None stops the worker.
+        self.tasks = queue.PriorityQueue()
+        self.task_number = itertools.count()
         self.listener = None
         self.recently_played = {}
         self.art_attempts = {}
@@ -138,10 +238,32 @@ class Service(object):
         self.signed_out_notice = False
         self.published_signed_in = None
         self.home_rows = []  # the profile's Silo home rows, as last published
+        self.details = DetailsCache()  # library details for rows, until they change
+        self.home_cards = {}  # every page's rows as published properties (rows.py)
+        self.brand_pictures = {}  # (kind, slug) -> (when, its hero picture): brand_picture
+        self.page_sources = {}  # page -> [(row id, library id)], from the layout
+        self.row_titles = {}  # (library id, row id) -> the title Silo last gave it with its items
+        self.home_cards_due = 0  # when to publish them again (0: not due)
+        self.native_counts = {}  # (Kodi library row path, refresh token) -> has items
+        self.native_recheck = False  # set by a library change while a row is held back
+        self.next_recheck = None  # when to confirm the details loaded from disk
+        self.next_save = 0
+        # The skin's layout as last published, and the pages viewed so far:
+        # a page's rows load only once it has been opened (Home always).
+        self.layout = {}
+        self.viewed_pages = {'home'}
+        self.refresh_token = None  # silokodi.library_updated, as last put in row paths
+        self.loading_until = {}  # page -> when its silo.<page>.loading flag ends
         self.library_update_pending = False
         self.deferred = []
         self.library_events = Debouncer(quiet=LIBRARY_QUIET, limit=LIBRARY_LIMIT)
         self.item_events = Debouncer(quiet=ITEM_QUIET, limit=ITEM_LIMIT)
+        # Watchlist, favourites and history, kept for the skin's pages: fetched
+        # once signed in, and again after the watch state changes (not during
+        # playback, which sends a change with every progress report).
+        self.personal = PersonalLists(self.client, lambda: self.store.get('profile_id'), log=kodi.log)
+        self.personal_events = Debouncer(quiet=PERSONAL_QUIET, limit=PERSONAL_WAIT)
+        self.personal_due = True
 
     # ----- Kodi's database -----
 
@@ -160,10 +282,28 @@ class Service(object):
         except OSError as error:
             kodi.log_error('Cannot listen on 127.0.0.1:%d: %s' % (self.port, error))
             kodi.notify(kodi.string(30121) % self.port)
+        self.start_quickly()
+        self.sync_keymap()
         worker = threading.Thread(target=self.work, name='silokodi-worker')
         worker.daemon = True
         worker.start()
+        trailers = threading.Thread(target=self.watch_trailers, name='silokodi-trailers')
+        trailers.daemon = True
+        trailers.start()
+        # The Live TV quick guide's short schedule (idle unless it's open).
+        guide = threading.Thread(target=quick.QuickGuide(self.monitor).watch, name='silokodi-quick-guide')
+        guide.daemon = True
+        guide.start()
+        ticks = 0
         while not self.monitor.waitForAbort(1):
+            ticks += 1
+            if ticks % 10 == 0:  # the skin may have changed
+                self.sync_keymap()
+            if ticks % 30 == 0:  # Live TV's playlist, rewritten by its add-on now and then
+                try:
+                    self.catchup.check(self.playing())
+                except Exception as error:  # never let it stop the service
+                    kodi.log_warning('Catch-up rewrite: %s' % error)
             if self.store.changed_on_disk():
                 self.store.reload()
             self.publish_signed_in()
@@ -180,8 +320,30 @@ class Service(object):
                 self.next_progress = now + (PROGRESS_POLL if connected else PROGRESS_POLL_OFFLINE)
                 self.enqueue('progress')
             self.player.tick()
+            self.note_viewed_page()
+            self.note_refresh()
+            if self.native_recheck and self.layout and not self.playing():
+                # A library change may have filled a Kodi row held back as empty.
+                self.native_recheck = False
+                self.native_counts.clear()
+                self.apply_layout()
+            if self.home_cards_due and now >= self.home_cards_due and self.store.signed_in:
+                self.home_cards_due = 0
+                self.enqueue('homecards')
+            self.end_loading()
+            if self.next_recheck and now >= self.next_recheck and not self.playing():
+                self.next_recheck = None
+                self.enqueue('recheck')
+            if now >= self.next_save and self.details.dirty:
+                self.next_save = now + DETAILS_SAVE_INTERVAL
+                self.save_details()
             for task in self.library_events.due() + self.item_events.due():
                 self.enqueue(task)
+            if self.personal_events.due():
+                self.personal_due = True
+            if self.personal_due and not self.playing():
+                self.personal_due = False
+                self.personal.refresh_soon()
             if self.deferred and not self.playing():
                 for task in self.deferred:
                     self.enqueue(task)
@@ -189,12 +351,52 @@ class Service(object):
             if self.library_update_pending and self.tasks.empty():
                 self.library_update_pending = not kodi.refresh_library_views(refresh_list=False)
         kodi.log('Stopping SiloKodiConnect')
+        self.save_details()
         self.playback.on_stopped(self.player.last_time)
         self.stop_listener()
         self.relay.stop()
-        self.tasks.put(None)
+        self.tasks.put((-1, next(self.task_number), None))
         worker.join(10)
         self.db.close()
+
+    def sync_keymap(self):
+        """The Silo Skyline skin's keymaps: Live TV's and the player's (keymap.py)."""
+        try:
+            keymap.sync()
+        except OSError as error:
+            kodi.log_warning('Skyline keymaps: %s' % error)
+
+    def start_quickly(self):
+        """Give Home its rows as soon as Kodi starts: the last layout and the
+        saved library details at once, then Silo's current layout before the
+        sync, which waits a minute so it doesn't compete with Home loading on a
+        small device (the first sync ever runs at once)."""
+        self.publish_library_facts()  # a skin's header: what the library holds
+        loaded = self.details.load(self.details_path())
+        if loaded:
+            self.next_recheck = time.time() + STARTUP_QUIET
+        self.layout = self.db.meta('layout') or {}
+        if self.layout:
+            self.apply_layout()
+        # Home's rows as last published: drawn at once, before any lookup.
+        self.home_cards = self.db.meta('home_cards') or {}
+        home = xbmcgui.Window(10000)
+        for key, value in self.home_cards.items():
+            home.setProperty(key, value)
+        kodi.log('Started with %d saved titles and %s saved layout' % (loaded, 'a' if self.layout else 'no'))
+        if self.store.signed_in:
+            self.enqueue('layout')
+            if self.db.meta('first_sync_done'):
+                self.next_sync = time.time() + STARTUP_QUIET
+
+    def details_path(self):
+        return os.path.join(kodi.profile_dir(), 'details.json')
+
+    def save_details(self):
+        try:
+            self.details.save(self.details_path())
+        except (IOError, OSError) as error:
+            kodi.log_warning('Could not save the library details: %s' % error)
 
     def start_listener(self):
         if self.listener is None or not self.listener.is_alive():
@@ -207,12 +409,12 @@ class Service(object):
             self.listener = None
 
     def enqueue(self, task):
-        self.tasks.put(task)
+        self.tasks.put((0 if kind_of(task) in URGENT_TASKS else 1, next(self.task_number), task))
 
     def work(self):
         """One worker, so Kodi database writes never overlap."""
         while True:
-            task = self.tasks.get()
+            task = self.tasks.get()[2]
             if task is None or self.monitor.abortRequested():
                 return
             try:
@@ -227,9 +429,21 @@ class Service(object):
                 kodi.log_error('Task %s crashed: %s' % (task, error))
             if kind_of(task) in ('sync', 'fullsync', 'library'):
                 release_memory()
+            if self.tasks.empty() and self.syncer.art_changed:
+                # Silo has a new image (a custom episode still): Kodi would
+                # keep showing its cached one under the same local address.
+                changed, self.syncer.art_changed = self.syncer.art_changed, set()
+                kodi.log('Art: %d images changed, %d dropped from Kodi\'s cache'
+                         % (len(changed), kodi.forget_textures(changed)))
             if self.tasks.empty() and self.syncer.changed:
                 structural = self.syncer.added_or_removed
-                self.syncer.changed = self.syncer.added_or_removed = False
+                if self.syncer.rewrote:
+                    self.details.clear()
+                else:
+                    for kind, kodi_id in self.syncer.touched:
+                        self.details.forget(kind, kodi_id)
+                self.syncer.changed = self.syncer.added_or_removed = self.syncer.rewrote = False
+                self.syncer.touched = set()
                 updated = kodi.refresh_library_views(update_library=structural)
                 self.library_update_pending = self.library_update_pending or not updated
 
@@ -249,6 +463,18 @@ class Service(object):
             self.run_sync()
         elif kind == 'progress':
             self.poll_progress()
+        elif kind == 'layout':
+            self.publish_layout_safely()
+            self.publish_home_cards()
+        elif kind == 'homecards':
+            self.publish_home_cards()
+        elif kind == 'recheck':
+            started = time.time()
+            if self.details.recheck(lambda: not self.playing() and not self.monitor.abortRequested()):
+                kodi.set_property('library_updated', str(int(time.time())))
+            if self.playing():
+                self.next_recheck = time.time() + STARTUP_QUIET  # interrupted: again after playback
+            kodi.log('Checked the saved library details in %.0f s' % (time.time() - started))
         elif kind == 'item':
             self.syncer.resync_item(task[1], task[2])
         elif kind == 'library':
@@ -261,6 +487,48 @@ class Service(object):
             for library_id in self.db.libraries():
                 self.syncer.remove_library(library_id)
             self.db.clear()
+
+    def watch_trailers(self):
+        """A trailer from a Silo-style skin's info page (silokodi.trailer_playing)
+        that never starts (the YouTube add-on found none, or can't play it
+        here) sends no stop. Once Kodi's busy spinner has gone with no video,
+        or after TRAILER_START_MAX, go back to the page. (Back from a trailer
+        that plays is the skin's: the window it returns to stops it.)"""
+        started = busy_seen = False
+        quiet_since = waiting_since = None
+        while not self.monitor.waitForAbort(0.25):
+            if not kodi.get_property('trailer_playing'):
+                started = busy_seen = False
+                quiet_since = waiting_since = None
+                continue
+            if started or self.player.isPlaying():
+                started = True  # stopping it reopens the page (Player._ended)
+                continue
+            now = time.time()
+            if waiting_since is None:
+                waiting_since = now
+            if xbmc.getCondVisibility('Window.IsActive(busydialog) | Window.IsActive(busydialognocancel)'):
+                busy_seen, quiet_since = True, None
+                continue
+            if busy_seen and quiet_since is None:
+                quiet_since = now
+            if (busy_seen and now - quiet_since > TRAILER_QUIET) or now - waiting_since > TRAILER_START_MAX:
+                started = True  # handled: wait for the page to clear the flag
+                self.back_from_trailer()
+
+    def back_from_trailer(self):
+        """The trailer didn't play: reopen the page, which takes the skin's
+        cover down as it opens (so the window under it never shows); if it
+        doesn't open, the cover comes down anyway after TRAILER_COVER_MAX."""
+        trailer_from = kodi.get_property('trailer_return')
+        if trailer_from:
+            kodi.clear_property('trailer_return')
+            kind, _, dbid = trailer_from.partition('|')
+            xbmc.executebuiltin('RunPlugin(plugin://plugin.video.silokodiconnect/?mode=info&type=%s&dbid=%s)'
+                                % (kind, dbid))
+        timer = threading.Timer(TRAILER_COVER_MAX, kodi.clear_property, ['trailer_playing'])
+        timer.daemon = True
+        timer.start()
 
     def wait_while_playing(self):
         """Pause a running sync while a video plays (it resumes afterwards)."""
@@ -300,10 +568,17 @@ class Service(object):
                 self.progress_dialog = None
         self.db.set_meta('history_since', self.syncer.sync_history(self.db.meta('history_since')))
         self.publish_layout_safely()
+        self.publish_library_facts()
         kodi.log('Sync finished in %.0f s' % (time.time() - started))
         if first:
             self.db.set_meta('first_sync_done', True)
             kodi.notify(kodi.string(30141))
+
+    def publish_library_facts(self):
+        """A Silo-style skin's facts line: what the library holds."""
+        counts = self.db.counts()
+        xbmcgui.Window(10000).setProperty('silo.library.facts', library_facts(counts))
+        self.db.set_meta('library_facts', library_facts(counts))
 
     def sync_progress(self, percent, message):
         if self.progress_dialog:
@@ -348,6 +623,7 @@ class Service(object):
         elif channel == 'user_state' and event == 'user_state.changed':
             if data.get('profile_id') and data['profile_id'] != self.store.get('profile_id'):
                 return
+            self.personal_events.add('personal')
             content_id = data.get('content_id') or data.get('series_id')
             if content_id:
                 self.enqueue(('state', content_id))
@@ -368,9 +644,9 @@ class Service(object):
             episodes = (kodi.jsonrpc('VideoLibrary.GetEpisodes', tvshowid=current['tvshowid'],
                                      properties=upnext.EPISODE_PROPERTIES) or {}).get('episodes') or []
             following = upnext.next_episode(episodes, current)
-            if not following:
-                return  # the last episode: nothing to offer
             data = upnext.payload(current, following, session.markers, session.origin)
+            if not following and not data.get('skip_segments'):
+                return  # the last episode, with nothing to skip: nothing to offer
             kodi.jsonrpc('JSONRPC.NotifyAll', sender=upnext.SENDER, message='upnext_data', data=upnext.encode(data))
             kodi.log('Told Up Next about %s (credits at %s s, %d skippable ranges)'
                      % (session.content_id, data.get('notification_offset'), len(data.get('skip_segments') or [])))
@@ -430,6 +706,13 @@ class Service(object):
             self.signed_out_notice = False
             self.stop_listener()
             self.next_sync = 0
+        elif name == 'profile_switched':
+            # Another profile: its own rows, requests and watch states.
+            self.store.reload()
+            self.stop_listener()
+            self.db.set_meta('history_since', None)  # its own watch history, from the start
+            self.enqueue('layout')
+            self.next_sync = 0
         elif name == 'signout':
             self.client.logout()
             self.stop_listener()
@@ -437,15 +720,54 @@ class Service(object):
         elif name in ('sync', 'fullsync', 'reset'):
             self.enqueue(name)
         elif name == 'tint':
-            # A title's ambient page tint, for an info page opened by the plugin.
+            # For an info page opened by the plugin: the title's ambient tint,
+            # its trailer and (a film or series) whether it's on the watchlist.
             try:
                 item = self.client.item(query.get('id') or '')
             except (ApiError, requests.RequestException):
                 return {'tint': ''}
-            return {'tint': mapping.ambient_tint(item.get('poster_thumbhash') or '')}
+            answer = {'tint': mapping.ambient_tint(item.get('poster_thumbhash') or ''),
+                      'trailer': mapping.trailer_key(item), 'watchlist': ''}
+            if item.get('type') in ('movie', 'series'):
+                try:
+                    answer['watchlist'] = 'true' if self.client.in_watchlist(item['content_id']) else 'false'
+                except (ApiError, requests.RequestException):
+                    pass
+            return answer
+        elif name == 'watchlist':
+            # Add a title to the watchlist or take it off; the lists refresh.
+            content_id = query.get('id') or ''
+            try:
+                if query.get('add') == '1':
+                    self.client.add_to_watchlist(content_id)
+                else:
+                    self.client.remove_from_watchlist(content_id)
+            except (ApiError, requests.RequestException) as error:
+                return {'error': str(error)}
+            self.personal.refresh_soon(['/watchlist'])
+            return {'watchlist': 'true' if query.get('add') == '1' else 'false'}
         elif name == 'sections':
             try:
                 return {'sections': self.home_sections()}
+            except (ApiError, requests.RequestException) as error:
+                return {'error': str(error)}
+        elif name == 'requests':
+            try:
+                return {'cards': self.request_cards(query.get('row') or 'mine')}
+            except (ApiError, requests.RequestException) as error:
+                return {'error': str(error)}
+        elif name == 'request_detail':
+            try:
+                return mapping.request_summary(self.client.request_detail(query.get('type') or 'movie',
+                                                                          query.get('tmdb') or ''))
+            except (ApiError, requests.RequestException) as error:
+                return {'error': str(error)}
+        elif name == 'request':
+            try:
+                seasons = [int(n) for n in (query.get('seasons') or '').split(',') if n.strip().isdigit()]
+                answer = self.make_request(query.get('type') or 'movie', query.get('tmdb') or '', seasons)
+                self.home_cards_soon()  # Your requests shows it
+                return answer
             except (ApiError, requests.RequestException) as error:
                 return {'error': str(error)}
         elif name == 'collections':
@@ -455,13 +777,36 @@ class Service(object):
                 return {'error': str(error)}
         elif name == 'widget' and query.get('collection'):
             try:
-                return {'items': self.collection_items(query.get('library'), query['collection'])}
+                # With the saved library details, as other rows: looking each
+                # title up in Kodi took 13 s for 191 on a SHIELD.
+                return {'items': self.with_details(self.collection_items(query.get('library'), query['collection']))}
+            except (ApiError, requests.RequestException) as error:
+                return {'error': str(error)}
+        elif name == 'widget' and query.get('person'):
+            try:
+                return {'items': self.with_details(self.person_items(query['person'], query.get('type')))}
+            except (ApiError, requests.RequestException) as error:
+                return {'error': str(error)}
+        elif name == 'videos':
+            try:
+                return {'videos': self.title_videos(query.get('id') or '')}
+            except (ApiError, requests.RequestException) as error:
+                return {'error': str(error)}
+        elif name == 'person':
+            try:
+                return self.person(query.get('id'), query.get('name'))
+            except (ApiError, requests.RequestException) as error:
+                return {'error': str(error)}
+        elif name == 'widget' and query.get('section') in PERSONAL_LISTS:
+            try:
+                path, title = PERSONAL_LISTS[query['section']]
+                return {'items': self.with_details(self.personal_items(path)), 'title': kodi.string(title)}
             except (ApiError, requests.RequestException) as error:
                 return {'error': str(error)}
         elif name == 'widget':
             try:
                 section = query.get('section') or 'continue_watching'
-                return {'items': self.widget_items(section, query.get('library')),
+                return {'items': self.with_details(self.widget_items(section, query.get('library'))),
                         'title': self.row_title(section, query.get('library'))}
             except (ApiError, requests.RequestException) as error:
                 return {'error': str(error)}
@@ -502,8 +847,24 @@ class Service(object):
                 # Silo signs the poster link but gives it relative to the server.
                 if card['poster'].startswith('/'):
                     card['poster'] = self.client.server_url.rstrip('/') + card['poster']
+                card['fan'], card['backdrop'] = self.collection_fan(library_id, card['id'])
                 cards.append(card)
         return cards
+
+    def collection_fan(self, library_id, collection_id):
+        """A collection's first three posters, for a Silo-style skin's fanned
+        collection card, and its first title's backdrop (about 10 ms a
+        collection)."""
+        server = self.client.server_url.rstrip('/')
+        try:
+            items = self.client.get('/library/%s/collections/%s/items' % (library_id, collection_id),
+                                    limit=3).get('items') or []
+        except (ApiError, requests.RequestException):
+            return [], ''
+        absolute = lambda url: server + url if url.startswith('/') else url
+        posters = [absolute(url) for url in (item.get('poster_url') or '' for item in items[:3]) if url]
+        backdrop = next((absolute(item['backdrop_url']) for item in items if item.get('backdrop_url')), '')
+        return posters, backdrop
 
     def collection_items(self, library_id, collection_id):
         """A library collection's titles as Kodi library ids, in Silo's order."""
@@ -513,6 +874,43 @@ class Service(object):
             if len(items) >= COLLECTION_LIMIT:
                 break
         return home_row_items({'items': items}, 'collection', self.db)
+
+    def person(self, content_id, name):
+        """A person page's facts (mapping.person_facts) for a title's cast
+        member: Silo's id from the title's cast, else a search by name."""
+        person_id = mapping.person_id_in(self.client.item(content_id), name) if content_id else None
+        if not person_id and name:
+            found = self.client.get('/catalog/people', q=name, limit=1).get('items') or []
+            person_id = found[0].get('id') if found else None
+        if not person_id:
+            return {'error': 'not found'}
+        person = self.client.get('/catalog/people/%s' % person_id)
+        facts = mapping.person_facts(person)
+        photo = person.get('photo_url') or ''
+        # Silo signs the photo link but gives it relative to the server.
+        facts.update(id=str(person_id), photo=self.client.server_url.rstrip('/') + photo if photo.startswith('/') else photo)
+        return facts
+
+    def person_items(self, person_id, kind=None):
+        """A person's titles in the library, newest first as Silo's Apple TV
+        app lists them: films, series (kind movie or series) or both."""
+        items = []
+        for item in self.client.pages('/catalog', source='person', person_id=person_id, sort='-release_date',
+                                      type=kind if kind in ('movie', 'series') else 'video', skip_total='true'):
+            items.append(item)
+            if len(items) >= COLLECTION_LIMIT:
+                break
+        return home_row_items({'items': items}, 'person', self.db)
+
+    def personal_items(self, path):
+        """The profile's watchlist, favourites or history (newest first) as
+        Kodi library ids; a history title watched twice is listed once."""
+        items, seen = [], set()
+        for item in home_row_items({'items': self.personal.cards(path)}, 'personal', self.db):
+            if (item['type'], item['kodi_id']) not in seen:
+                seen.add((item['type'], item['kodi_id']))
+                items.append(item)
+        return items
 
     def widget_items(self, section, library_id=None):
         """One Silo row (a home row, or a library's own) as Kodi library ids, in Silo's order."""
@@ -526,7 +924,17 @@ class Service(object):
                 if not section:
                     return []
             page = self.client.get('/home/sections/%s/items' % section)
+        # A row's title can change with what's watched ("Because You Watched ..."),
+        # and Silo sends the current one with its items.
+        if page.get('title'):
+            self.row_titles[(library_id or None, str(section))] = page['title']
         return home_row_items(page, section, self.db)
+
+    def with_details(self, items):
+        """Row items with their cached library details, so the plugin needn't look them up."""
+        for item in items:
+            item['cached'] = self.details.get(item['type'], item['kodi_id'])
+        return items
 
     def publish_signed_in(self):
         """silokodi.signed_in for a Silo-style skin, so it can tell "still
@@ -557,6 +965,8 @@ class Service(object):
         home = xbmcgui.Window(10000)
         home.setProperty('silo.profile_name', name)
         home.setProperty('silo.profile_initial', name[:1].upper())
+        # The server's host, for the avatar card's header (as Silo's apps).
+        home.setProperty('silo.server', (self.client.server_url or '').split('://', 1)[-1].rstrip('/'))
         url = profile.get('avatar_url') or ''
         home.setProperty('silo.avatar', self.save_avatar(url, profile.get('avatar') or url) if url else '')
 
@@ -597,7 +1007,8 @@ class Service(object):
         properties silo.*), following the profile's Silo home and libraries."""
         home = self.client.get('/home/sections').get('sections') or []
         self.home_rows = home
-        libraries = self.syncer.libraries(self.excluded())
+        # The profile's own libraries: a household profile can't list them all.
+        libraries = self.syncer.libraries(self.excluded(), primary=False)
         library_sections = {}
         for library in libraries:
             try:
@@ -605,9 +1016,303 @@ class Service(object):
                     self.client.get('/library/%s/sections' % library['id']).get('sections') or [])
             except ApiError as error:
                 kodi.log_warning('No rows for library %s: %s' % (library.get('name'), error))
-        for key, value in skin_layout(home, libraries, library_sections).items():
-            xbmcgui.Window(10000).setProperty(key, value)
+        request_rows = self.request_rows()
+        self.layout = skin_layout(home, libraries, library_sections, request_rows)
+        # Where each page's rows come from, in the layout's order, for its cards.
+        self.page_sources = {'home': [(section['id'], None) for section in home if section.get('id')],
+                             'requests': [(row[0], None) for row in request_rows or []]}
+        for page, types in (('movies', MOVIE_LIBRARY_TYPES), ('series', SHOW_LIBRARY_TYPES)):
+            self.page_sources[page] = [(section['id'], str(library['id'])) for library in libraries
+                                       if (library.get('type') or '').lower() in types
+                                       for section in library_sections.get(str(library['id'])) or []]
+        self.apply_layout()
+        self.db.set_meta('layout', self.layout)
         kodi.set_property('layout_updated', str(int(time.time())))
+        self.home_cards_soon()  # the cards for this layout's rows (a profile's own)
+
+    def apply_layout(self, page=None):
+        """Set the layout's Home window properties: all of them, or (page) only
+        that page's row paths. A row's path under its style is held back until
+        its page has been viewed, so Kodi doesn't load the rows of pages the
+        viewer hasn't opened (each row costs about a second on a SHIELD)."""
+        home = xbmcgui.Window(10000)
+        self.refresh_token = kodi.get_property('library_updated')
+        for key, value in self.layout.items():
+            row_page = page_of(key)
+            if page is not None and row_page != page:
+                continue
+            if row_page is not None:
+                # A row's path is empty until its page is viewed, so Kodi
+                # waits instead of failing (a list that failed to load never
+                # retries), and carries the refresh token so rows reload when
+                # SiloKodiConnect writes the library.
+                value = '%s&refresh=%s' % (value, self.refresh_token) \
+                    if value and row_page in self.viewed_pages else ''
+            if value.startswith('videodb://') and not self.native_has_items(value.split('&refresh=')[0]):
+                # An empty Kodi library row (Continue Watching with nothing
+                # part-watched) has no path, so the skin hides it at once
+                # rather than showing its title while the page loads.
+                value = ''
+            home.setProperty(key, value)
+        # A skin hides empty rows, and Kodi never loads a hidden list whose path
+        # changed: silo.<page>.loading keeps a page's rows shown while they load.
+        for viewed in ([page] if page is not None else list(self.viewed_pages)):
+            home.setProperty('silo.%s.loading' % viewed, '1')
+            self.loading_until[viewed] = time.time() + PAGE_LOADING
+
+    def native_has_items(self, path):
+        """Whether a Kodi library row's path lists anything; asked once per
+        path until the library changes."""
+        key = (path, self.refresh_token)
+        if key not in self.native_counts:
+            try:
+                result = kodi.jsonrpc('Files.GetDirectory', directory=path, media='video',
+                                      limits={'start': 0, 'end': 1}) or {}
+                self.native_counts[key] = bool((result.get('limits') or {}).get('total'))
+            except Exception:  # an unanswered row stays: Kodi loads it as before
+                self.native_counts[key] = True
+        return self.native_counts[key]
+
+    def end_loading(self):
+        now = time.time()
+        # A skin's own pages (custom menu items) set their flag themselves.
+        if 'custom' not in self.loading_until and xbmcgui.Window(10000).getProperty('silo.custom.loading') == '1':
+            self.loading_until['custom'] = now + PAGE_LOADING
+        for page, until in list(self.loading_until.items()):
+            if now >= until:
+                xbmcgui.Window(10000).clearProperty('silo.%s.loading' % page)
+                del self.loading_until[page]
+
+    def note_refresh(self):
+        """When silokodi.library_updated changes (the library was written, or a
+        request made), give the rows their paths with the new token, and
+        publish Home's cards again."""
+        # Not while a video plays: each row that loads from its path (Home's
+        # past the published ones) reloads through a Python process, and a 4K
+        # film starting with a dozen of them got Kodi killed for memory on a
+        # 2 GB SHIELD. The rows reload once playback stops.
+        if self.layout and kodi.get_property('library_updated') != self.refresh_token and not self.playing():
+            self.apply_layout()
+            self.home_cards_soon()
+
+    def home_cards_soon(self, delay=2):
+        """Publish Home's cards in a moment: changes come in bursts."""
+        if not self.home_cards_due:
+            self.home_cards_due = time.time() + delay
+
+    def publish_home_cards(self):
+        """Home's and Requests' rows, in Silo's order, as Home window
+        properties a skin draws without a plugin (rows.py). Only changed
+        values are set."""
+        if not self.page_sources:
+            return
+        props = {}
+        home = xbmcgui.Window(10000)
+        retitled = False
+        # Not Movies and Series: the rows Kodi can order load natively, and
+        # every published slot costs the skin load time (see the skin).
+        for page, count in PUBLISHED_PAGES.items():
+            sources = self.page_sources.get(page, [])
+            for row, (row_id, library_id) in enumerate(sources[:PUBLISHED_ROWS[page]], 1):
+                try:
+                    cards = self.page_cards(page, row_id, library_id)
+                except (ApiError, requests.RequestException) as error:
+                    kodi.log_warning('%s row %s: %s' % (page, row_id, error))
+                    cards = None
+                if cards is None:  # keep what the row showed
+                    prefix = 'silo.%s.%d.' % (page, row)
+                    props.update({key: value for key, value in self.home_cards.items() if key.startswith(prefix)})
+                    continue
+                props.update(home_cards.row_properties(row, cards[:count], page, count))
+            # Each row's title as Silo last gave it with its items (a row that
+            # loads from its path, when the skin last loaded it), if changed.
+            for row, (row_id, library_id) in enumerate(sources[:MAX_ROWS], 1):
+                title = self.row_titles.get((library_id or None, str(row_id)))
+                key = 'silo.%s.%d.title' % (page, row)
+                if title and self.layout and self.layout.get(key) not in (None, title):
+                    self.layout[key] = title
+                    home.setProperty(key, title)
+                    retitled = True
+        if retitled:
+            self.db.set_meta('layout', self.layout)
+        changed = 0
+        for key, value in props.items():
+            if self.home_cards.get(key) != value:
+                home.setProperty(key, value)
+                changed += 1
+        for key in set(self.home_cards) - set(props):
+            home.clearProperty(key)
+        self.home_cards = props
+        self.db.set_meta('home_cards', props)
+        kodi.log('Rows published (%d values changed)' % changed)
+
+    def page_cards(self, page, row_id, library_id):
+        """One row's cards: library titles with their cached details; on the
+        Requests page, titles Silo can request too."""
+        if page == 'requests' and row_id.startswith('brands:'):
+            kind = row_id[len('brands:'):]
+            return [home_cards.brand_card(item, BRAND_ROWS[kind], self.brand_picture(BRAND_ROWS[kind], item))
+                    for item in self.client.discover_brands(kind)]
+        if page == 'requests':
+            entries = [(card.get('kind'), card.get('kodi_id'), card) for card in self.request_cards(row_id)]
+        else:
+            entries = [(item['type'], item['kodi_id'], item) for item in self.widget_items(row_id, library_id)]
+        cards = []
+        for kind, kodi_id, source in entries[:home_cards.CARDS]:
+            if not kodi_id:
+                cards.append(home_cards.request_card(source))
+                continue
+            cached = self.details.get(kind, kodi_id)
+            if cached:
+                card = home_cards.card(kind, cached['details'], cached.get('show'), source.get('tint'),
+                                       self.series_art(source))
+                if page == 'requests' and source.get('label'):
+                    # In the library: Silo's LIBRARY and Available tags, its type and year under it.
+                    card['card.sub'] = card['card.wide_sub'] = home_cards.type_year(source)
+                    card.update(home_cards.request_status(source))
+                    card.update({'request.library': '1', 'request.state': 'Available'})
+                cards.append(card)
+        return cards
+
+    def publish_playing(self, content_id):
+        """The playing title's details as a Silo-style skin's hero and info
+        page have them, for its player (silokodi.playing.*): an episode's
+        series' ratings and age rating, Silo's badges (Atmos too) and its air
+        date, none of which Kodi's player gives."""
+        row = self.db.get(content_id) if content_id else None
+        props = {}
+        if row and row.get('kodi_id') is not None and row.get('kind') in ('movie', 'episode'):
+            cached = self.details.get(row['kind'], row['kodi_id'])
+            if cached:
+                props = mapping.skyline_properties(row['kind'], cached['details'], cached.get('show'))
+        for field in PLAYING_FIELDS:
+            kodi.set_property('playing.' + field, props.get('silo.' + field, ''))
+
+    def title_videos(self, content_id):
+        """A title's trailers and more: an episode (or season) with none of its
+        own shows its series', as the show's page does."""
+        item = self.client.item(content_id)
+        videos = mapping.title_videos(item)
+        if not videos and item.get('series_id') and item.get('series_id') != content_id:
+            videos = mapping.title_videos(self.client.item(item['series_id']))
+        return videos
+
+    def brand_picture(self, kind, item):
+        """A studio's, network's or genre's hero picture: its most popular
+        title's backdrop and tint, so the Requests page doesn't go black on
+        its tiles. Kept a day (the rows are published often)."""
+        key = (kind, item.get('slug'))
+        cached = self.brand_pictures.get(key)
+        if cached and time.time() - cached[0] < BRAND_PICTURE_FOR:
+            return cached[1]
+        try:
+            titles = self.client.discover_browse(kind, item.get('slug'))
+        except (ApiError, requests.RequestException):
+            titles = []
+        top = next((t for t in titles if t.get('backdrop_path')), {})
+        picture = {'backdrop': mapping.TMDB_IMAGES + 'w1280' + top['backdrop_path'] if top else '',
+                   'tint': mapping.ambient_tint(top.get('poster_thumbhash') or '') if top else ''}
+        self.brand_pictures[key] = (time.time(), picture)
+        return picture
+
+    def series_art(self, source):
+        """A Continue Watching or Next Up episode's wide art as Silo's apps
+        show it: the season backdrop, else the series', through the relay.
+        Else '' (the episode still)."""
+        if not source.get('backdrop'):
+            return ''
+        key = 'row:%s' % source['content_id']
+        for kind in self.db.set_art(key, {'fanart': source['backdrop']}):
+            self.syncer.art_changed.add(mapping.art_url(self.port, key, kind))
+        return mapping.art_url(self.port, key, 'fanart')
+
+    def note_viewed_page(self):
+        """When the skin shows a page for the first time, give its rows their paths."""
+        page = xbmcgui.Window(10000).getProperty('silo.page') or 'home'
+        if page not in self.viewed_pages:
+            self.viewed_pages.add(page)
+            if self.layout:
+                self.apply_layout(page)
+
+
+    def request_rows(self):
+        """The Requests page's rows as (key, title, style, section): Yours'
+        two (section yours: In progress, then Available), then Discover's in
+        Silo's order, its title rows and the Studios, Networks and Genres rows
+        as brands:<kind> in the brand style. The skin shows one section at a
+        time, as its Discover and Yours pills. None when the profile can't
+        request. silokodi.requests_mine: the Yours pill's count."""
+        try:
+            page = self.client.discover_page()
+            mine = self.client.my_requests()
+        except (ApiError, requests.RequestException) as error:
+            kodi.log('No Requests page: %s' % error)
+            return None
+        kodi.set_property('requests_mine', str(len(mine)))
+        filled = {item.get('key') for item in page.get('items') or [] if item.get('results')}
+        rows = [('mine:active', 'In progress', 'poster', 'yours'), ('mine:available', 'Available', 'poster', 'yours')]
+        for row in page.get('row_order') or [{'key': key} for key in filled]:
+            key, kind = row.get('key'), row.get('type')
+            if kind in BRAND_ROWS:
+                rows.append(('brands:%s' % kind, row.get('title') or kind.title(), 'brand'))
+            elif key in filled:
+                rows.append((key, row.get('title') or key, 'poster'))
+        return rows
+
+    def request_cards(self, row):
+        """A Requests row as cards (row: mine, its mine:active or
+        mine:available half, a discovery key, search:<words> or
+        similar:<type>:<tmdb id>);
+        a title already in the library carries its Kodi item, so it opens and
+        plays as usual."""
+        if row.startswith('search:'):
+            # Search: only what isn't in the library, which the skin lists itself.
+            items = [item for item in self.client.request_search(row[len('search:'):])
+                     if item.get('availability') != 'available']
+        elif row.startswith('similar:'):
+            # A request title's More Like This: Silo's recommendations for it.
+            media_type, _, tmdb_id = row[len('similar:'):].partition(':')
+            items = self.client.request_detail(media_type, tmdb_id).get('recommendations') or []
+        elif row.startswith('browse:'):
+            # A studio's, network's or genre's titles: browse:<kind>:<slug>[:<media type>].
+            kind, _, rest = row[len('browse:'):].partition(':')
+            slug, _, media_type = rest.partition(':')
+            items = self.client.discover_browse(kind, slug, media_type or None)
+        elif row.startswith('mine'):
+            # Yours: on the way first, then those you can watch (Silo's two sections).
+            cards = self.cards_for(self.client.my_requests())
+            if row == 'mine':
+                return cards
+            return [card for card in cards if requested_available(card) == (row == 'mine:available')]
+        else:
+            items = self.client.discover_section(row)
+        return self.cards_for(items)
+
+    def cards_for(self, items):
+        """Request items as cards, a title in the library carrying its Kodi item."""
+        cards = []
+        for item in items:
+            if item.get('media_type') not in ('movie', 'series'):
+                continue
+            card = mapping.request_card(item)
+            library = self.db.get(card['content_id']) if card['content_id'] else None
+            if library and library.get('kodi_id') and library['kind'] in ('movie', 'tvshow'):
+                card['kind'], card['kodi_id'] = library['kind'], library['kodi_id']
+            cards.append(card)
+        return cards
+
+    def make_request(self, media_type, tmdb_id, seasons=None):
+        """Request a title: for a series the given seasons, or every aired
+        season not yet in the library (Silo's default)."""
+        detail = self.client.request_detail(media_type, tmdb_id)
+        state = detail.get('request') or {}
+        if not state.get('requestable'):
+            return {'error': mapping.request_summary(detail)['reason']}
+        body = mapping.request_body(detail)
+        if seasons and media_type == 'series':
+            body['seasons'] = seasons
+        answer = self.client.create_request(body)
+        return {'state': mapping.REQUEST_STATES.get(answer.get('state'), 'Requested'), 'title': detail.get('title')}
 
     def media_allowed(self, path):
         return any(session_id in path for session_id in self.playback.session_ids())
@@ -616,6 +1321,11 @@ class Service(object):
         if time.time() - self.art_attempts.get(content_id, 0) < ART_RETRY:
             return
         self.art_attempts[content_id] = time.time()
+        if content_id.startswith('row:'):
+            # A row card's own art (series_art): publishing the rows again
+            # brings Silo's current URL.
+            self.home_cards_soon()
+            return
         if content_id.startswith('person:'):
             person = self.client.get('/catalog/people/%s' % content_id.split(':', 1)[1])
             if person.get('photo_url'):

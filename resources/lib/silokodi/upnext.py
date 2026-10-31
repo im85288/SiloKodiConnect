@@ -46,14 +46,15 @@ def next_episode(episodes, current):
 
 
 def payload(current, following, found_markers, origin=0.0):
-    """upnext_data for the current episode. Marker times are converted from
+    """upnext_data for the current episode (following may be None). Marker times are converted from
     the source file's timeline to the player's (they differ only when Silo
     converts a stream that starts part-way in)."""
-    data = {
-        'current_episode': current,
-        'next_episode': following,
-        'play_info': {'episodeid': following['episodeid']},
-    }
+    data = {'current_episode': current}
+    if following:
+        # Without one (the last episode in the library) Up Next still offers
+        # Skip, and shows no popup.
+        data['next_episode'] = following
+        data['play_info'] = {'episodeid': following['episodeid']}
     to_player = lambda seconds: max(0.0, seconds - origin)
     credits = [m for m in found_markers if m[0] == 'credits']
     if credits:
@@ -63,6 +64,19 @@ def payload(current, following, found_markers, origin=0.0):
     if segments:
         data['skip_segments'] = segments
     return data
+
+
+def marker_ranges(found_markers, total, origin=0.0):
+    """Each marker kind's ranges as a skin's ranges control reads them:
+    'start,end[,start,end...]' in percent of the player's timeline."""
+    ranges = {}
+    if total <= 0:
+        return ranges
+    for kind, start, end in found_markers:
+        start, end = max(0.0, start - origin), min(total, end - origin)
+        if end > start:
+            ranges.setdefault(kind, []).append('%.2f,%.2f' % (start * 100 / total, end * 100 / total))
+    return {kind: ','.join(parts) for kind, parts in ranges.items()}
 
 
 def encode(data):

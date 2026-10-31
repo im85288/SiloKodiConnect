@@ -39,6 +39,17 @@ STATE_FIELDS = ('position_seconds', 'progress_updated_at', 'user_state', 'sort_m
                 'badges', 'upcoming_event', 'search_diagnostics')
 # Signed artwork URLs change daily; their path names the image.
 URL_FIELDS_SUFFIX = ('_url', '_urls')
+# The fields of a catalog card that reach Kodi's library (the title's own
+# details and art; season listings and item details fill in the rest). Only
+# these make a card count as changed, so a field Silo adds (a thumbhash, the
+# parent's artwork on episode cards) doesn't rewrite the library. A field
+# the rows use from here on belongs in this list.
+CARD_FIELDS = ('title', 'overview', 'tagline', 'sort_title', 'original_title', 'runtime', 'duration_seconds',
+               'content_rating', 'genres', 'studios', 'networks', 'countries', 'release_date', 'first_air_date',
+               'air_date', 'year', 'added_at', 'show_status', 'series_id', 'season_number', 'episode_number',
+               'play_content_id', 'rating_imdb', 'rating_tmdb', 'rating_sources', 'ratings', 'tmdb_id', 'imdb_id',
+               'tvdb_id', 'overlay_summary', 'poster_url', 'backdrop_url', 'logo_url', 'clearart_url', 'banner_url',
+               'disc_url', 'thumb_url', 'still_url')
 
 
 # ----- identity and paths -----
@@ -69,20 +80,32 @@ def art_url(port, content_id, kind):
     return 'http://127.0.0.1:%d/art/%s/%s' % (port, quote(content_id, safe=''), kind)
 
 
-def _strip_signature(value):
+def unsigned(value):
+    """A Silo URL without its signature (which changes daily)."""
     return value.split('?', 1)[0] if isinstance(value, str) else value
 
 
-def fingerprint(card):
-    """Hash of the parts of a card that describe the title, not its viewing state."""
+def _hash(card, keys):
     data = {}
-    for key, value in card.items():
-        if key in STATE_FIELDS:
-            continue
+    for key in keys:
+        value = card[key]
         if key.endswith(URL_FIELDS_SUFFIX):
-            value = [_strip_signature(v) for v in value] if isinstance(value, list) else _strip_signature(value)
+            value = [unsigned(v) for v in value] if isinstance(value, list) else unsigned(value)
         data[key] = value
     return hashlib.sha1(json.dumps(data, sort_keys=True).encode('utf-8')).hexdigest()
+
+
+def fingerprint(card):
+    """Hash of the card's fields that reach Kodi (CARD_FIELDS), not its
+    viewing state or anything else Silo adds."""
+    return _hash(card, [key for key in CARD_FIELDS if key in card])
+
+
+def legacy_fingerprint(card):
+    """The earlier fingerprint: every field but the viewing state. A
+    row saved with it is unchanged if it matches today's card, so the sync
+    swaps in the new fingerprint instead of rewriting the library."""
+    return _hash(card, [key for key in card if key not in STATE_FIELDS])
 
 
 # ----- dates and numbers -----
@@ -159,6 +182,21 @@ def person_art(item):
             for p in item.get('cast') or [] if p.get('person_id') and p.get('photo_url')}
 
 
+def ratings(item):
+    """Every rating Silo has for a title, as [(rating_type, value out of 10,
+    votes)], the default (IMDb if there is one) first."""
+    votes = {s.get('source'): s.get('votes') for s in item.get('rating_sources') or []}
+    found = []
+    if item.get('rating_imdb'):
+        found.append(('imdb', float(item['rating_imdb']), votes.get('imdb') or 0))
+    if item.get('rating_tmdb'):
+        found.append(('themoviedb', float(item['rating_tmdb']), votes.get('tmdb') or 0))
+    if not found:
+        best = rating(item)
+        found = [best] if best else []
+    return found
+
+
 def rating(item):
     """(rating_type, value out of 10, votes) or None."""
     votes = {s.get('source'): s.get('votes') for s in item.get('rating_sources') or []}
@@ -201,6 +239,8 @@ def hdr_type(track, version):
     kind = (track.get('video_range_type') or track.get('video_range') or '').lower()
     if 'hlg' in kind or transfer == 'arib-std-b67':
         return 'hlg'
+    if 'hdr10plus' in kind or 'hdr10+' in kind:
+        return 'hdr10plus'
     if 'hdr10' in kind or 'pq' in kind or transfer == 'smpte2084' or version.get('hdr'):
         return 'hdr10'
     return ''
@@ -236,11 +276,20 @@ def stream_details(version):
         width, height = RESOLUTION_SIZES.get((version.get('resolution') or '').lower(), (None, None))
         video.append({'codec': version['codec_video'], 'aspect': None, 'width': width, 'height': height,
                       'hdr': 'hdr10' if version.get('hdr') else '', 'stereo': ''})
-    audio = [{'codec': track.get('codec') or '', 'channels': track.get('channels'),
+    audio = [{'codec': audio_codec(track.get('codec'), track.get('profile')), 'channels': track.get('channels'),
               'language': track.get('language') or ''}
              for track in version.get('audio_tracks') or []]
     subtitles = [track.get('language') or '' for track in version.get('subtitle_tracks') or []]
     return {'video': video, 'audio': audio, 'subtitle': subtitles}
+
+
+def audio_codec(codec, profile=''):
+    """Kodi's codec name for a track, with Atmos as Kodi's own players name
+    it (eac3_ddp_atmos, truehd_atmos), from Silo's profile ("... Atmos")."""
+    codec = (codec or '').lower()
+    if 'atmos' in (profile or '').lower() and codec in ('eac3', 'truehd'):
+        return 'eac3_ddp_atmos' if codec == 'eac3' else 'truehd_atmos'
+    return codec
 
 
 def episode_stream_details(episode):
@@ -251,12 +300,37 @@ def episode_stream_details(episode):
     first = files[0]
     width, height = RESOLUTION_SIZES.get((first.get('resolution') or '').lower(), (None, None))
     details = {'video': [], 'audio': [], 'subtitle': []}
+    # Silo's card summary names the HDR format and audio codec the file
+    # summary leaves out (HDR10+, EAC3), as Silo's badges show them.
+    overlay = episode.get('overlay_summary') or {}
+    hdr = overlay_hdr(overlay.get('hdr'), 'hdr10' if first.get('hdr') else '')
     if first.get('codec_video'):
         details['video'].append({'codec': first['codec_video'], 'aspect': None, 'width': width,
-                                 'height': height, 'hdr': 'hdr10' if first.get('hdr') else '', 'stereo': ''})
+                                 'height': height, 'hdr': hdr, 'stereo': ''})
     if first.get('audio_channels'):
-        details['audio'].append({'codec': '', 'channels': first['audio_channels'], 'language': ''})
+        codec = OVERLAY_AUDIO.get((overlay.get('audio') or '').lower(), '')
+        details['audio'].append({'codec': codec, 'channels': first['audio_channels'], 'language': ''})
     return details
+
+
+def overlay_hdr(label, default=''):
+    """Kodi's HDR type for Silo's card label, which can name several formats
+    ("DV HDR10+"): the first one Kodi knows, Dolby Vision ahead of the rest."""
+    label = (label or '').lower()
+    if label in OVERLAY_HDR:
+        return OVERLAY_HDR[label]
+    for part in label.split():
+        if part in OVERLAY_HDR:
+            return OVERLAY_HDR[part]
+    return default
+
+
+# Silo's overlay_summary labels to Kodi's stream detail names.
+OVERLAY_HDR = {'hdr10': 'hdr10', 'hdr10+': 'hdr10plus', 'dolby vision': 'dolbyvision', 'dv': 'dolbyvision',
+               'hlg': 'hlg'}
+OVERLAY_AUDIO = {'atmos': 'eac3_ddp_atmos', 'truehd atmos': 'truehd_atmos', 'eac3': 'eac3', 'e-ac3': 'eac3', 'ac3': 'ac3', 'truehd': 'truehd', 'dts': 'dts',
+                 'dts-hd ma': 'dtshd_ma', 'dts-hd': 'dtshd_ma', 'aac': 'aac', 'flac': 'flac', 'opus': 'opus',
+                 'mp3': 'mp3'}
 
 
 def default_version(item):
@@ -351,11 +425,52 @@ def episode_fields(episode, added_at=None):
 # ----- what a Silo-style skin shows about the focused title -----
 
 RATING_SOURCES = {'imdb': 'IMDb', 'themoviedb': 'TMDB', 'tmdb': 'TMDB', 'trakt': 'Trakt'}
-AUDIO_CODECS = {'truehd': 'TRUEHD', 'eac3': 'DD+', 'ac3': 'AC3', 'dts': 'DTS', 'dtshd_ma': 'DTS-HD MA',
+AUDIO_CODECS = {'eac3_ddp_atmos': 'ATMOS', 'truehd_atmos': 'ATMOS', 'truehd': 'TRUEHD', 'eac3': 'EAC3', 'ac3': 'AC3', 'dts': 'DTS', 'dtshd_ma': 'DTS-HD MA',
                 'dca': 'DTS', 'aac': 'AAC', 'flac': 'FLAC', 'opus': 'OPUS', 'mp3': 'MP3'}
+AUDIO_LINE = {'eac3_ddp_atmos': 'EAC3 Atmos', 'truehd_atmos': 'TrueHD Atmos'}  # the info line's names
+HDR_NAMES = {'dolbyvision': 'Dolby Vision', 'hdr10plus': 'HDR10+', 'hdr10': 'HDR10', 'hlg': 'HLG'}
 CHANNEL_LAYOUTS = {8: '7.1', 7: '6.1', 6: '5.1', 2: '2.0', 1: 'MONO'}
 HDR_LABELS = {'dolbyvision': 'DOLBY VISION', 'hdr10': 'HDR10', 'hdr10plus': 'HDR10+', 'hlg': 'HLG'}
 MONTHS = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
+
+
+LANGUAGE_NAMES = {'eng': 'English', 'en': 'English', 'fre': 'French', 'fra': 'French', 'fr': 'French',
+                  'ger': 'German', 'deu': 'German', 'de': 'German', 'spa': 'Spanish', 'es': 'Spanish',
+                  'ita': 'Italian', 'it': 'Italian', 'jpn': 'Japanese', 'ja': 'Japanese', 'kor': 'Korean',
+                  'dut': 'Dutch', 'nld': 'Dutch', 'por': 'Portuguese', 'swe': 'Swedish', 'nor': 'Norwegian',
+                  'dan': 'Danish', 'fin': 'Finnish', 'pol': 'Polish', 'rus': 'Russian', 'chi': 'Chinese',
+                  'zho': 'Chinese', 'hin': 'Hindi', 'ara': 'Arabic', 'tur': 'Turkish'}
+
+
+def language_name(code):
+    return LANGUAGE_NAMES.get((code or '').lower(), (code or '').upper())
+
+
+def tech_lines(streamdetails):
+    """Silo's Version / Audio / Subtitles line for an info page:
+    silo.version (4K · HDR), silo.audio (English · EAC3 · 5.1) and
+    silo.subtitles (English, French, or None)."""
+    details = streamdetails or {}
+    video = (details.get('video') or [{}])[0]
+    audio = (details.get('audio') or [{}])[0]
+    badges = quality_badges(streamdetails)
+    version = [badges[0]] if badges and badges[0] in ('4K', '1080P', '720P', 'SD') else []
+    # The format by name (Dolby Vision, HDR10+), as the row's badges have it.
+    hdr = (video.get('hdrtype') or '').lower()
+    if hdr:
+        version.append(HDR_NAMES.get(hdr, 'HDR'))
+    codec = (audio.get('codec') or '').lower()
+    audio_parts = [part for part in (language_name(audio.get('language')),
+                                     AUDIO_LINE.get(codec) or AUDIO_CODECS.get(codec, codec.upper()),
+                                     CHANNEL_LAYOUTS.get(audio.get('channels') or 0, '')) if part]
+    subtitles = []
+    for track in details.get('subtitle') or []:
+        name = language_name(track.get('language'))
+        if name and name not in subtitles:
+            subtitles.append(name)
+    return {'silo.version': ' · '.join(version), 'silo.audio': ' · '.join(audio_parts),
+            'silo.subtitles': ', '.join(subtitles[:3]) + (' +%d' % (len(subtitles) - 3) if len(subtitles) > 3 else '')
+            if subtitles else 'None'}
 
 
 def quality_badges(streamdetails):
@@ -390,6 +505,74 @@ def aired_label(date):
         return 'Aired %s %d, %d' % (MONTHS[month - 1], day, year)
     except (ValueError, IndexError):
         return ''
+
+
+# About what a skin's person page shows of a biography: seven of Skyline's lines (about 67 characters).
+BIO_LIMIT = 470
+
+
+def fitted(text, limit=BIO_LIMIT):
+    """text cut at a word near limit and ended with "…", as Silo's app ends a
+    long biography; shorter text as it is."""
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rsplit(' ', 1)[0].rstrip(',;:—–- ')
+    return cut + '…'
+
+
+def person_facts(person, today=None):
+    """Silo's person page facts (catalog/people/{id}) for a skin, as Silo's
+    Apple TV app shows them: 'Born 20 Jun 1967', '59 years old' (or 'Died 3 Jan
+    2020' and 'Aged 52'), the birthplace and the biography."""
+    def parsed(date):
+        try:
+            year, month, day = (int(part) for part in (date or '')[:10].split('-'))
+            return year, month, day
+        except ValueError:
+            return None
+    born, died = parsed(person.get('birth_date')), parsed(person.get('death_date'))
+    today = today or datetime.now().date().timetuple()[:3]
+    label = lambda date: '%d %s %d' % (date[2], MONTHS[date[1] - 1], date[0])
+    # The biography as one paragraph, as Silo's app runs it (Silo's has line breaks).
+    facts = {'name': person.get('name') or '', 'bio': fitted(' '.join((person.get('bio') or '').split())),
+             'place': person.get('birthplace') or '', 'born': '', 'age': '', 'died': ''}
+    if born:
+        facts['born'] = 'Born %s' % label(born)
+        end = died or tuple(today)
+        years = end[0] - born[0] - ((end[1], end[2]) < (born[1], born[2]))
+        facts['age'] = ('Aged %d' if died else '%d years old') % years
+    if died:
+        facts['died'] = 'Died %s' % label(died)
+    return facts
+
+
+def person_id_in(item, name):
+    """The Silo id of the person called name in a title's cast or crew, or None."""
+    wanted = (name or '').strip().casefold()
+    for person in (item.get('cast') or []) + (item.get('crew') or []):
+        if (person.get('name') or '').strip().casefold() == wanted and person.get('person_id'):
+            return person['person_id']
+    return None
+
+
+def trailer_key(item):
+    """The YouTube id of a title's trailer from Silo's videos, '' when it has
+    none: an official trailer first, then English, then any."""
+    trailers = [video for video in item.get('videos') or []
+                if video.get('kind') == 'trailer' and video.get('site') == 'youtube' and video.get('site_key')]
+    if not trailers:
+        return ''
+    trailers.sort(key=lambda video: (not video.get('is_official'), video.get('language') not in ('en', '', None)))
+    return trailers[0]['site_key']
+
+
+def title_videos(item):
+    """A title's YouTube videos from Silo (trailers, teasers, featurettes), in
+    Silo's order, for a skin's Trailers & More row: name, YouTube id and
+    YouTube's thumbnail."""
+    return [{'name': video.get('name') or 'Trailer', 'key': video['site_key'], 'kind': video.get('kind') or '',
+             'thumb': 'https://i.ytimg.com/vi/%s/hqdefault.jpg' % video['site_key']}
+            for video in item.get('videos') or [] if video.get('site') == 'youtube' and video.get('site_key')]
 
 
 def ambient_tint(thumbhash):
@@ -427,6 +610,7 @@ def skyline_properties(kind, details, show=None):
     if kind == 'episode':
         props['silo.code'] = 'S%02dE%02d' % (details.get('season') or 0, details.get('episode') or 0)
         props['silo.aired'] = aired_label(details.get('firstaired'))
+        props['silo.air_date'] = props['silo.aired'][len('Aired '):]
         if details.get('tvshowid') is not None:
             # The episode's show and season in Kodi's library, for an episode
             # page's season pills and episode rail.
@@ -435,6 +619,7 @@ def skyline_properties(kind, details, show=None):
     props['silo.mpaa'] = details.get('mpaa') or (show or {}).get('mpaa') or ''
     genres = details.get('genre') or (show or {}).get('genre') or []
     props['silo.genre'] = genres[0] if genres else ''
+    props['silo.genres'] = ', '.join(genres[:2])
     ratings = details.get('ratings') or {}
     best = next((name for name, value in ratings.items() if value.get('default')), None) or \
         next(iter(ratings), None)
@@ -444,12 +629,39 @@ def skyline_properties(kind, details, show=None):
     props['silo.cast'] = ', '.join(person['name'] for person in cast[:3] if person.get('name'))
     for index, badge in enumerate(quality_badges(details.get('streamdetails'))[:3], 1):
         props['silo.badge%d' % index] = badge
+    # The info page's ratings (an episode shows its series', as Silo does)
+    # and its Version / Audio / Subtitles line.
+    for source, key in (('imdb', 'imdb'), ('themoviedb', 'tmdb')):
+        value = ((details.get('ratings') or {}).get(source) or ((show or {}).get('ratings') or {}).get(source)
+                 or {}).get('rating')
+        props['silo.rating.%s' % key] = '%.1f' % value if value else ''
+    props.update(tech_lines(details.get('streamdetails')))
     if kind in ('movie', 'tvshow') and genres:
         props['silo.similar'] = similar_path(kind, genres[0], details.get('title') or '')
+    elif kind == 'episode' and show and show.get('genre'):
+        # An episode's page shows its series' More Like This, as the show's page.
+        props['silo.similar'] = similar_path('tvshow', show['genre'][0], show.get('title') or '')
     return props
 
 
 SIMILAR_LIMIT = 20
+
+# What a skin's hero shows of a title that only this add-on knows: kept with
+# the title in Kodi's library as artwork entries holding text (a skin reads
+# ListItem.Art(silogenre) in a label, never an image), for the rows Kodi lists
+# itself. Kodi loads every art type for a list's items, but of the unique ids
+# only the default one.
+HERO_EXTRAS = ('silogenre', 'silocast', 'silobadge1', 'silobadge2', 'silobadge3', 'silotint')
+
+
+def hero_extras(kind, details, tint=''):
+    """{extra: text} for a movie or tvshow, from its Kodi details (genre,
+    cast, streamdetails): the hero's own text (skyline_properties), so a title
+    from Kodi's lists reads as it does from this add-on's."""
+    props = skyline_properties(kind, details)
+    return {'silogenre': props['silo.genre'], 'silocast': props['silo.cast'],
+            'silobadge1': props.get('silo.badge1', ''), 'silobadge2': props.get('silo.badge2', ''),
+            'silobadge3': props.get('silo.badge3', ''), 'silotint': tint or ''}
 
 
 def similar_path(kind, genre, title):
@@ -462,3 +674,123 @@ def similar_path(kind, genre, title):
                                {'field': 'title', 'operator': 'isnot', 'value': [title]}]}}
     folder = 'videodb://movies/titles/' if kind == 'movie' else 'videodb://tvshows/titles/'
     return folder + '?xsp=' + quote(json.dumps(rules, separators=(',', ':')), safe='')
+
+
+# ----- requests -----
+
+TMDB_IMAGES = 'https://image.tmdb.org/t/p/'
+REQUEST_STATES = {'pending': 'Requested', 'approved': 'Approved', 'processing': 'Downloading',
+                  'partially_available': 'Partly available', 'available': 'Available', 'declined': 'Declined',
+                  'cancelled': 'Cancelled', 'failed': 'Failed'}
+
+
+# Silo's request status colours (RequestColors) as Kodi colours.
+REQUEST_TINTS = {'amber': 'FFF59E0B', 'sky': 'FF38BDF8', 'emerald': 'FF34D399', 'rose': 'FFFB7185',
+                 'neutral': '99EDEDED'}
+REQUEST_STEPS = 4  # Requested, Approved, Downloading, In your library
+
+
+def request_progress(state, status='', outcome='', available=False, requestable=False):
+    """What Silo's TV app shows for a request (RequestDisplayState and
+    RequestProgress): {'label', 'long', 'tint', 'done', 'step'} with the short
+    card caption, the hero's phrase, the dot colour, the steps behind it and
+    the step it is on (1-4, 0 for none); None for a title with nothing to show
+    (it can simply be requested)."""
+    def progress(label, long, tint, done, step):
+        return {'label': label, 'long': long, 'tint': REQUEST_TINTS[tint], 'done': done, 'step': step}
+    display = {'pending': 'pending', 'approved': 'on_the_way', 'processing': 'on_the_way',
+               'partially_available': 'on_the_way', 'available': 'in_library', 'declined': 'declined',
+               'failed': 'failed', 'cancelled': 'unavailable'}.get(state or '')
+    if not display:
+        if outcome in ('declined', 'failed'):
+            display = outcome
+        elif outcome == 'cancelled':
+            display = 'unavailable'
+        elif available and not outcome:
+            display = 'in_library'
+        elif status:
+            display = {'pending': 'pending', 'completed': 'in_library', 'failed': 'failed'}.get(status, 'on_the_way')
+        elif requestable or outcome:
+            return None
+        else:
+            display = 'unavailable'
+    if display == 'pending':
+        return progress('Pending', 'Waiting for approval', 'amber', 1, 2)
+    if display == 'on_the_way':
+        if state == 'partially_available':
+            return progress('Partly in library', 'Partly in your library', 'sky', 3, 4)
+        if status == 'downloading':
+            return progress('Downloading', 'Downloading', 'sky', 2, 3)
+        if status == 'completed':
+            return progress('Adding to library', 'Adding to your library', 'sky', 3, 4)
+        if status in ('approved', 'queued'):
+            return progress('Queued', 'Queued for download', 'sky', 2, 3)
+        return progress('On the way', 'On the way', 'sky', 2, 3)
+    if display == 'in_library':
+        return progress('In library', 'In your library', 'emerald', REQUEST_STEPS, 0)
+    if display == 'declined':
+        return progress('Declined', 'Declined', 'rose', 1, 2)
+    if display == 'failed':
+        return progress('Failed', 'Request failed', 'rose', 2, 3)
+    return progress('Unavailable', 'Unavailable', 'neutral', 0, 0)
+
+
+def request_card(item):
+    """A request, or a title Silo can request, as a card for a skin: TMDB
+    artwork, Silo's one state to show and whether it can be requested now."""
+    request = item.get('request') or {}
+    state = item.get('state') or request.get('state') or ''
+    if item.get('availability') == 'available' or (item.get('library_content_id') and not state):
+        state = state or 'available'
+    poster, backdrop = item.get('poster_path') or '', item.get('backdrop_path') or ''
+    shown = request_progress(item.get('state') or request.get('state'), item.get('status') or request.get('status') or '',
+                             item.get('outcome') or '', item.get('availability') == 'available'
+                             or bool(item.get('library_content_id') and not state),
+                             bool(request.get('requestable'))) or {}
+    return {'type': item.get('media_type') or 'movie', 'tmdb': item.get('tmdb_id'),
+            'title': item.get('title') or '', 'year': item.get('year') or 0, 'overview': item.get('overview') or '',
+            'poster': TMDB_IMAGES + 'w500' + poster if poster else '',
+            'backdrop': TMDB_IMAGES + 'w1280' + backdrop if backdrop else '',
+            'rating': round(float(item.get('vote_average') or 0), 1),
+            'state': state, 'label': shown.get('label', ''), 'long': shown.get('long', ''),
+            'tint': shown.get('tint', ''), 'done': shown.get('done', 0), 'step': shown.get('step', 0),
+            'requestable': bool(request.get('requestable')), 'content_id': item.get('library_content_id') or ''}
+
+
+def request_body(detail):
+    """The createRequest body for a title, from its request detail."""
+    body = {'media_type': detail['media_type'], 'tmdb_id': detail['tmdb_id'], 'title': detail.get('title') or ''}
+    for key in ('imdb_id', 'overview', 'poster_path', 'backdrop_path'):
+        if detail.get(key):
+            body[key] = detail[key]
+    for key in ('year', 'tvdb_id'):
+        if detail.get(key):
+            body[key] = int(detail[key])
+    return body
+
+
+def request_summary(detail):
+    """A title's request detail for the plugin: its card and the facts its
+    info page shows, whether it can be requested (if not, why) and a series'
+    aired seasons still to get."""
+    state = detail.get('request') or {}
+    seasons = [{'number': season['season_number'],
+                'label': season.get('name') or 'Season %d' % season['season_number']}
+               for season in detail.get('seasons') or []
+               if season.get('season_number') and season.get('availability') != 'available'
+               and not season.get('requested') and (season.get('episode_count') or 0) > 0]
+    reason = '' if state.get('requestable') else (
+        REQUEST_STATES.get(state.get('state'), '') or
+        (state.get('reason') or 'not requestable').replace('_', ' ').capitalize())
+    cast = [{'name': person.get('name') or '', 'role': person.get('character') or '',
+             'thumbnail': TMDB_IMAGES + 'w185' + person['profile_path'] if person.get('profile_path') else ''}
+            for person in (detail.get('cast') or [])[:20] if person.get('name')]
+    director = detail.get('director')
+    return {'title': detail.get('title') or '', 'requestable': bool(state.get('requestable')), 'reason': reason,
+            'seasons': seasons, 'card': request_card(detail), 'cast': cast,
+            'genres': list(detail.get('genres') or []), 'tagline': detail.get('tagline') or '',
+            'status': detail.get('status') or '', 'mpaa': detail.get('content_rating') or '',
+            'runtime': int(detail.get('runtime') or 0),
+            'studios': list(detail.get('networks') or detail.get('production_companies') or [])[:3],
+            'directors': [director] if isinstance(director, str) and director else list(director or []),
+            'season_count': int(detail.get('number_of_seasons') or 0)}

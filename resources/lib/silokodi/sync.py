@@ -75,7 +75,7 @@ def home_row_items(page, section, db):
 
 
 # The skin's pages and row slots. Rows beyond MAX_ROWS are left out.
-MAX_ROWS = 12
+MAX_ROWS = 18  # Silo's Home has up to 18 rows
 WIDE_SECTIONS = ('continue_watching', 'next_up', 'next_in_series')
 PLUGIN = 'plugin://plugin.video.silokodiconnect/'
 

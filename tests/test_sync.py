@@ -902,3 +902,39 @@ def test_an_episode_without_videos_shows_its_series_trailers():
     service.client = Client()
     assert [video['key'] for video in service.title_videos('ep-1')] == ['abc']
     assert [video['key'] for video in service.title_videos('show-1')] == ['abc']
+
+
+def test_home_publishes_cards_for_its_first_rows_only(monkeypatch):
+    from resources.lib.silokodi import service as service_module
+    props = {}
+
+    class Window(object):
+        def __init__(self, *args):
+            pass
+
+        def setProperty(self, key, value):
+            props[key] = value
+
+        def clearProperty(self, key):
+            props.pop(key, None)
+
+    class Db(object):
+        def set_meta(self, key, value):
+            pass
+    monkeypatch.setattr(service_module.xbmcgui, 'Window', Window)
+    service = service_module.Service.__new__(service_module.Service)
+    service.db, service.home_cards = Db(), {}
+    service.page_sources = {'home': [('row%d' % n, None) for n in range(1, 8)], 'requests': []}
+    service.layout = {'silo.home.%d.title' % n: 'Row %d' % n for n in range(1, 8)}
+    # Silo renamed row 6, which loads from its path: its title follows.
+    service.row_titles = {(None, 'row6'): 'Because You Watched Heat'}
+    asked = []
+
+    def page_cards(page, row_id, library_id):
+        asked.append(row_id)
+        return [{'type': 'movie', 'label': row_id}]
+    service.page_cards = page_cards
+    service.publish_home_cards()
+    assert asked == ['row1', 'row2', 'row3', 'row4']
+    assert props['silo.home.4.cards'] == '1' and 'silo.home.5.cards' not in props
+    assert props['silo.home.6.title'] == 'Because You Watched Heat'

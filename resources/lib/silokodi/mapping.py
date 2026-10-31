@@ -638,6 +638,9 @@ def skyline_properties(kind, details, show=None):
     props.update(tech_lines(details.get('streamdetails')))
     if kind in ('movie', 'tvshow') and genres:
         props['silo.similar'] = similar_path(kind, genres[0], details.get('title') or '')
+    elif kind == 'episode' and show and show.get('genre'):
+        # An episode's page shows its series' More Like This, as the show's page.
+        props['silo.similar'] = similar_path('tvshow', show['genre'][0], show.get('title') or '')
     return props
 
 

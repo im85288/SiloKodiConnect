@@ -781,7 +781,7 @@ class Service(object):
                 return {'error': str(error)}
         elif name == 'videos':
             try:
-                return {'videos': mapping.title_videos(self.client.item(query.get('id') or ''))}
+                return {'videos': self.title_videos(query.get('id') or '')}
             except (ApiError, requests.RequestException) as error:
                 return {'error': str(error)}
         elif name == 'person':
@@ -1158,6 +1158,15 @@ class Service(object):
                     card.update({'request.library': '1', 'request.state': 'Available'})
                 cards.append(card)
         return cards
+
+    def title_videos(self, content_id):
+        """A title's trailers and more: an episode (or season) with none of its
+        own shows its series', as the show's page does."""
+        item = self.client.item(content_id)
+        videos = mapping.title_videos(item)
+        if not videos and item.get('series_id') and item.get('series_id') != content_id:
+            videos = mapping.title_videos(self.client.item(item['series_id']))
+        return videos
 
     def brand_picture(self, kind, item):
         """A studio's, network's or genre's hero picture: its most popular

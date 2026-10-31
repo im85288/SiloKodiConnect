@@ -417,6 +417,14 @@ def test_similar_path_encodes_the_genre_and_leaves_the_title_out():
         {'field': 'title', 'operator': 'isnot', 'value': ['Vigil']}]
 
 
+def test_an_episode_page_has_its_series_more_like_this():
+    from resources.lib.silokodi.mapping import similar_path, skyline_properties
+    show = {'title': 'Vigil', 'genre': ['Crime', 'Drama']}
+    props = skyline_properties('episode', {'season': 1, 'episode': 2, 'title': 'Two'}, show)
+    assert props['silo.similar'] == similar_path('tvshow', 'Crime', 'Vigil')
+    assert 'silo.similar' not in skyline_properties('episode', {'season': 1, 'episode': 2}, None)
+
+
 def test_content_id_comes_from_play_urls_and_show_folders():
     from resources.lib.silokodi.mapping import SHOWS_PATH, content_id_from_path, play_url
     assert content_id_from_path(play_url(SHOWS_PATH + 'series-1/', 'episode-1-3-3', 'episode')) == 'episode-1-3-3'
@@ -875,3 +883,17 @@ def test_brand_cards_open_silos_browse_pages():
 def test_an_available_title_carries_silos_library_tags():
     card = rows_module.request_card({'type': 'movie', 'tmdb': 1, 'title': 'Heat', 'year': 1995, 'state': 'available'})
     assert card['request.library'] == '1' and card['request.state'] == 'Available' and card['card.sub'] == 'MOVIE · 1995'
+
+
+def test_an_episode_without_videos_shows_its_series_trailers():
+    from resources.lib.silokodi import service as service_module
+    trailer = {'site': 'youtube', 'site_key': 'abc', 'name': 'Season 2 Trailer'}
+
+    class Client(object):
+        def item(self, content_id):
+            return {'ep-1': {'id': 'ep-1', 'series_id': 'show-1'},
+                    'show-1': {'id': 'show-1', 'videos': [trailer]}}[content_id]
+    service = service_module.Service.__new__(service_module.Service)
+    service.client = Client()
+    assert [video['key'] for video in service.title_videos('ep-1')] == ['abc']
+    assert [video['key'] for video in service.title_videos('show-1')] == ['abc']

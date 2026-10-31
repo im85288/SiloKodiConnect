@@ -317,7 +317,7 @@ class Service(object):
             self.player.tick()
             self.note_viewed_page()
             self.note_refresh()
-            if self.native_recheck and self.layout:
+            if self.native_recheck and self.layout and not self.playing():
                 # A library change may have filled a Kodi row held back as empty.
                 self.native_recheck = False
                 self.native_counts.clear()
@@ -1082,7 +1082,11 @@ class Service(object):
         """When silokodi.library_updated changes (the library was written, or a
         request made), give the rows their paths with the new token, and
         publish Home's cards again."""
-        if self.layout and kodi.get_property('library_updated') != self.refresh_token:
+        # Not while a video plays: each row that loads from its path (Home's
+        # past the published ones) reloads through a Python process, and a 4K
+        # film starting with a dozen of them got Kodi killed for memory on a
+        # 2 GB SHIELD. The rows reload once playback stops.
+        if self.layout and kodi.get_property('library_updated') != self.refresh_token and not self.playing():
             self.apply_layout()
             self.home_cards_soon()
 

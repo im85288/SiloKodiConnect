@@ -938,3 +938,18 @@ def test_home_publishes_cards_for_its_first_rows_only(monkeypatch):
     assert asked == ['row1', 'row2', 'row3', 'row4']
     assert props['silo.home.4.cards'] == '1' and 'silo.home.5.cards' not in props
     assert props['silo.home.6.title'] == 'Because You Watched Heat'
+
+
+def test_rows_wait_for_playback_to_stop_before_reloading(monkeypatch):
+    from resources.lib.silokodi import kodi, service as service_module
+    monkeypatch.setattr(kodi, 'get_property', lambda name: '8')
+    service = service_module.Service.__new__(service_module.Service)
+    service.layout, service.refresh_token, service.home_cards_due = {'silo.home.5.poster': 'x'}, '7', 0
+    applied = []
+    service.apply_layout = lambda page=None: applied.append(page)
+    service.playing = lambda: True
+    service.note_refresh()
+    assert applied == []          # a film is playing: the rows keep their paths
+    service.playing = lambda: False
+    service.note_refresh()
+    assert applied == [None]      # stopped: they reload

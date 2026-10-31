@@ -983,3 +983,30 @@ def test_the_hero_extras_carry_tmdbs_score_for_kodis_lists():
     details = {'genre': ['Crime'], 'ratings': {'imdb': {'rating': 8.3}, 'themoviedb': {'rating': 7.94}}}
     extras = mapping.hero_extras('movie', details)
     assert extras['silotmdb'] == '7.9' and extras['silogenre'] == 'Crime'
+
+
+def test_marking_unwatched_right_after_playback_reaches_silo(monkeypatch):
+    from resources.lib.silokodi import kodi, service as service_module
+    monkeypatch.setattr(kodi, 'log', lambda *a, **k: None)
+    calls = []
+
+    class Client(object):
+        def mark_watched(self, content_id):
+            calls.append(('watched', content_id))
+
+        def mark_unwatched(self, content_id):
+            calls.append(('unwatched', content_id))
+
+    class Db(object):
+        def by_kodi(self, kind, kodi_id):
+            return {'content_id': 'episode-1', 'state': '1'}
+
+        def set_state(self, content_id, state):
+            pass
+    service = service_module.Service.__new__(service_module.Service)
+    service.client, service.db = Client(), Db()
+    service.recently_played = {'episode-1': service_module.time.time()}   # it just finished playing
+    service.kodi_updated({'item': {'type': 'episode', 'id': 7}, 'playcount': 1})
+    assert calls == []                      # Kodi's own "watched" after playback
+    service.kodi_updated({'item': {'type': 'episode', 'id': 7}, 'playcount': 0})
+    assert calls == [('unwatched', 'episode-1')]

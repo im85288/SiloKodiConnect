@@ -664,9 +664,11 @@ class Service(object):
         if not row:
             return
         content_id = row['content_id']
-        if time.time() - self.recently_played.get(content_id, 0) < ECHO_WINDOW:
-            return
         watched = int(data['playcount'] or 0) > 0
+        # Kodi marks a title it has just played watched itself; it never marks
+        # one unwatched, so that is always the viewer (and must reach Silo).
+        if watched and time.time() - self.recently_played.get(content_id, 0) < ECHO_WINDOW:
+            return
         if row['state'] == ('1' if watched else '0'):
             return  # Kodi is only repeating what we wrote
         try:

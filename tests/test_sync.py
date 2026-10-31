@@ -277,7 +277,7 @@ def test_progress_moves_within_libraries(silo, open_kodi, tmp_path):
     Syncer(silo, SyncDB(str(tmp_path)), open_kodi, PORT, progress=lambda p, m: seen.append((p, m))).sync()
     percents = [p for p, _ in seen]
     assert percents == sorted(percents) and percents[-1] == 100
-    assert 'Movies: 25 / 62' in [m for _, m in seen]
+    assert 'Movies: 50 / 62' in [m for _, m in seen]
     assert any(m.startswith('TV: 0 / 2 seasons') for _, m in seen)
 
 
@@ -818,3 +818,20 @@ def test_a_films_home_card_has_its_info_line_in_parts():
                                'ratings': {'imdb': {'rating': 8.3, 'default': True}, 'themoviedb': {'rating': 7.9}}})
     assert film['hero.facts'] == '1995 · Crime'
     assert (film['rating.imdb'], film['rating.tmdb']) == ('8.3', '7.9')
+
+
+def test_writes_inside_a_batch_commit_together(tmp_path):
+    import sqlite3
+    db = SyncDB(str(tmp_path))
+    other = sqlite3.connect(db.path)
+
+    def seen():
+        return other.execute('SELECT COUNT(*) FROM items').fetchone()[0]
+    with db.batch():
+        db.put(content_id='a', kind='movie')
+        with db.batch():
+            db.put(content_id='b', kind='movie')
+        assert seen() == 0            # not committed yet
+    assert seen() == 2
+    db.put(content_id='c', kind='movie')
+    assert seen() == 3                # outside a batch, at once

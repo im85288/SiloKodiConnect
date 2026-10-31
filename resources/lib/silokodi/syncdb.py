@@ -5,6 +5,7 @@ import json
 import os
 import sqlite3
 import threading
+from contextlib import contextmanager
 
 from .mapping import unsigned
 
@@ -38,11 +39,14 @@ COLUMNS = ('content_id', 'kind', 'library_id', 'parent_id', 'season_number', 'ko
 
 
 class SyncDB(object):
-    """Thread-safe: one connection, one lock. Writes commit immediately."""
+    """Thread-safe: one connection, one lock. Writes commit immediately,
+    except inside batch(): a sync writes a batch of titles and commits them
+    once (each commit, even in WAL mode, cost the SHIELD's storage time)."""
 
     def __init__(self, folder):
         self.path = os.path.join(folder, 'silokodi.db')
         self._lock = threading.RLock()
+        self._batching = 0
         self._conn = sqlite3.connect(self.path, timeout=30, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         # A sync commits tens of thousands of small writes. With the default
@@ -57,6 +61,23 @@ class SyncDB(object):
             self._conn.executescript(SCHEMA)
             self._conn.commit()
 
+    def _commit(self):
+        if not self._batching:
+            self._conn.commit()
+
+    @contextmanager
+    def batch(self):
+        """Writes inside commit together when it ends (nested batches, once)."""
+        with self._lock:
+            self._batching += 1
+        try:
+            yield self
+        finally:
+            with self._lock:
+                self._batching -= 1
+                if not self._batching:
+                    self._conn.commit()
+
     def close(self):
         with self._lock:
             self._conn.close()
@@ -68,7 +89,7 @@ class SyncDB(object):
     def _write(self, sql, args=()):
         with self._lock:
             self._conn.execute(sql, args)
-            self._conn.commit()
+            self._commit()
 
     # ----- items -----
 
@@ -111,7 +132,7 @@ class SyncDB(object):
         with self._lock:
             self._conn.executemany('UPDATE items SET fingerprint = ? WHERE content_id = ?',
                                    [(fingerprint, content_id) for content_id, fingerprint in pairs])
-            self._conn.commit()
+            self._commit()
 
     def forget_fingerprints(self):
         """Make the next sync rewrite every item."""
@@ -121,14 +142,14 @@ class SyncDB(object):
         with self._lock:
             self._conn.execute('DELETE FROM items WHERE content_id = ?', (content_id,))
             self._conn.execute('DELETE FROM art WHERE content_id = ?', (content_id,))
-            self._conn.commit()
+            self._commit()
 
     def clear(self):
         with self._lock:
             self._conn.execute('DELETE FROM items')
             self._conn.execute('DELETE FROM art')
             self._conn.execute('DELETE FROM meta')
-            self._conn.commit()
+            self._commit()
 
     # ----- artwork -----
 
@@ -141,7 +162,7 @@ class SyncDB(object):
             self._conn.execute('DELETE FROM art WHERE content_id = ?', (content_id,))
             self._conn.executemany('INSERT INTO art(content_id, kind, url) VALUES (?, ?, ?)',
                                    [(content_id, kind, url) for kind, url in urls.items()])
-            self._conn.commit()
+            self._commit()
         return [kind for kind, url in urls.items()
                 if before.get(kind) and unsigned(before[kind]) != unsigned(url)]
 

@@ -9,6 +9,7 @@ resume point. Titles that left Silo are removed from Kodi.
 """
 import json
 from collections import OrderedDict
+from contextlib import contextmanager
 from urllib.parse import quote, urlencode
 from concurrent.futures import ThreadPoolExecutor
 
@@ -17,7 +18,10 @@ from .api import ApiError
 
 MOVIE_LIBRARY_TYPES = ('movies', 'mixed')
 SHOW_LIBRARY_TYPES = ('series', 'tv', 'tvshows', 'mixed')
-BATCH = 25
+# Titles, and seasons, written per transaction: each commit to Kodi's
+# database cost the SHIELD about a third of a second, so fewer is faster.
+BATCH = 50
+SEASON_BATCH = 50
 FETCH_WORKERS = 4
 
 
@@ -274,7 +278,7 @@ class Syncer(object):
         service has handled it (its cache, Kodi's lists, Home's cards): a
         sync queued right behind a full resync must not wipe it out."""
         pending, self.changed = self.changed, False
-        with self.open_kodi() as kodi:
+        with self.writing() as kodi:
             kodi.setup_root_paths()
         try:
             libraries = self.libraries(excluded)
@@ -317,11 +321,11 @@ class Syncer(object):
         movies = self.db.items('movie', library_id)
         shows = self.db.items('tvshow', library_id)
         for batch in chunks(movies, BATCH):
-            with self.open_kodi() as kodi:
+            with self.writing() as kodi:
                 for row in batch:
                     self._remove_movie(kodi, row)
         for show in shows:
-            with self.open_kodi() as kodi:
+            with self.writing() as kodi:
                 self._remove_show(kodi, show)
         self.changed = self.rewrote = True
 
@@ -350,7 +354,7 @@ class Syncer(object):
             done = number * BATCH
             self.step(float(done) / len(fetch), '%s: %d / %d' % (library.get('name') or '', done, len(fetch)))
             items = self.fetch_all(lambda pair: self.client.item(pair[0]), batch)
-            with self.open_kodi() as kodi:
+            with self.writing() as kodi:
                 for (content_id, fingerprint), item in zip(batch, items):
                     if item:
                         self.write_movie(kodi, item, library, fingerprint)
@@ -358,7 +362,7 @@ class Syncer(object):
         gone = [] if self.household else \
             [row for row in self.db.items('movie', library_id) if row['content_id'] not in seen]
         for batch in chunks(gone, BATCH):
-            with self.open_kodi() as kodi:
+            with self.writing() as kodi:
                 for row in batch:
                     self._remove_movie(kodi, row)
 
@@ -449,7 +453,7 @@ class Syncer(object):
             self.step(0.2 * done / len(changed_series),
                       '%s: %d / %d' % (library.get('name') or '', done, len(changed_series)))
             details = self.fetch_all(self._fetch_show, batch)
-            with self.open_kodi() as kodi:
+            with self.writing() as kodi:
                 for card, detail in zip(batch, details):
                     if detail:
                         self.write_show(kodi, detail[0], detail[1], library, card)
@@ -457,13 +461,13 @@ class Syncer(object):
         self.log('Library %s: %d seasons to write, %d watch-state updates'
                  % (library.get('name'), len(stale_seasons), len(states)))
         keys = list(stale_seasons)
-        for number, batch in enumerate(chunks(keys, 10)):
+        for number, batch in enumerate(chunks(keys, SEASON_BATCH)):
             self.check_stop()
-            done = number * 10
+            done = number * SEASON_BATCH
             self.step(0.2 + 0.8 * done / len(keys),
                       '%s: %d / %d seasons' % (library.get('name') or '', done, len(keys)))
             listings = self.fetch_all(lambda key: self.client.season_episodes(key[0], key[1]), batch)
-            with self.open_kodi() as kodi:
+            with self.writing() as kodi:
                 for key, episodes in zip(batch, listings):
                     if episodes is not None:
                         self.write_episodes(kodi, key[0], key[1], episodes, stale_seasons[key])
@@ -471,14 +475,21 @@ class Syncer(object):
         # Remove what left Silo (not what a household profile can't see).
         if self.household:
             return
-        with self.open_kodi() as kodi:
+        with self.writing() as kodi:
             for row in self.db.items('episode', library_id):
                 if row['content_id'] not in seen_episodes:
                     self._remove_episode(kodi, row)
         for row in self.db.items('tvshow', library_id):
             if row['content_id'] not in seen_series:
-                with self.open_kodi() as kodi:
+                with self.writing() as kodi:
                     self._remove_show(kodi, row)
+
+    @contextmanager
+    def writing(self):
+        """One write transaction on Kodi's database, with this add-on's own
+        bookkeeping for the same titles committed once alongside it."""
+        with self.db.batch(), self.open_kodi() as kodi:
+            yield kodi
 
     def _unchanged(self, row, card, fingerprint=None):
         """Whether a saved row still matches its card. A row saved with the
@@ -649,13 +660,13 @@ class Syncer(object):
         if kind == 'movie':
             library = self.library_by_id(library_id or row.get('library_id'))
             if library:
-                with self.open_kodi() as kodi:
+                with self.writing() as kodi:
                     self.write_movie(kodi, item, library)
         elif kind == 'series':
             library = self.library_by_id(library_id or row.get('library_id'))
             if library:
                 seasons = self.client.seasons(content_id)
-                with self.open_kodi() as kodi:
+                with self.writing() as kodi:
                     self.write_show(kodi, item, seasons, library)
                 for season in seasons:
                     if season.get('season_number') is not None:
@@ -668,14 +679,14 @@ class Syncer(object):
 
     def resync_season(self, series_id, season_number):
         episodes = self.client.season_episodes(series_id, season_number)
-        with self.open_kodi() as kodi:
+        with self.writing() as kodi:
             self.write_episodes(kodi, series_id, season_number, episodes)
 
     def remove_item(self, content_id):
         row = self.db.get(content_id)
         if not row:
             return
-        with self.open_kodi() as kodi:
+        with self.writing() as kodi:
             if row['kind'] == 'movie':
                 self._remove_movie(kodi, row)
             elif row['kind'] == 'tvshow':
@@ -688,7 +699,7 @@ class Syncer(object):
     def apply_states(self, pairs):
         """pairs: [(sync row, card or item)] whose watch state changed."""
         for batch in chunks(pairs, 100):
-            with self.open_kodi() as kodi:
+            with self.writing() as kodi:
                 for row, source in batch:
                     count, resume, total, last = mapping.play_state(source)
                     if row.get('kodi_file_id'):
@@ -757,7 +768,7 @@ class Syncer(object):
                 pairs.append((row['kodi_file_id'], mapping.kodi_datetime(stamp), (row['kind'], row.get('kodi_id'))))
         updated = 0
         for batch in chunks(pairs, 200):
-            with self.open_kodi() as kodi:
+            with self.writing() as kodi:
                 for file_id, last_played, title in batch:
                     if kodi.set_last_played(file_id, last_played):
                         updated += 1

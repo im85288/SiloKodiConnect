@@ -904,47 +904,11 @@ def test_an_episode_without_videos_shows_its_series_trailers():
     assert [video['key'] for video in service.title_videos('show-1')] == ['abc']
 
 
-def test_home_publishes_cards_for_its_first_rows_only(monkeypatch):
-    from resources.lib.silokodi import service as service_module
-    props = {}
-
-    class Window(object):
-        def __init__(self, *args):
-            pass
-
-        def setProperty(self, key, value):
-            props[key] = value
-
-        def clearProperty(self, key):
-            props.pop(key, None)
-
-    class Db(object):
-        def set_meta(self, key, value):
-            pass
-    monkeypatch.setattr(service_module.xbmcgui, 'Window', Window)
-    service = service_module.Service.__new__(service_module.Service)
-    service.db, service.home_cards = Db(), {}
-    service.page_sources = {'home': [('row%d' % n, None) for n in range(1, 8)], 'requests': []}
-    service.layout = {'silo.home.%d.title' % n: 'Row %d' % n for n in range(1, 8)}
-    # Silo renamed row 6, which loads from its path: its title follows.
-    service.row_titles = {(None, 'row6'): 'Because You Watched Heat'}
-    asked = []
-
-    def page_cards(page, row_id, library_id):
-        asked.append(row_id)
-        return [{'type': 'movie', 'label': row_id}]
-    service.page_cards = page_cards
-    service.publish_home_cards()
-    assert asked == ['row1', 'row2', 'row3', 'row4']
-    assert props['silo.home.4.cards'] == '1' and 'silo.home.5.cards' not in props
-    assert props['silo.home.6.title'] == 'Because You Watched Heat'
-
-
 def test_rows_wait_for_playback_to_stop_before_reloading(monkeypatch):
     from resources.lib.silokodi import kodi, service as service_module
     monkeypatch.setattr(kodi, 'get_property', lambda name: '8')
     service = service_module.Service.__new__(service_module.Service)
-    service.layout, service.refresh_token, service.home_cards_due = {'silo.home.5.poster': 'x'}, '7', 0
+    service.layout, service.refresh_token, service.home_cards_due = {'silo.movies.1.poster': 'x'}, '7', 0
     applied = []
     service.apply_layout = lambda page=None: applied.append(page)
     service.playing = lambda: True

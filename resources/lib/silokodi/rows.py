@@ -18,7 +18,7 @@ open its info page; a title Silo can request has `request.type` and
 """
 from . import mapping
 
-CARDS = 25  # cards per row; Silo's rows go up to 50, Home shows far fewer
+CARDS = 20  # cards per row; Silo's rows go up to 50 (most hold 13-20), and each costs a skin's load time
 FIELDS = ('type', 'dbid', 'label', 'card.title', 'card.sub', 'card.wide_sub', 'hero.title', 'hero.meta',
           'hero.facts', 'rating.imdb', 'rating.tmdb',
           'hero.detail', 'plot', 'mpaa', 'badge1', 'badge2', 'badge3', 'tint', 'percent', 'playcount',

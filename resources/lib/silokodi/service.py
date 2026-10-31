@@ -71,7 +71,7 @@ def release_memory():
 # wait, so Home's rows load first on a small device.
 # Pages whose rows are published as cards, with how many cards a row has
 # (the skin's slots: every slot costs it load time).
-PUBLISHED_PAGES = {'home': 25, 'requests': 12}
+PUBLISHED_PAGES = {'home': 20, 'requests': 12}
 STARTUP_QUIET = 60
 PAGE_LOADING = 6  # seconds a page's rows show while they start loading (then empty ones hide)
 DETAILS_SAVE_INTERVAL = 30

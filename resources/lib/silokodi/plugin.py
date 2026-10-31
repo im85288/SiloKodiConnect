@@ -21,6 +21,7 @@ import xbmcplugin
 # and on a 2 GB device the ~7 MB that requests costs is worth saving. Sign-in
 # code (which needs requests) is imported only when used.
 from . import channels, kodi, mapping
+from . import rows as home_cards
 from .library import CAST_LIMIT, details_of
 from .mapping import RELAY_PORT as DEFAULT_PORT
 from .store import Store
@@ -410,6 +411,9 @@ def request_row(base, handle, row):
             if item:
                 item[1].setProperty('silo.request.label', card.get('label') or '')
                 item[1].setProperty('silo.request.tint', card.get('tint') or '')
+                # Silo's tags and line for a title in the library, as on the Requests page.
+                item[1].setProperties({'silo.request.library': '1', 'silo.request.status': 'Available',
+                                       'silo.request.caption': home_cards.type_year(card)})
                 xbmcplugin.addDirectoryItem(handle, item[0], item[1], isFolder=item[2])
             continue
         url = '%s?%s' % (base, urlencode({'mode': 'request', 'type': card['type'], 'tmdb': card['tmdb']}))
@@ -429,12 +433,18 @@ def request_listitem(card):
     if card.get('year'):
         tag.setYear(int(card['year']))
     if card.get('rating'):
-        tag.setRating(float(card['rating']))
+        tag.setRating(float(card['rating']), 0, 'themoviedb', True)
     listitem.setProperties({'silo.request.type': card['type'], 'silo.request.tmdb': str(card['tmdb']),
                             'silo.request.label': card['label'], 'silo.request.state': card['state'],
                             'silo.request.tint': card.get('tint') or '',
                             'silo.request.requestable': 'true' if card['requestable'] else 'false',
-                            'silo.rating': 'TMDB %.1f' % card['rating'] if card.get('rating') else ''})
+                            'silo.rating': 'TMDB %.1f' % card['rating'] if card.get('rating') else '',
+                            # The hero's and info page's TMDB mark, as a library title's.
+                            'silo.rating.tmdb': '%.1f' % card['rating'] if card.get('rating') else '',
+                            # Silo's tags on the poster and its line under it ("MOVIE · 2026").
+                            'silo.request.library': '1' if card['state'] == 'available' else '',
+                            'silo.request.status': 'Available' if card['state'] == 'available' else card['label'],
+                            'silo.request.caption': home_cards.type_year(card)})
     return listitem
 
 
@@ -447,7 +457,10 @@ def request_info(base, media_type, tmdb_id):
     listitem = request_listitem(summary['card'])
     tag = listitem.getVideoInfoTag()
     tag.setMediaType('tvshow' if media_type == 'series' else 'movie')
-    tag.setGenres(summary.get('genres') or [])
+    genres = summary.get('genres') or []
+    tag.setGenres(genres)
+    # The facts line as a library title's: its first two genres.
+    listitem.setProperties({'silo.genre': genres[0] if genres else '', 'silo.genres': ', '.join(genres[:2])})
     tag.setStudios(summary.get('studios') or [])
     tag.setDirectors(summary.get('directors') or [])
     tag.setTagLine(summary.get('tagline') or '')
@@ -459,6 +472,7 @@ def request_info(base, media_type, tmdb_id):
                  for index, person in enumerate(summary.get('cast') or [])])
     if summary.get('season_count'):
         listitem.setProperty('silo.request.seasons', str(summary['season_count']))
+        listitem.setProperty('TotalSeasons', str(summary['season_count']))
     similar = urlencode({'mode': 'requests', 'row': 'similar:%s:%s' % (media_type, tmdb_id)})
     listitem.setProperty('silo.similar', '%s?%s' % (base, similar))
     xbmcgui.Dialog().info(listitem)

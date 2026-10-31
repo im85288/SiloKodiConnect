@@ -459,6 +459,25 @@ def test_request_cards_show_silos_state_and_tmdb_art():
     assert request_card(held)['label'] == 'In library' and request_card(held)['content_id'] == 'movie-1'
 
 
+def test_yours_splits_requests_on_the_way_from_those_you_can_watch():
+    from resources.lib.silokodi import service as service_module
+
+    class Client(object):
+        def my_requests(self):
+            return [{'media_type': 'movie', 'tmdb_id': 1, 'title': 'Dune', 'state': 'processing', 'status': 'queued'},
+                    {'media_type': 'series', 'tmdb_id': 2, 'title': 'Industry', 'library_content_id': 'show-2'},
+                    {'media_type': 'movie', 'tmdb_id': 3, 'title': 'Heat', 'state': 'available'}]
+
+    class Db(object):
+        def get(self, content_id):
+            return {'kind': 'tvshow', 'kodi_id': 7}
+    service = service_module.Service.__new__(service_module.Service)
+    service.client, service.db = Client(), Db()
+    assert [c['title'] for c in service.request_cards('mine:active')] == ['Dune']
+    assert [c['title'] for c in service.request_cards('mine:available')] == ['Industry', 'Heat']
+    assert len(service.request_cards('mine')) == 3
+
+
 def test_request_progress_reads_as_silos_tv_app():
     progress = mapping.request_progress
     assert progress('pending')['label'] == 'Pending' and progress('pending')['tint'] == 'FFF59E0B'
@@ -485,10 +504,13 @@ def test_request_body_carries_the_title_as_silo_needs_it():
 
 def test_skin_layout_adds_a_requests_page_when_the_profile_can_request():
     from resources.lib.silokodi.sync import skin_layout
-    props = skin_layout([], [], {}, [('mine', 'Your requests'), ('trending_movies', 'Trending Movies')])
+    props = skin_layout([], [], {}, [('mine:active', 'In progress', 'poster', 'yours'),
+                                     ('trending_movies', 'Trending Movies')])
     assert props['silo.pages'] == 'home,requests' and props['silo.requests.count'] == '2'
     assert props['silo.requests.2.title'] == 'Trending Movies'
     assert props['silo.requests.2.path'] == 'plugin://plugin.video.silokodiconnect/?mode=requests&row=trending_movies'
+    # Which pill shows the row: Yours, or Discover (none).
+    assert props['silo.requests.1.section'] == 'yours' and props['silo.requests.2.section'] == ''
     assert 'requests' not in skin_layout([], [], {})['silo.pages']
 
 
@@ -633,7 +655,8 @@ def test_a_requestable_title_card_and_page_prefixes():
     from resources.lib.silokodi import rows
     card = rows.request_card({'type': 'series', 'tmdb': 95396, 'title': 'Severance', 'year': 2022, 'rating': 8.4,
                               'label': 'Requested', 'overview': 'Work.', 'poster': 'p.jpg', 'backdrop': 'b.jpg'})
-    assert card['type'] == 'request' and card['request.tmdb'] == '95396' and card['card.sub'] == 'Requested'
+    assert card['type'] == 'request' and card['request.tmdb'] == '95396' and card['card.sub'] == 'SERIES · 2022'
+    assert card['request.state'] == 'Requested' and card['request.library'] == ''
     assert card['hero.meta'] == '2022 · [COLOR 66EDEDED]TMDB[/COLOR] [B]8.4[/B]' and card['art.fanart'] == 'b.jpg'
     assert (card['hero.facts'], card['rating.tmdb']) == ('2022', '8.4')
     props = rows.row_properties(3, [card], 'requests')
@@ -835,3 +858,20 @@ def test_writes_inside_a_batch_commit_together(tmp_path):
     assert seen() == 2
     db.put(content_id='c', kind='movie')
     assert seen() == 3                # outside a batch, at once
+
+
+def test_brand_cards_open_silos_browse_pages():
+    studio = rows_module.brand_card({'slug': 'pixar', 'display_name': 'Pixar', 'logo_url': 'https://x/p.png'}, 'studio')
+    assert studio['type'] == 'brand' and studio['request.more'] == 'browse:studio:pixar'
+    assert studio['request.logo'] == 'https://x/p.png' and studio['card.title'] == 'Pixar'
+    genre = rows_module.brand_card({'slug': 'action', 'display_name': 'Action', 'gradient_from': '#dc2626',
+                                    'gradient_to': '#7f1d1d'}, 'genre')
+    assert genre['request.from'] == 'FFDC2626' and genre['request.to'] == 'FF7F1D1D'
+    pictured = rows_module.brand_card({'slug': 'pixar', 'display_name': 'Pixar'}, 'studio',
+                                      {'backdrop': 'https://x/b.jpg', 'tint': 'FF101820'})
+    assert pictured['art.fanart'] == 'https://x/b.jpg' and pictured['tint'] == 'FF101820'
+
+
+def test_an_available_title_carries_silos_library_tags():
+    card = rows_module.request_card({'type': 'movie', 'tmdb': 1, 'title': 'Heat', 'year': 1995, 'state': 'available'})
+    assert card['request.library'] == '1' and card['request.state'] == 'Available' and card['card.sub'] == 'MOVIE · 1995'

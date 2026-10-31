@@ -132,7 +132,7 @@ def skin_layout(home_sections, libraries, library_sections, request_rows=None):
     home_sections:     Silo's home rows, in order
     libraries:         the synced movie and series libraries, in Silo's order
     library_sections:  {library id: that library's rows, in order}
-    request_rows:      [(row key, title)] for the Requests page, or None
+    request_rows:      [(row key, title[, style])] for the Requests page, or None
 
     Pages are Home plus one per library type present, as in Silo's top bar;
     a type with several libraries shows their rows one library after another.
@@ -151,10 +151,11 @@ def skin_layout(home_sections, libraries, library_sections, request_rows=None):
         collections[page] = '%s?%s' % (PLUGIN, urlencode({'mode': 'collections', 'libraries': ','.join(ids)})) \
             if ids else ''
     if request_rows:
-        # Silo's Requests: the profile's requests, then the discovery rows.
-        pages['requests'] = [{'title': title, 'style': 'poster',
-                              'path': '%s?%s' % (PLUGIN, urlencode({'mode': 'requests', 'row': key}))}
-                             for key, title in request_rows]
+        # Silo's Requests: Yours' rows, then Discover's (section: which pill shows them).
+        pages['requests'] = [{'title': row[1], 'style': row[2] if len(row) > 2 else 'poster',
+                              'section': row[3] if len(row) > 3 else '',
+                              'path': '%s?%s' % (PLUGIN, urlencode({'mode': 'requests', 'row': row[0]}))}
+                             for row in request_rows]
     properties = {'silo.pages': ','.join(pages)}
     for page, path in collections.items():
         properties['silo.%s.collections' % page] = path
@@ -163,7 +164,7 @@ def skin_layout(home_sections, libraries, library_sections, request_rows=None):
         properties['silo.%s.count' % page] = str(len(rows))
         for index in range(1, MAX_ROWS + 1):
             row = rows[index - 1] if index <= len(rows) else {}
-            for key in ('title', 'path', 'style', 'type', 'sort', 'order', 'limit'):
+            for key in ('title', 'path', 'style', 'section', 'type', 'sort', 'order', 'limit'):
                 properties['silo.%s.%d.%s' % (page, index, key)] = row.get(key, '')
             # The path again under the row's style, which is the only list
             # a skin should load from (it has one list per style per slot).

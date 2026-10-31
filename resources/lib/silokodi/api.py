@@ -275,6 +275,24 @@ class SiloClient(object):
     def discover_section(self, key):
         return self.get('/requests/discover/%s' % key).get('results') or []
 
+    def discover_page(self):
+        """The Discover tab as Silo lays it out: its rows' cards (items) and
+        every row in the admin's order (row_order), the Studios, Networks
+        and Genres rows too, which carry no cards."""
+        return self.get('/requests/discover')
+
+    def discover_brands(self, kind):
+        """The Studios, Networks or Genres row's cards (kind: studios,
+        networks, genres): name, slug, TMDB logo or gradient colours."""
+        return self.get('/requests/discover/%s' % kind).get('items') or []
+
+    def discover_browse(self, kind, slug, media_type=None):
+        """Titles from a studio, network or genre (kind: studio, network,
+        genre) Silo can request, most popular first."""
+        # A genre is browsed for one media type (movies unless asked).
+        params = {'media_type': media_type or 'movie'} if kind == 'genre' or media_type else {}
+        return self.get('/requests/discover/browse/%s/%s' % (kind, slug), **params).get('results') or []
+
     def request_search(self, query):
         return self.get('/requests/search', q=query, media_type='all').get('results') or []
 

@@ -23,7 +23,8 @@ FIELDS = ('type', 'dbid', 'label', 'card.title', 'card.sub', 'card.wide_sub', 'h
           'hero.facts', 'rating.imdb', 'rating.tmdb',
           'hero.detail', 'plot', 'mpaa', 'badge1', 'badge2', 'badge3', 'tint', 'percent', 'playcount',
           'art.poster', 'art.landscape', 'art.fanart', 'art.clearlogo', 'request.type', 'request.tmdb',
-          'status.tint', 'status.seg1', 'status.seg2', 'status.seg3', 'status.seg4')
+          'status.tint', 'status.seg1', 'status.seg2', 'status.seg3', 'status.seg4',
+          'request.library', 'request.state', 'request.more', 'request.logo', 'request.from', 'request.to')
 
 
 def card(kind, details, show=None, tint='', landscape=''):
@@ -93,10 +94,14 @@ def request_card(card):
     meta = ' · '.join(part for part in (str(card.get('year') or ''),
                                         rating_markup('TMDB %.1f' % card['rating']) if card.get('rating') else '')
                     if part)
+    available = card.get('state') == 'available'
     props = {
         'type': 'request', 'label': card.get('title') or '',
-        'card.title': card.get('title') or '', 'card.sub': card.get('label') or '',
-        'card.wide_sub': card.get('label') or '', 'hero.title': card.get('title') or '',
+        'card.title': card.get('title') or '', 'card.sub': type_year(card),
+        'card.wide_sub': type_year(card), 'hero.title': card.get('title') or '',
+        # Silo's tags on the poster: LIBRARY when it's in, and its state.
+        'request.library': '1' if available or card.get('content_id') else '',
+        'request.state': 'Available' if available else card.get('label') or '',
         'hero.meta': meta, 'hero.detail': card.get('label') or '', 'plot': card.get('overview') or '',
         'hero.facts': str(card.get('year') or ''),
         'rating.tmdb': '%.1f' % card['rating'] if card.get('rating') else '',
@@ -106,6 +111,32 @@ def request_card(card):
     }
     props.update(request_status(card))
     return props
+
+
+def type_year(card):
+    """Silo's line under a request card: "MOVIE · 2026", "SERIES · 2021"."""
+    kind = 'SERIES' if card.get('type') in ('series', 'tvshow') else 'MOVIE'
+    return '%s · %s' % (kind, card['year']) if card.get('year') else kind
+
+
+def colour(value):
+    """A "#rrggbb" colour as Kodi's AARRGGBB."""
+    value = (value or '').lstrip('#')
+    return 'FF' + value.upper() if len(value) == 6 else ''
+
+
+def brand_card(item, kind, picture=None):
+    """A Studios, Networks or Genres card (kind: studio, network, genre):
+    its logo (TMDB's, in white) or, for a genre, its name on its colours;
+    request.more is the browse page it opens. picture: the hero's backdrop
+    and tint (its most popular title's)."""
+    name = item.get('display_name') or item.get('slug') or ''
+    picture = picture or {}
+    return {'type': 'brand', 'label': name, 'card.title': name, 'hero.title': name,
+            'art.fanart': picture.get('backdrop') or '', 'tint': picture.get('tint') or '',
+            'request.logo': item.get('logo_url') or '', 'request.from': colour(item.get('gradient_from')),
+            'request.to': colour(item.get('gradient_to')),
+            'request.more': 'browse:%s:%s' % (kind, item.get('slug') or '')}
 
 
 def request_status(card):

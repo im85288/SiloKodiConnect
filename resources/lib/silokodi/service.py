@@ -77,6 +77,11 @@ PAGE_LOADING = 6  # seconds a page's rows show while they start loading (then em
 DETAILS_SAVE_INTERVAL = 30
 
 
+# Silo's brand rows on the Discover tab, and the kind each one browses.
+BRAND_ROWS = {'studios': 'studio', 'networks': 'network', 'genres': 'genre'}
+BRAND_PICTURE_FOR = 24 * 3600
+
+
 class Player(xbmc.Player):
     def __init__(self, service):
         xbmc.Player.__init__(self)
@@ -188,6 +193,12 @@ class Monitor(xbmc.Monitor):
                 kodi.log_warning('Could not handle a Kodi library update: %s' % error)
 
 
+def requested_available(card):
+    """Whether a requested title can be watched: in the library (as its
+    LIBRARY tag says) or Silo has it."""
+    return bool(card.get('kodi_id')) or card.get('state') == 'available'
+
+
 class Service(object):
     def __init__(self):
         self.monitor = Monitor(self)
@@ -221,6 +232,7 @@ class Service(object):
         self.home_rows = []  # the profile's Silo home rows, as last published
         self.details = DetailsCache()  # library details for rows, until they change
         self.home_cards = {}  # every page's rows as published properties (rows.py)
+        self.brand_pictures = {}  # (kind, slug) -> (when, its hero picture): brand_picture
         self.page_sources = {}  # page -> [(row id, library id)], from the layout
         self.row_titles = {}  # (library id, row id) -> the title Silo last gave it with its items
         self.home_cards_due = 0  # when to publish them again (0: not due)
@@ -1000,7 +1012,7 @@ class Service(object):
         self.layout = skin_layout(home, libraries, library_sections, request_rows)
         # Where each page's rows come from, in the layout's order, for its cards.
         self.page_sources = {'home': [(section['id'], None) for section in home if section.get('id')],
-                             'requests': [(key, None) for key, _ in request_rows or []]}
+                             'requests': [(row[0], None) for row in request_rows or []]}
         for page, types in (('movies', MOVIE_LIBRARY_TYPES), ('series', SHOW_LIBRARY_TYPES)):
             self.page_sources[page] = [(section['id'], str(library['id'])) for library in libraries
                                        if (library.get('type') or '').lower() in types
@@ -1122,6 +1134,10 @@ class Service(object):
     def page_cards(self, page, row_id, library_id):
         """One row's cards: library titles with their cached details; on the
         Requests page, titles Silo can request too."""
+        if page == 'requests' and row_id.startswith('brands:'):
+            kind = row_id[len('brands:'):]
+            return [home_cards.brand_card(item, BRAND_ROWS[kind], self.brand_picture(BRAND_ROWS[kind], item))
+                    for item in self.client.discover_brands(kind)]
         if page == 'requests':
             entries = [(card.get('kind'), card.get('kodi_id'), card) for card in self.request_cards(row_id)]
         else:
@@ -1136,10 +1152,30 @@ class Service(object):
                 card = home_cards.card(kind, cached['details'], cached.get('show'), source.get('tint'),
                                        self.series_art(source))
                 if page == 'requests' and source.get('label'):
-                    card['card.sub'] = card['card.wide_sub'] = source['label']
+                    # In the library: Silo's LIBRARY and Available tags, its type and year under it.
+                    card['card.sub'] = card['card.wide_sub'] = home_cards.type_year(source)
                     card.update(home_cards.request_status(source))
+                    card.update({'request.library': '1', 'request.state': 'Available'})
                 cards.append(card)
         return cards
+
+    def brand_picture(self, kind, item):
+        """A studio's, network's or genre's hero picture: its most popular
+        title's backdrop and tint, so the Requests page doesn't go black on
+        its tiles. Kept a day (the rows are published often)."""
+        key = (kind, item.get('slug'))
+        cached = self.brand_pictures.get(key)
+        if cached and time.time() - cached[0] < BRAND_PICTURE_FOR:
+            return cached[1]
+        try:
+            titles = self.client.discover_browse(kind, item.get('slug'))
+        except (ApiError, requests.RequestException):
+            titles = []
+        top = next((t for t in titles if t.get('backdrop_path')), {})
+        picture = {'backdrop': mapping.TMDB_IMAGES + 'w1280' + top['backdrop_path'] if top else '',
+                   'tint': mapping.ambient_tint(top.get('poster_thumbhash') or '') if top else ''}
+        self.brand_pictures[key] = (time.time(), picture)
+        return picture
 
     def series_art(self, source):
         """A Continue Watching or Next Up episode's wide art as Silo's apps
@@ -1162,20 +1198,33 @@ class Service(object):
 
 
     def request_rows(self):
-        """The Requests page's rows, or None when the profile can't request."""
+        """The Requests page's rows as (key, title, style, section): Yours'
+        two (section yours: In progress, then Available), then Discover's in
+        Silo's order, its title rows and the Studios, Networks and Genres rows
+        as brands:<kind> in the brand style. The skin shows one section at a
+        time, as its Discover and Yours pills. None when the profile can't
+        request. silokodi.requests_mine: the Yours pill's count."""
         try:
-            sections = self.client.discover_sections()
+            page = self.client.discover_page()
             mine = self.client.my_requests()
         except (ApiError, requests.RequestException) as error:
             kodi.log('No Requests page: %s' % error)
             return None
-        rows = [('mine', 'Your requests')] if mine else []
-        return rows + [(section['key'], section.get('title') or section['key'])
-                       for section in sections if section.get('key') and section.get('results')]
+        kodi.set_property('requests_mine', str(len(mine)))
+        filled = {item.get('key') for item in page.get('items') or [] if item.get('results')}
+        rows = [('mine:active', 'In progress', 'poster', 'yours'), ('mine:available', 'Available', 'poster', 'yours')]
+        for row in page.get('row_order') or [{'key': key} for key in filled]:
+            key, kind = row.get('key'), row.get('type')
+            if kind in BRAND_ROWS:
+                rows.append(('brands:%s' % kind, row.get('title') or kind.title(), 'brand'))
+            elif key in filled:
+                rows.append((key, row.get('title') or key, 'poster'))
+        return rows
 
     def request_cards(self, row):
-        """A Requests row as cards (row: mine, a discovery key, search:<words>
-        or similar:<type>:<tmdb id>);
+        """A Requests row as cards (row: mine, its mine:active or
+        mine:available half, a discovery key, search:<words> or
+        similar:<type>:<tmdb id>);
         a title already in the library carries its Kodi item, so it opens and
         plays as usual."""
         if row.startswith('search:'):
@@ -1186,8 +1235,23 @@ class Service(object):
             # A request title's More Like This: Silo's recommendations for it.
             media_type, _, tmdb_id = row[len('similar:'):].partition(':')
             items = self.client.request_detail(media_type, tmdb_id).get('recommendations') or []
+        elif row.startswith('browse:'):
+            # A studio's, network's or genre's titles: browse:<kind>:<slug>[:<media type>].
+            kind, _, rest = row[len('browse:'):].partition(':')
+            slug, _, media_type = rest.partition(':')
+            items = self.client.discover_browse(kind, slug, media_type or None)
+        elif row.startswith('mine'):
+            # Yours: on the way first, then those you can watch (Silo's two sections).
+            cards = self.cards_for(self.client.my_requests())
+            if row == 'mine':
+                return cards
+            return [card for card in cards if requested_available(card) == (row == 'mine:available')]
         else:
-            items = self.client.my_requests() if row == 'mine' else self.client.discover_section(row)
+            items = self.client.discover_section(row)
+        return self.cards_for(items)
+
+    def cards_for(self, items):
+        """Request items as cards, a title in the library carrying its Kodi item."""
         cards = []
         for item in items:
             if item.get('media_type') not in ('movie', 'series'):

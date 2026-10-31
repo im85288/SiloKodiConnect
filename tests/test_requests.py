@@ -67,3 +67,17 @@ def test_the_last_episode_still_gets_its_skip_ranges():
     assert 'next_episode' not in data and 'play_info' not in data
     assert data['skip_segments'] == [{'kind': 'intro', 'start': 60.0, 'end': 120.0}]
     assert data['notification_offset'] == 2900
+
+
+def test_every_client_call_the_add_on_makes_exists():
+    # The tests fake the client, so a renamed or removed method would only
+    # show on a real Kodi (the Requests rows once stopped publishing so).
+    import os
+    import re
+    from resources.lib.silokodi import api
+    here = os.path.join(os.path.dirname(__file__), '..', 'resources', 'lib', 'silokodi')
+    called = set()
+    for name in os.listdir(here):
+        if name.endswith('.py'):
+            called.update(re.findall(r'\.client\.([a-z_]+)\(', open(os.path.join(here, name), encoding='utf-8').read()))
+    assert called and not [name for name in called if not hasattr(api.SiloClient, name)]

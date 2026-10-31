@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Silo Skyline: player keys. Copy to userdata/keymaps/ (named to load after
+     other keymaps, which it overrides only for this key):
+       Back       in the video window, Skyline's window 1188: Kodi's own Back
+                  (leave the video for the menus), unless Skyline's pause
+                  screen is up, which Back only dismisses, as Netflix's -->
+<keymap>
+  <FullscreenVideo>
+    <keyboard>
+      <backspace>ActivateWindow(1188)</backspace>
+      <browser_back>ActivateWindow(1188)</browser_back>
+    </keyboard>
+    <remote>
+      <back>ActivateWindow(1188)</back>
+    </remote>
+  </FullscreenVideo>
+</keymap>

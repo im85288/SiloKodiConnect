@@ -953,3 +953,26 @@ def test_rows_wait_for_playback_to_stop_before_reloading(monkeypatch):
     service.playing = lambda: False
     service.note_refresh()
     assert applied == [None]      # stopped: they reload
+
+
+def test_the_playing_episode_has_its_series_ratings_and_silos_badges(monkeypatch):
+    from resources.lib.silokodi import kodi, service as service_module
+    published = {}
+    monkeypatch.setattr(kodi, 'set_property', lambda key, value: published.__setitem__(key, value))
+
+    class Db(object):
+        def get(self, content_id):
+            return {'kind': 'episode', 'kodi_id': 5}
+
+    class Details(object):
+        def get(self, kind, kodi_id):
+            return {'details': {'season': 3, 'episode': 5, 'firstaired': '2026-07-19', 'ratings': {},
+                                'streamdetails': {'video': [{'width': 3840, 'height': 2160, 'hdrtype': 'dolbyvision'}],
+                                                  'audio': [{'codec': 'eac3_ddp_atmos', 'channels': 6}]}},
+                    'show': {'mpaa': 'TV-MA', 'ratings': {'imdb': {'rating': 8.2}, 'themoviedb': {'rating': 8.4}}}}
+    service = service_module.Service.__new__(service_module.Service)
+    service.db, service.details = Db(), Details()
+    service.publish_playing('episode-1')
+    assert (published['playing.rating.imdb'], published['playing.rating.tmdb']) == ('8.2', '8.4')
+    assert published['playing.badge3'] == 'ATMOS 5.1' and published['playing.mpaa'] == 'TV-MA'
+    assert published['playing.air_date'] == 'Jul 19, 2026'

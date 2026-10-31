@@ -75,6 +75,8 @@ PUBLISHED_PAGES = {'home': 20, 'requests': 12}
 # Home's first rows only are published (a skin has them at once); the rest
 # load from their paths as Movies' rows do. Skyline's HOME_PUBLISHED_ROWS.
 PUBLISHED_ROWS = {'home': 4, 'requests': 12}
+# The playing title's details for a skin's player (silokodi.playing.*).
+PLAYING_FIELDS = ('rating.imdb', 'rating.tmdb', 'badge1', 'badge2', 'badge3', 'mpaa', 'air_date')
 STARTUP_QUIET = 60
 PAGE_LOADING = 6  # seconds a page's rows show while they start loading (then empty ones hide)
 DETAILS_SAVE_INTERVAL = 30
@@ -98,6 +100,7 @@ class Player(xbmc.Player):
             self.service.recently_played[session.content_id] = time.time()
             self.service.tell_upnext(session)
             self.show_markers(session)
+            self.service.publish_playing(session.content_id)
 
     def onPlayBackStopped(self):
         self._ended()
@@ -122,6 +125,8 @@ class Player(xbmc.Player):
     def _ended(self):
         for kind in upnext.MARKER_KINDS:
             kodi.clear_property('markers.' + kind)
+        for field in PLAYING_FIELDS:
+            kodi.clear_property('playing.' + field)
         # A trailer from a Silo-style skin's info page: reopen that page
         # (silokodi.trailer_return, "<type>|<dbid>"). The skin covers the
         # window under it meanwhile (silokodi.trailer_playing), and the page
@@ -355,11 +360,11 @@ class Service(object):
         self.db.close()
 
     def sync_keymap(self):
-        """The Live TV keymap for the Silo Skyline skin (keymap.py)."""
+        """The Silo Skyline skin's keymaps: Live TV's and the player's (keymap.py)."""
         try:
             keymap.sync()
         except OSError as error:
-            kodi.log_warning('Live TV keymap: %s' % error)
+            kodi.log_warning('Skyline keymaps: %s' % error)
 
     def start_quickly(self):
         """Give Home its rows as soon as Kodi starts: the last layout and the
@@ -1168,6 +1173,20 @@ class Service(object):
                     card.update({'request.library': '1', 'request.state': 'Available'})
                 cards.append(card)
         return cards
+
+    def publish_playing(self, content_id):
+        """The playing title's details as a Silo-style skin's hero and info
+        page have them, for its player (silokodi.playing.*): an episode's
+        series' ratings and age rating, Silo's badges (Atmos too) and its air
+        date, none of which Kodi's player gives."""
+        row = self.db.get(content_id) if content_id else None
+        props = {}
+        if row and row.get('kodi_id') is not None and row.get('kind') in ('movie', 'episode'):
+            cached = self.details.get(row['kind'], row['kodi_id'])
+            if cached:
+                props = mapping.skyline_properties(row['kind'], cached['details'], cached.get('show'))
+        for field in PLAYING_FIELDS:
+            kodi.set_property('playing.' + field, props.get('silo.' + field, ''))
 
     def title_videos(self, content_id):
         """A title's trailers and more: an episode (or season) with none of its

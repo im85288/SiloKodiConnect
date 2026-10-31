@@ -293,3 +293,43 @@ msgstr ""
 msgctxt "#30168"
 msgid "Remove from recent channels"
 msgstr ""
+
+msgctxt "#30170"
+msgid "Sign in with your phone"
+msgstr ""
+
+msgctxt "#30171"
+msgid "1. Open the Silo app on your phone, on the same network as this Kodi.[CR]2. It offers to set up a nearby TV: choose this Kodi, then your server.[CR]3. Approve the sign-in on your phone.[CR][CR]Back cancels."
+msgstr ""
+
+msgctxt "#30172"
+msgid "Sign in with my phone"
+msgstr ""
+
+msgctxt "#30173"
+msgid "Type the server address"
+msgstr ""
+
+msgctxt "#30174"
+msgid "Kodi couldn't offer sign-in on the network. Type the server address instead."
+msgstr ""
+
+msgctxt "#30175"
+msgid "Looking for Silo servers on your network"
+msgstr ""
+
+msgctxt "#30176"
+msgid "Checking %s..."
+msgstr ""
+
+msgctxt "#30177"
+msgid "Approve on your phone. The code is [B]%s[/B]"
+msgstr ""
+
+msgctxt "#30178"
+msgid "Signed in to %s"
+msgstr ""
+
+msgctxt "#30179"
+msgid "Couldn't sign in to %s. Try again from your phone, or press Back."
+msgstr ""

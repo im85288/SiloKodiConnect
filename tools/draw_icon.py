@@ -1,104 +1,66 @@
-"""Draw SiloKodiConnect's 512x512 icon: a silo with a play symbol, anti-aliased.
+"""Draw SiloKodiConnect's 512x512 icon in the Skyline skin's look: Skyline's
+dark splash, its purple-to-pink disc, and the add-on's own silo with a play
+symbol in place of the skyline, over the name "Connect".
 
-Pure Python (no Pillow): each pixel is 4x4 supersampled and written as a PNG.
-Usage: python draw_icon.py OUT.png [SIZE]
+Needs Pillow and a checkout of the Skyline skin (its splash and Inter font).
+Usage: python draw_icon.py OUT.png [SKYLINE_CHECKOUT]
 """
-import math
-import struct
+import os
 import sys
-import zlib
 
-SIZE = int(sys.argv[2]) if len(sys.argv) > 2 else 512
-S = SIZE / 512.0  # shapes are designed on a 512 grid
-SUB = 4
+from PIL import Image, ImageDraw, ImageFont
 
-TOP = (14, 26, 51)        # background gradient
-BOTTOM = (29, 61, 122)
-GLOW = (64, 120, 220)     # soft light behind the silo
-SILO = (238, 242, 248)
-SILO_SHADE = (205, 215, 232)
-PLAY = (36, 99, 235)
-SHADOW = (5, 10, 25)
+SKYLINE = sys.argv[2] if len(sys.argv) > 2 else os.path.expanduser('~/dev/skin.silo.skyline')
+SCALE = 4                       # drawn large, then reduced: smooth edges
+TOP, BOTTOM = (119, 81, 230), (205, 118, 142)   # Skyline's disc, top to bottom
+WHITE = (247, 244, 242)         # Skyline's buildings
+PLAY = (152, 94, 197)           # the disc's middle
 
-CX = 256
-BODY_L, BODY_R = 186, 326
-DOME_CY, DOME_R = 166, 70
-BODY_BOTTOM = 430
-CAP_H = 8                 # a thin band where the dome meets the body
-RINGS = (220, 380)        # hoops around the body, clear of the play symbol
-RING_H = 5
+DISC_CX, DISC_CY, DISC_R = 256, 196, 150
+# The silo: a dome on a body, standing on the disc's lower edge.
+BODY_L, BODY_R, DOME_CY = 206, 306, 150
+PLAY_CX, PLAY_CY, PLAY_H = 262, 250, 62
 
 
-def mix(a, b, t):
-    return tuple(a[i] + (b[i] - a[i]) * t for i in range(3))
+def disc():
+    size = 512 * SCALE
+    gradient = Image.new('RGB', (1, size))
+    for y in range(size):
+        t = min(1.0, max(0.0, (y / SCALE - (DISC_CY - DISC_R)) / (2 * DISC_R)))
+        gradient.putpixel((0, y), tuple(int(TOP[i] + (BOTTOM[i] - TOP[i]) * t) for i in range(3)))
+    layer = gradient.resize((size, size)).convert('RGBA')
+    mask = Image.new('L', (size, size), 0)
+    draw = ImageDraw.Draw(mask)
+    s = SCALE
+    draw.ellipse([(DISC_CX - DISC_R) * s, (DISC_CY - DISC_R) * s, (DISC_CX + DISC_R) * s, (DISC_CY + DISC_R) * s], 255)
+    layer.putalpha(mask)
+    # The silo, cut off by the disc's edge as Skyline's buildings are.
+    silo = Image.new('L', (size, size), 0)
+    d = ImageDraw.Draw(silo)
+    half = (BODY_R - BODY_L) / 2.0
+    d.ellipse([BODY_L * s, (DOME_CY - half) * s, BODY_R * s, (DOME_CY + half) * s], 255)
+    d.rectangle([BODY_L * s, DOME_CY * s, BODY_R * s, (DISC_CY + DISC_R) * s], 255)
+    silo = Image.composite(silo, Image.new('L', (size, size), 0), mask)
+    white = Image.new('RGBA', (size, size), WHITE + (255,))
+    layer.paste(white, (0, 0), silo)
+    # A play symbol on the silo, in the disc's colour.
+    d = ImageDraw.Draw(layer)
+    left, right = PLAY_CX - PLAY_H * 0.42, PLAY_CX + PLAY_H * 0.58
+    d.polygon([(left * s, (PLAY_CY - PLAY_H / 2) * s), (right * s, PLAY_CY * s), (left * s, (PLAY_CY + PLAY_H / 2) * s)],
+              fill=PLAY + (255,))
+    return layer.resize((512, 512), Image.LANCZOS)
 
 
-def in_silo(x, y):
-    if BODY_L <= x <= BODY_R and DOME_CY <= y <= BODY_BOTTOM:
-        return True
-    return y < DOME_CY and (x - CX) ** 2 + (y - DOME_CY) ** 2 <= DOME_R ** 2
-
-
-def in_play(x, y):
-    # A right-pointing triangle centred on the body.
-    cx, cy, h = CX + 6, 300, 84
-    left, right = cx - h * 0.42, cx + h * 0.58
-    if not left <= x <= right:
-        return False
-    half = (h / 2) * (right - x) / (right - left)
-    return abs(y - cy) <= half
-
-
-def in_shadow(x, y):
-    return ((x - CX) / 112.0) ** 2 + ((y - 440) / 14.0) ** 2 <= 1
-
-
-def colour(x, y):
-    """Colour at a point on the 512 grid."""
-    base = mix(TOP, BOTTOM, y / 512.0)
-    glow = max(0.0, 1 - math.hypot(x - CX, y - 300) / 260.0) ** 2 * 0.35
-    base = mix(base, GLOW, glow)
-    if in_shadow(x, y) and not in_silo(x, y):
-        base = mix(base, SHADOW, 0.45)
-    if in_silo(x, y):
-        # A cylinder lit from the upper left: brightest a third of the way across.
-        u = (x - BODY_L) / float(BODY_R - BODY_L)
-        shade = min(1.0, abs(u - 0.33) / 0.67) ** 1.6 * 0.75
-        base = mix(SILO, SILO_SHADE, shade)
-        if DOME_CY <= y <= DOME_CY + CAP_H or any(r <= y <= r + RING_H for r in RINGS):
-            base = mix(base, SILO_SHADE, 0.75)
-        if in_play(x, y):
-            base = PLAY
-    return base
-
-
-
-def render():
-    rows = []
-    step = 1.0 / SUB
-    for py in range(SIZE):
-        row = bytearray([0])
-        for px in range(SIZE):
-            r = g = b = 0.0
-            for sy in range(SUB):
-                for sx in range(SUB):
-                    c = colour((px + (sx + 0.5) * step) / S, (py + (sy + 0.5) * step) / S)
-                    r += c[0]
-                    g += c[1]
-                    b += c[2]
-            n = SUB * SUB
-            row += bytes((int(r / n + 0.5), int(g / n + 0.5), int(b / n + 0.5)))
-        rows.append(bytes(row))
-    return b''.join(rows)
-
-
-def png(raw):
-    def chunk(tag, data):
-        return struct.pack('>I', len(data)) + tag + data + struct.pack('>I', zlib.crc32(tag + data) & 0xffffffff)
-    return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', SIZE, SIZE, 8, 2, 0, 0, 0))
-            + chunk(b'IDAT', zlib.compress(raw, 9)) + chunk(b'IEND', b''))
+def main(out):
+    splash = Image.open(os.path.join(SKYLINE, 'media', 'silo', 'splash_bg.png')).convert('RGB')
+    icon = splash.resize((1920, 1080), Image.BICUBIC).crop((420, 0, 1500, 1080)).resize((512, 512), Image.BICUBIC)
+    icon = icon.convert('RGBA')
+    icon.alpha_composite(disc())
+    draw = ImageDraw.Draw(icon)
+    font = ImageFont.truetype(os.path.join(SKYLINE, 'fonts', 'Inter-Bold.ttf'), 64)
+    draw.text((256, 400), 'Connect', font=font, fill=(0xED, 0xED, 0xED), anchor='mm')
+    icon.convert('RGB').save(out)
 
 
 if __name__ == '__main__':
-    with open(sys.argv[1], 'wb') as handle:
-        handle.write(png(render()))
+    main(sys.argv[1])

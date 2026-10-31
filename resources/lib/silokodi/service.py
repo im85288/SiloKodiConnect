@@ -72,6 +72,9 @@ def release_memory():
 # Pages whose rows are published as cards, with how many cards a row has
 # (the skin's slots: every slot costs it load time).
 PUBLISHED_PAGES = {'home': 20, 'requests': 12}
+# Home's first rows only are published (a skin has them at once); the rest
+# load from their paths as Movies' rows do. Skyline's HOME_PUBLISHED_ROWS.
+PUBLISHED_ROWS = {'home': 4, 'requests': 12}
 STARTUP_QUIET = 60
 PAGE_LOADING = 6  # seconds a page's rows show while they start loading (then empty ones hide)
 DETAILS_SAVE_INTERVAL = 30
@@ -1079,10 +1082,10 @@ class Service(object):
         """When silokodi.library_updated changes (the library was written, or a
         request made), give the rows their paths with the new token, and
         publish Home's cards again."""
-        # Not while a video plays: each row that loads from its path (Movies'
-        # and Series') reloads through a Python process, and on a 2 GB SHIELD
-        # a 4K film starting with a dozen of them got Kodi killed for memory.
-        # The rows reload once playback stops.
+        # Not while a video plays: each row that loads from its path (Home's
+        # past the published ones) reloads through a Python process, and a 4K
+        # film starting with a dozen of them got Kodi killed for memory on a
+        # 2 GB SHIELD. The rows reload once playback stops.
         if self.layout and kodi.get_property('library_updated') != self.refresh_token and not self.playing():
             self.apply_layout()
             self.home_cards_soon()
@@ -1104,7 +1107,8 @@ class Service(object):
         # Not Movies and Series: the rows Kodi can order load natively, and
         # every published slot costs the skin load time (see the skin).
         for page, count in PUBLISHED_PAGES.items():
-            for row, (row_id, library_id) in enumerate(self.page_sources.get(page, [])[:MAX_ROWS], 1):
+            sources = self.page_sources.get(page, [])
+            for row, (row_id, library_id) in enumerate(sources[:PUBLISHED_ROWS[page]], 1):
                 try:
                     cards = self.page_cards(page, row_id, library_id)
                 except (ApiError, requests.RequestException) as error:
@@ -1115,7 +1119,9 @@ class Service(object):
                     props.update({key: value for key, value in self.home_cards.items() if key.startswith(prefix)})
                     continue
                 props.update(home_cards.row_properties(row, cards[:count], page, count))
-                # The row's title as Silo gave it with these cards, when it has changed.
+            # Each row's title as Silo last gave it with its items (a row that
+            # loads from its path, when the skin last loaded it), if changed.
+            for row, (row_id, library_id) in enumerate(sources[:MAX_ROWS], 1):
                 title = self.row_titles.get((library_id or None, str(row_id)))
                 key = 'silo.%s.%d.title' % (page, row)
                 if title and self.layout and self.layout.get(key) not in (None, title):

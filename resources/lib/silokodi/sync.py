@@ -236,6 +236,8 @@ class Syncer(object):
         self.upgraded = []
         # Local art addresses whose image changed in Silo (see _save_art).
         self.art_changed = set()
+        # {content id: Silo's ambient tint}, from the cards each sync lists.
+        self.tints = {}
         self._base, self._span = 0.0, 100.0
 
     def step(self, fraction, message):
@@ -301,9 +303,31 @@ class Syncer(object):
             self._base = index * self._span
             self.progress(int(self._base), library.get('name') or '')
             self.sync_library(library)
+        self.save_hero_extras()
         self.progress(100, '')
         changed, self.changed = self.changed, self.changed or pending
         return changed
+
+    def save_hero_extras(self):
+        """Keep each movie's and show's hero extras (mapping.hero_extras) in
+        Kodi's library, for the rows Kodi lists itself (Movies' and Series'
+        Recently Added, Random...): only where they changed."""
+        for kind in ('movie', 'tvshow'):
+            ours = {row['kodi_id']: row['content_id'] for row in self.db.items(kind) if row['kodi_id'] is not None}
+            written = 0
+            with self.writing() as kodi:
+                for kodi_id, details in kodi.hero_details(kind).items():
+                    if kodi_id not in ours:
+                        continue
+                    # A title this sync didn't list keeps the tint it has.
+                    tint = self.tints.get(ours[kodi_id], details['extras'].get('silotint', ''))
+                    extras = mapping.hero_extras(kind, details, tint)
+                    if {k: v for k, v in extras.items() if v} != details['extras']:
+                        kodi.set_hero_extras(kodi_id, kind, extras)
+                        written += 1
+            if written:
+                self.log('Hero details: %d %ss' % (written, kind))
+                self.changed = True
 
     def sync_library(self, library):
         kind = (library.get('type') or '').lower()
@@ -340,6 +364,7 @@ class Syncer(object):
         for card in self.client.catalog(library_id, 'movie'):
             content_id = card['content_id']
             seen.add(content_id)
+            self.tints[content_id] = mapping.ambient_tint(card.get('poster_thumbhash') or '')
             row = self.db.get(content_id)
             fingerprint = mapping.fingerprint(card)
             if not self._unchanged(row, card, fingerprint) or row['library_id'] != library_id:
@@ -419,6 +444,7 @@ class Syncer(object):
         for card in series_cards:
             series_id = card['content_id']
             seen_series.add(series_id)
+            self.tints[series_id] = mapping.ambient_tint(card.get('poster_thumbhash') or '')
             row = self.db.get(series_id)
             if not self._unchanged(row, card) or row['library_id'] != library_id:
                 changed_series.append(card)

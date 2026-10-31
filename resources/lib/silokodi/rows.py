@@ -52,7 +52,7 @@ def card(kind, details, show=None, tint='', landscape=''):
         'label': title,
         'card.title': show_title if episode else title,
         'card.sub': code if episode else year,
-        'card.wide_sub': ' • '.join(part for part in (code, title) if part) if episode else year,
+        'card.wide_sub': ' · '.join(part for part in (code, title) if part) if episode else year,
         'hero.title': '' if logo else (show_title if episode else title),
         'hero.meta': meta, 'hero.detail': detail, 'plot': details.get('plot') or '',
         # The info line in parts, for a skin that shows the ratings' marks

@@ -42,6 +42,11 @@ def test_first_sync_writes_movies_into_kodi(syncer, query):
     # Library features skins rely on.
     assert query("SELECT type, value FROM uniqueid WHERE media_type = 'movie' AND media_id = ? ORDER BY type",
                  (heat[0],)) == [('imdb', 'tt0113277'), ('tmdb', '949')]
+    # The hero's extras, for the rows Kodi lists itself.
+    extras = dict(query("SELECT type, url FROM art WHERE media_type = 'movie' AND media_id = ? "
+                        "AND type LIKE 'silo%'", (heat[0],)))
+    assert extras == {'silogenre': 'Crime', 'silocast': 'Al Pacino, Robert De Niro', 'silobadge1': '4K',
+                      'silobadge2': 'DOLBY VISION', 'silobadge3': 'TRUEHD 7.1'}
     assert query("SELECT rating, votes FROM rating WHERE media_id = ? AND media_type = 'movie'", (heat[0],)) \
         == [(8.3, 673852)]
     assert query("SELECT name FROM tag JOIN tag_link USING (tag_id) WHERE media_id = ? AND media_type = 'movie'",
@@ -632,7 +637,7 @@ def test_home_cards_carry_silos_text_and_resolved_art():
                 'tvshow.clearlogo': 'logo.png'}}, {'mpaa': 'TV-14', 'genre': ['Drama']}, 'FF223344')
     assert episode['type'] == 'episode' and episode['dbid'] == '7'
     assert episode['card.title'] == 'Marshals' and episode['card.sub'] == 'S01E02'
-    assert episode['card.wide_sub'] == 'S01E02 • Zone of Death' and episode['hero.title'] == ''
+    assert episode['card.wide_sub'] == 'S01E02 · Zone of Death' and episode['hero.title'] == ''
     assert episode['hero.meta'] == 'S01E02 · Zone of Death' and episode['percent'] == '25'
     assert episode['hero.facts'] == 'S01E02 · Zone of Death' and episode['rating.imdb'] == ''
     assert (episode['art.poster'], episode['art.landscape'], episode['art.fanart'], episode['art.clearlogo']) == \

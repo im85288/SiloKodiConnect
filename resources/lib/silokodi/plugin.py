@@ -696,7 +696,8 @@ def library_item(kind, kodi_id, shows=None, cached=None):
     listitem = xbmcgui.ListItem(details.get('title') or '', offscreen=True)
     # What the Silo Skyline skin's hero shows about the title.
     listitem.setProperties(mapping.skyline_properties(kind, details, show))
-    listitem.setArt(details.get('art') or {})
+    # Not the hero's extras: this item has them as silo.* properties.
+    listitem.setArt({kind: url for kind, url in (details.get('art') or {}).items() if kind not in mapping.HERO_EXTRAS})
     tag = listitem.getVideoInfoTag()
     tag.setDbId(kodi_id)
     tag.setMediaType(kind)

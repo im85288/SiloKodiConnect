@@ -646,6 +646,23 @@ def skyline_properties(kind, details, show=None):
 
 SIMILAR_LIMIT = 20
 
+# What a skin's hero shows of a title that only this add-on knows: kept with
+# the title in Kodi's library as artwork entries holding text (a skin reads
+# ListItem.Art(silogenre) in a label, never an image), for the rows Kodi lists
+# itself. Kodi loads every art type for a list's items, but of the unique ids
+# only the default one.
+HERO_EXTRAS = ('silogenre', 'silocast', 'silobadge1', 'silobadge2', 'silobadge3', 'silotint')
+
+
+def hero_extras(kind, details, tint=''):
+    """{extra: text} for a movie or tvshow, from its Kodi details (genre,
+    cast, streamdetails): the hero's own text (skyline_properties), so a title
+    from Kodi's lists reads as it does from this add-on's."""
+    props = skyline_properties(kind, details)
+    return {'silogenre': props['silo.genre'], 'silocast': props['silo.cast'],
+            'silobadge1': props.get('silo.badge1', ''), 'silobadge2': props.get('silo.badge2', ''),
+            'silobadge3': props.get('silo.badge3', ''), 'silotint': tint or ''}
+
 
 def similar_path(kind, genre, title):
     """A Kodi library query for the detail page's More Like This rail: other

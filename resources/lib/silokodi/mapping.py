@@ -651,7 +651,8 @@ SIMILAR_LIMIT = 20
 # ListItem.Art(silogenre) in a label, never an image), for the rows Kodi lists
 # itself. Kodi loads every art type for a list's items, but of the unique ids
 # only the default one.
-HERO_EXTRAS = ('silogenre', 'silocast', 'silobadge1', 'silobadge2', 'silobadge3', 'silotint')
+# TMDB's score too: Kodi's lists carry only a title's default rating (IMDb's when it has one).
+HERO_EXTRAS = ('silogenre', 'silocast', 'silobadge1', 'silobadge2', 'silobadge3', 'silotint', 'silotmdb')
 
 
 def hero_extras(kind, details, tint=''):
@@ -661,7 +662,8 @@ def hero_extras(kind, details, tint=''):
     props = skyline_properties(kind, details)
     return {'silogenre': props['silo.genre'], 'silocast': props['silo.cast'],
             'silobadge1': props.get('silo.badge1', ''), 'silobadge2': props.get('silo.badge2', ''),
-            'silobadge3': props.get('silo.badge3', ''), 'silotint': tint or ''}
+            'silobadge3': props.get('silo.badge3', ''), 'silotint': tint or '',
+            'silotmdb': props.get('silo.rating.tmdb', '')}
 
 
 def similar_path(kind, genre, title):

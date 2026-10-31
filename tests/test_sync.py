@@ -976,3 +976,10 @@ def test_the_playing_episode_has_its_series_ratings_and_silos_badges(monkeypatch
     assert (published['playing.rating.imdb'], published['playing.rating.tmdb']) == ('8.2', '8.4')
     assert published['playing.badge3'] == 'ATMOS 5.1' and published['playing.mpaa'] == 'TV-MA'
     assert published['playing.air_date'] == 'Jul 19, 2026'
+
+
+def test_the_hero_extras_carry_tmdbs_score_for_kodis_lists():
+    # Kodi's lists load only a title's default rating (IMDb's when it has one).
+    details = {'genre': ['Crime'], 'ratings': {'imdb': {'rating': 8.3}, 'themoviedb': {'rating': 7.94}}}
+    extras = mapping.hero_extras('movie', details)
+    assert extras['silotmdb'] == '7.9' and extras['silogenre'] == 'Crime'

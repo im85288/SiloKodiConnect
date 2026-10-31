@@ -262,8 +262,8 @@ class KodiVideoDB(object):
     # ----- the hero's extras (mapping.hero_extras) -----
 
     def hero_details(self, kodi_type):
-        """{kodi id: details} for every movie or tvshow: its genres, cast and
-        stream details as Kodi's JSON-RPC gives them, and under 'extras' the
+        """{kodi id: details} for every movie or tvshow: its genres, ratings,
+        cast and stream details as Kodi's JSON-RPC gives them, and under 'extras' the
         hero extras it has now."""
         if kodi_type == 'movie':
             self.cursor.execute('SELECT idMovie, c14, idFile FROM movie')
@@ -275,6 +275,10 @@ class KodiVideoDB(object):
                                 'streamdetails': {'video': [], 'audio': []}, 'extras': {}}
             if file_id is not None:
                 files[file_id] = kodi_id
+        self.cursor.execute('SELECT media_id, rating_type, rating FROM rating WHERE media_type = ?', (kodi_type,))
+        for kodi_id, kind, value in self.cursor.fetchall():
+            if kodi_id in details:
+                details[kodi_id].setdefault('ratings', {})[kind] = {'rating': value}
         self.cursor.execute('''
             SELECT actor_link.media_id, actor.name, actor_link.cast_order FROM actor_link
             JOIN actor ON actor.actor_id = actor_link.actor_id

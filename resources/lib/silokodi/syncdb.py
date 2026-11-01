@@ -166,6 +166,12 @@ class SyncDB(object):
         return [kind for kind, url in urls.items()
                 if before.get(kind) and unsigned(before[kind]) != unsigned(url)]
 
+    def forget_titles(self):
+        """Clear films' and shows' fingerprints (not episodes'), so the next
+        sync writes them again from their details: for what Silo's catalog
+        cards don't carry (Rotten Tomatoes' score)."""
+        self._write("UPDATE items SET fingerprint = NULL WHERE kind IN ('movie', 'tvshow')")
+
     def forget_svg_art(self):
         """Clear the fingerprint of items saved with SVG art (written before
         mapping.drawable), so the next sync rewrites them without it."""

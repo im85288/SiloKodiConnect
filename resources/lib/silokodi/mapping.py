@@ -194,6 +194,10 @@ def ratings(item):
     if not found:
         best = rating(item)
         found = [best] if best else []
+    # Rotten Tomatoes' critics' score (percent), after the default: Kodi's
+    # rating table holds it out of 10, as any other.
+    if found and item.get('rating_rt_critic') is not None:
+        found.append(('rottentomatoes', float(item['rating_rt_critic']) / 10, 0))
     return found
 
 
@@ -679,10 +683,13 @@ def skyline_properties(kind, details, show=None):
         props['silo.badge%d' % index] = badge
     # The info page's ratings (an episode shows its series', as Silo does)
     # and its Version / Audio / Subtitles line.
-    for source, key in (('imdb', 'imdb'), ('themoviedb', 'tmdb')):
+    for source, key in (('imdb', 'imdb'), ('themoviedb', 'tmdb'), ('rottentomatoes', 'rtcritic')):
         value = ((details.get('ratings') or {}).get(source) or ((show or {}).get('ratings') or {}).get(source)
                  or {}).get('rating')
-        props['silo.rating.%s' % key] = '%.1f' % value if value else ''
+        if key.startswith('rt'):  # Rotten Tomatoes': a percentage
+            props['silo.rating.%s' % key] = '%d' % round(value * 10) if value is not None else ''
+        else:
+            props['silo.rating.%s' % key] = '%.1f' % value if value else ''
     props.update(tech_lines(details.get('streamdetails')))
     if kind == 'tvshow':
         props['silo.new'] = 'New episode' if new_episode(details) else ''
@@ -704,7 +711,8 @@ SIMILAR_LIMIT = 20
 # itself. Kodi loads every art type for a list's items, but of the unique ids
 # only the default one.
 # TMDB's score too: Kodi's lists carry only a title's default rating (IMDb's when it has one).
-HERO_EXTRAS = ('silogenre', 'silocast', 'silobadge1', 'silobadge2', 'silobadge3', 'silotint', 'silotmdb')
+HERO_EXTRAS = ('silogenre', 'silocast', 'silobadge1', 'silobadge2', 'silobadge3', 'silotint', 'silotmdb',
+               'silortcritic')
 
 
 def hero_extras(kind, details, tint=''):
@@ -715,7 +723,7 @@ def hero_extras(kind, details, tint=''):
     return {'silogenre': props['silo.genre'], 'silocast': props['silo.cast'],
             'silobadge1': props.get('silo.badge1', ''), 'silobadge2': props.get('silo.badge2', ''),
             'silobadge3': props.get('silo.badge3', ''), 'silotint': tint or '',
-            'silotmdb': props.get('silo.rating.tmdb', '')}
+            'silotmdb': props.get('silo.rating.tmdb', ''), 'silortcritic': props.get('silo.rating.rtcritic', '')}
 
 
 def similar_path(kind, genre, title):

@@ -81,7 +81,8 @@ PUBLISHED_PAGES = {'home': 20, 'requests': 12}
 # load from their paths as Movies' rows do. Skyline's HOME_PUBLISHED_ROWS.
 PUBLISHED_ROWS = {'home': 4, 'requests': 12}
 # The playing title's details for a skin's player (silokodi.playing.*).
-PLAYING_FIELDS = ('rating.imdb', 'rating.tmdb', 'badge1', 'badge2', 'badge3', 'mpaa', 'air_date')
+PLAYING_FIELDS = ('rating.imdb', 'rating.tmdb', 'rating.rtcritic', 'badge1', 'badge2', 'badge3', 'mpaa',
+                  'air_date')
 STARTUP_QUIET = 60
 PAGE_LOADING = 6  # seconds a page's rows show while they start loading (then empty ones hide)
 DETAILS_SAVE_INTERVAL = 30

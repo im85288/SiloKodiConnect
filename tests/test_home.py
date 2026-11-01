@@ -234,3 +234,19 @@ def test_coming_soon_is_each_started_shows_next_episode():
     assert asked == [('2026-11-01', '2026-11-14')]
     # b's next is today's (a's today episode is watched); a's is tomorrow's; the unstarted show is left out.
     assert [(i['kodi_id'], i['caption']) for i in items] == [(2, 'Today · S1 E2'), (1, 'Tomorrow · S2 E7')]
+
+
+def test_rotten_tomatoes_score_goes_after_the_default_rating():
+    from resources.lib.silokodi import mapping
+    item = {'rating_imdb': 7.9, 'rating_tmdb': 7.957, 'rating_rt_critic': 42, 'rating_rt_audience': 94}
+    assert mapping.ratings(item) == [('imdb', 7.9, 0), ('themoviedb', 7.957, 0), ('rottentomatoes', 4.2, 0)]
+    assert mapping.ratings({'rating_rt_critic': 42}) == []      # never the default on their own
+
+
+def test_rotten_tomatoes_score_is_a_percentage_for_a_skin():
+    from resources.lib.silokodi import mapping
+    details = {'ratings': {'imdb': {'rating': 7.9, 'default': True}, 'rottentomatoes': {'rating': 0.0}}}
+    assert mapping.skyline_properties('movie', details)['silo.rating.rtcritic'] == '0'
+    details['ratings']['rottentomatoes'] = {'rating': 4.2}
+    assert mapping.skyline_properties('movie', details)['silo.rating.rtcritic'] == '42'
+    assert mapping.skyline_properties('movie', {'ratings': {}})['silo.rating.rtcritic'] == ''

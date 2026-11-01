@@ -135,7 +135,15 @@ def row_entry(section, library_id=None, library=None, ranked=()):
             else 'ranked' if is_ranked else 'poster',
             # Silo's row type: a skin marks some rows (Continue Watching's play icon).
             'type': section.get('section_type') or '',
-            **dict(zip(('sort', 'order', 'limit'), native_sort(section) if path else ('', '', '')))}
+            **dict(zip(('sort', 'order', 'limit'), native_sort(section) if path else PLUGIN_SORT))}
+
+
+# A plugin row's sort for a skin's list: Kodi's playlist order, which leaves
+# this add-on's items as they come (they tie, and Kodi's sort is stable), so
+# Silo's order stays. Not "none": Kodi reloads every widget without a sort as
+# any playback starts or stops (its CDirectoryProvider), a theme tune's
+# included, and each such row reloads through a Python process.
+PLUGIN_SORT = ('playlist', 'ascending', '')
 
 
 def skin_layout(home_sections, libraries, library_sections, request_rows=None, ranked=()):
@@ -294,6 +302,11 @@ class Syncer(object):
         service has handled it (its cache, Kodi's lists, Home's cards): a
         sync queued right behind a full resync must not wipe it out."""
         pending, self.changed = self.changed, False
+        if not self.db.meta('rt_scores_written'):
+            # Rotten Tomatoes' scores are in titles' details, not the catalog's
+            # cards: films and shows written once more to pick them up.
+            self.db.forget_titles()
+            self.db.set_meta('rt_scores_written', True)
         if not self.db.meta('svg_art_dropped'):
             self.db.forget_svg_art()
             self.db.set_meta('svg_art_dropped', True)

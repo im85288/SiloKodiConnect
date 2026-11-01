@@ -699,7 +699,8 @@ def test_library_rows_kodi_can_order_load_natively():
     assert entry['path'].startswith('videodb://')
     assert (entry['sort'], entry['order'], entry['limit']) == ('random', 'ascending', '25')
     plugin = sync.row_entry({'id': 'y', 'section_type': 'imdb_popular', 'title': 'IMDb'}, '1', movies)
-    assert (plugin['sort'], plugin['order'], plugin['limit']) == ('', '', '')
+    # Kodi's playlist order keeps Silo's (and isn't reloaded on every playback start and stop).
+    assert (plugin['sort'], plugin['order'], plugin['limit']) == ('playlist', 'ascending', '')
 
 
 def test_an_empty_kodi_library_row_gets_no_path(monkeypatch):

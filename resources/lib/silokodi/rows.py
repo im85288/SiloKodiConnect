@@ -50,7 +50,7 @@ def ranked_rows(choice, sections):
 NEXT_EPISODE = 'Next Episode'
 CARDS = 20  # cards per row; Silo's rows go up to 50 (most hold 13-20), and each costs a skin's load time
 FIELDS = ('type', 'dbid', 'label', 'card.title', 'card.sub', 'card.wide_sub', 'hero.title', 'hero.meta',
-          'hero.facts', 'rating.imdb', 'rating.tmdb',
+          'hero.facts', 'rating.imdb', 'rating.tmdb', 'rating.rtcritic',
           'hero.detail', 'plot', 'mpaa', 'badge1', 'badge2', 'badge3', 'tint', 'percent', 'playcount', 'new', 'left', 'dismiss', 'rank', 'place',
           'art.poster', 'art.landscape', 'art.fanart', 'art.clearlogo', 'request.type', 'request.tmdb',
           'status.tint', 'status.seg1', 'status.seg2', 'status.seg3', 'status.seg4',
@@ -90,6 +90,7 @@ def card(kind, details, show=None, tint='', landscape=''):
         'hero.facts': meta if episode else ' · '.join(part for part in (year, props.get('silo.genre', '')) if part),
         'rating.imdb': '' if episode else props.get('silo.rating.imdb', ''),
         'rating.tmdb': '' if episode else props.get('silo.rating.tmdb', ''),
+        'rating.rtcritic': '' if episode else props.get('silo.rating.rtcritic', ''),
         'mpaa': props.get('silo.mpaa', ''),
         'badge1': props.get('silo.badge1', ''), 'badge2': props.get('silo.badge2', ''),
         'badge3': props.get('silo.badge3', ''), 'tint': tint or '',

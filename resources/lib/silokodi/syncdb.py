@@ -178,6 +178,9 @@ class SyncDB(object):
         self._write("UPDATE items SET fingerprint = NULL WHERE content_id IN (SELECT content_id FROM art "
                     "WHERE lower(substr(url, 1, instr(url || '?', '?') - 1)) LIKE '%.svg')")
 
+    def art_kinds(self, content_id):
+        return [row['kind'] for row in self._query('SELECT kind FROM art WHERE content_id = ?', (content_id,))]
+
     def art(self, content_id, kind):
         rows = self._query('SELECT url FROM art WHERE content_id = ? AND kind = ?', (content_id, kind))
         return rows[0]['url'] if rows else None

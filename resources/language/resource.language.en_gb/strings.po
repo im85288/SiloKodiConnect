@@ -383,3 +383,11 @@ msgstr ""
 msgctxt "#30193"
 msgid "Plays a show's theme tune from Silo (a theme.mp3 beside its media) while its page is open, as Plex does. Never over something you're playing."
 msgstr ""
+
+msgctxt "#30194"
+msgid "Play"
+msgstr ""
+
+msgctxt "#30195"
+msgid "Resume"
+msgstr ""

@@ -213,6 +213,18 @@ class SiloClient(object):
         return self.pages('/catalog', library_id=library_id, type=media_type, sort='added_at',
                           skip_total='true', image_size='large')
 
+    def box_set_cards(self, library_id):
+        """A library's box sets (Silo groups a TMDB collection's movies into
+        one), as its grouped browse lists them: the box set cards only."""
+        for card in self.pages('/catalog', library_id=library_id, group='box_set', source='query',
+                               skip_total='true', image_size='large'):
+            if card.get('type') == 'box_set':
+                yield card
+
+    def box_set(self, box_set_id, library_id):
+        """A box set with its movies in the library, in release order (items)."""
+        return self.get('/catalog/box-sets/%s' % box_set_id, library_id=library_id, image_size='large')
+
     def item(self, content_id):
         return self.get('/catalog/items/%s' % content_id, image_size='large')
 

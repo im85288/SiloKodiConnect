@@ -95,6 +95,23 @@ def _hash(card, keys):
     return hashlib.sha1(json.dumps(data, sort_keys=True).encode('utf-8')).hexdigest()
 
 
+def box_set_fingerprint(card):
+    """Hash of what a box set card puts in Kodi: its name, overview, art and
+    movie count (a changed count means its movies changed)."""
+    info = card.get('box_set') or {}
+    return hashlib.sha1(json.dumps([card.get('title'), card.get('overview'), unsigned(card.get('poster_url')),
+                                    unsigned(card.get('backdrop_url')), info.get('movie_count'),
+                                    info.get('first_year'), info.get('last_year')]).encode('utf-8')).hexdigest()
+
+
+def box_set_facts(info):
+    """A box set's count and years as Silo shows them: ('8 films', '2001 – 2011')."""
+    count = info.get('movie_count') or 0
+    first, last = info.get('first_year'), info.get('last_year')
+    years = '%s – %s' % (first, last) if first and last and first != last else str(first or last or '')
+    return ('%d film%s' % (count, '' if count == 1 else 's') if count else '', years)
+
+
 def fingerprint(card):
     """Hash of the card's fields that reach Kodi (CARD_FIELDS), not its
     viewing state or anything else Silo adds."""

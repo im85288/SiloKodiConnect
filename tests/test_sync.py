@@ -1100,3 +1100,44 @@ def test_ranking_rows_give_places_whatever_is_numbered():
     from resources.lib.silokodi import rows
     assert rows.ranking('Trending This Week Shows') and rows.ranking('Popular on Netflix Movies')
     assert rows.ranking('IMDb Popular Shows') and not rows.ranking('Family Halloween') and not rows.ranking(None)
+
+
+def test_box_sets_become_kodi_movie_sets(silo, syncer, query):
+    silo.libraries_list[0]['box_sets_enabled'] = True
+    silo.add_movie(movie('movie-3', 'Collateral'))
+    silo.box_sets['86'] = {'id': '86', 'title': 'Michael Mann Box Set', 'overview': 'Two films.',
+                           'poster_url': 'https://image.tmdb.org/p.jpg', 'members': ['movie-1', 'movie-2'],
+                           'first_year': 1981, 'last_year': 1995}
+    syncer.sync()
+    (set_id, name, overview), = query('SELECT idSet, strSet, strOverview FROM sets')
+    assert (name, overview) == ('Michael Mann Box Set', 'Two films.')
+    assert query('SELECT c00 FROM movie WHERE idSet = ? ORDER BY c00', (set_id,)) == [('Heat',), ('Thief',)]
+    # Every film but the first by title is tagged, for a skin's grid to hide.
+    member = "SELECT m.c00 FROM movie m JOIN tag_link l ON l.media_id = m.idMovie AND l.media_type = 'movie' " \
+             "JOIN tag t USING (tag_id) WHERE t.name = 'Silo box set member' ORDER BY m.c00"
+    assert query(member) == [('Thief',)]
+    art = dict(query("SELECT type, url FROM art WHERE media_type = 'set' AND media_id = ?", (set_id,)))
+    assert art == {'poster': mapping.art_url(PORT, 'box_set:86', 'poster'), 'silocount': '2 films',
+                   'siloyears': '1981 – 1995', 'silooverview': 'Two films.'}
+    # Unchanged: no box set is fetched again, and a rewritten film stays in its set.
+    silo.calls = []
+    silo.movies['movie-1']['title'] = 'Heat (1995)'
+    syncer.sync()
+    assert [c for c in silo.calls if c[0] == 'box_set'] == []
+    assert query('SELECT COUNT(*) FROM movie WHERE idSet = ?', (set_id,)) == [(2,)]
+    assert query(member) == [('Thief',)]  # the rewrite kept the tag
+    # A film joins: the set is fetched again and takes it in.
+    silo.box_sets['86']['members'].append('movie-3')
+    syncer.sync()
+    assert query('SELECT COUNT(*) FROM movie WHERE idSet = ?', (set_id,)) == [(3,)]
+    # Box sets turned off: the set goes and its films are free.
+    silo.libraries_list[0]['box_sets_enabled'] = False
+    syncer.sync()
+    assert query('SELECT COUNT(*) FROM sets') == [(0,)]
+    assert query('SELECT COUNT(*) FROM movie WHERE idSet IS NOT NULL') == [(0,)]
+    assert query(member) == []
+
+
+def test_box_set_facts_read_as_silos():
+    assert mapping.box_set_facts({'movie_count': 8, 'first_year': 2001, 'last_year': 2011}) == ('8 films', '2001 – 2011')
+    assert mapping.box_set_facts({'movie_count': 1, 'first_year': 2020, 'last_year': 2020}) == ('1 film', '2020')

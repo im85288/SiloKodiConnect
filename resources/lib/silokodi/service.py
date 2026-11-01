@@ -1470,6 +1470,16 @@ class Service(object):
             # brings Silo's current URL.
             self.home_cards_soon()
             return
+        if content_id.startswith('box_set:'):
+            # A box set's art (sync_box_sets): its library's box set answers the current URLs.
+            box_id = content_id.split(':', 1)[1]
+            for library_id, sets in (self.db.meta('box_sets') or {}).items():
+                if box_id in sets:
+                    detail = self.client.box_set(box_id, library_id)
+                    self.db.set_art(content_id, {kind: url for kind, url in (
+                        ('poster', detail.get('poster_url')), ('fanart', detail.get('backdrop_url')))
+                        if url and mapping.drawable(url)})
+            return
         if content_id.startswith('person:'):
             person = self.client.get('/catalog/people/%s' % content_id.split(':', 1)[1])
             if person.get('photo_url'):

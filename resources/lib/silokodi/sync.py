@@ -362,6 +362,7 @@ class Syncer(object):
         kind = (library.get('type') or '').lower()
         if kind in MOVIE_LIBRARY_TYPES:
             self.sync_movies(library)
+            self.sync_box_sets(library)
         if kind in SHOW_LIBRARY_TYPES:
             self.sync_shows(library)
 
@@ -381,6 +382,7 @@ class Syncer(object):
         for show in shows:
             with self.writing() as kodi:
                 self._remove_show(kodi, show)
+        self.sync_box_sets({'id': library_id})  # box sets off: its sets go
         self.changed = self.rewrote = True
 
     # ----- movies -----
@@ -442,6 +444,8 @@ class Syncer(object):
         kodi.set_studios(kodi_id, 'movie', fields['studios'])
         kodi.set_countries(kodi_id, 'movie', fields['countries'])
         kodi.set_tags(kodi_id, 'movie', [library.get('name')])
+        if kodi.set_of_movie(kodi_id):
+            kodi.mark_set_members(kodi.set_of_movie(kodi_id))  # set_tags took its box set tag
         local_art, remote_art = mapping.artwork(item, mapping.MOVIE_ART, self.port)
         kodi.set_art(kodi_id, 'movie', local_art)
         version = mapping.default_version(item)
@@ -462,6 +466,69 @@ class Syncer(object):
             kodi.remove_movie(row['kodi_id'], row['kodi_file_id'])
         self.db.remove(row['content_id'])
         self.changed = self.added_or_removed = self.rewrote = True
+
+    # ----- box sets -----
+
+    def sync_box_sets(self, library):
+        """Silo's box sets (a TMDB collection's movies, as Silo groups them in
+        a library with box sets on) as Kodi's movie sets: name, overview,
+        poster and backdrop, '8 films' and '2001 – 2011' as text art for a
+        skin, and their movies. A box set's movies are fetched again only
+        when its card changes."""
+        library_id = str(library['id'])
+        art_version = 2  # what a set's art holds (2: its overview too); a change rewrites every set's
+        stored = self.db.meta('box_sets') or {}
+        known = stored.get(library_id) or {}
+        current = {}
+        if library.get('box_sets_enabled'):
+            for card in self.client.box_set_cards(library_id):
+                info = card.get('box_set') or {}
+                box_id = str(info.get('id') or (card.get('content_id') or '').partition(':')[2])
+                if not box_id:
+                    continue
+                fingerprint = mapping.box_set_fingerprint(card)
+                entry = known.get(box_id) or {}
+                if entry.get('fingerprint') != fingerprint:
+                    detail = self.client.box_set(box_id, library_id)
+                    count, years = mapping.box_set_facts(info)
+                    entry = {'kodi_id': entry.get('kodi_id'), 'fingerprint': fingerprint,
+                             'title': card.get('title') or detail.get('title') or '',
+                             'overview': card.get('overview') or detail.get('overview') or '',
+                             'count': count, 'years': years,
+                             'members': [m['content_id'] for m in detail.get('items') or [] if m.get('content_id')]}
+                    self._save_art('box_set:' + box_id, {kind: url for kind, url in (
+                        ('poster', card.get('poster_url')), ('fanart', card.get('backdrop_url')))
+                        if url and mapping.drawable(url)})
+                current[box_id] = entry
+        changed = 0
+        with self.writing() as kodi:
+            for box_id, entry in current.items():
+                fresh = entry.get('kodi_id') is None or entry.get('art_version') != art_version or \
+                    known.get(box_id, {}).get('fingerprint') != entry['fingerprint']
+                entry['kodi_id'] = kodi.write_set(entry.get('kodi_id'), entry['title'], entry['overview'])
+                if fresh:
+                    key = 'box_set:' + box_id
+                    art = {kind: mapping.art_url(self.port, key, kind) for kind in self.db.art_kinds(key)}
+                    # Text for a skin's lists, whose film items carry their set's art (set.*).
+                    art.update(silocount=entry['count'], siloyears=entry['years'], silooverview=entry['overview'])
+                    kodi.set_art(entry['kodi_id'], 'set', {k: v for k, v in art.items() if v})
+                    entry['art_version'] = art_version
+                    changed += 1
+                movie_ids = [row['kodi_id'] for row in (self.db.get(c) for c in entry['members'])
+                             if row and row.get('kodi_id') is not None]
+                changed += kodi.set_movies_of_set(entry['kodi_id'], movie_ids)
+            for box_id, entry in known.items():
+                if box_id not in current and entry.get('kodi_id'):
+                    kodi.remove_set(entry['kodi_id'])
+                    changed += 1
+            if current or known:
+                kodi.mark_set_members()
+        if current or known:
+            stored[library_id] = current
+            self.db.set_meta('box_sets', stored)
+        if changed:
+            self.log('Box sets: %d in %s, %d changes' % (len(current), library.get('name') or library_id, changed))
+            self.changed = True
 
     # ----- TV -----
 

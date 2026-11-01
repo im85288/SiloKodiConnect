@@ -67,6 +67,7 @@ class FakeSilo(object):
         self.libraries_list = [{'id': '1', 'name': 'Movies', 'type': 'movies', 'enabled': True},
                                {'id': '2', 'name': 'TV', 'type': 'series', 'enabled': True}]
         self.movies = {}
+        self.box_sets = {}   # id -> {'id', 'title', 'members': [content_id], ...}
         self.shows = {}      # series_id -> item
         self.seasons_of = {}  # series_id -> [season]
         self.episodes_of = {}  # (series_id, number) -> [episode]
@@ -104,6 +105,20 @@ class FakeSilo(object):
         if library_id == '2' and media_type == 'episode':
             return [card_of(e) for episodes in self.episodes_of.values() for e in episodes]
         return []
+
+    def box_set_cards(self, library_id):
+        self.calls.append(('catalog', library_id, 'box_set'))
+        for box in (self.box_sets if library_id == '1' else {}).values():
+            yield {'type': 'box_set', 'content_id': 'box_set:%s' % box['id'], 'title': box['title'],
+                   'overview': box.get('overview', ''), 'poster_url': box.get('poster_url'),
+                   'backdrop_url': None,
+                   'box_set': {'id': box['id'], 'library_id': '1', 'movie_count': len(box['members']),
+                               'first_year': box.get('first_year'), 'last_year': box.get('last_year')}}
+
+    def box_set(self, box_set_id, library_id):
+        self.calls.append(('box_set', box_set_id))
+        box = self.box_sets[str(box_set_id)]
+        return {'id': box['id'], 'title': box['title'], 'items': [{'content_id': c} for c in box['members']]}
 
     def item(self, content_id):
         self.calls.append(('item', content_id))

@@ -55,6 +55,12 @@ def _ignore_duplicate(exc):
     return exc.args and 'UNIQUE constraint failed' in str(exc.args[0])
 
 
+# The tag on a box set's movies but its first by title: a skin's grid hides
+# them, and the first stands for the set there, as in Silo's grouped browse
+# (Kodi groups sets only in its own Videos window, not in a skin's lists).
+BOX_SET_MEMBER = 'Silo box set member'
+
+
 class KodiVideoDB(object):
     def __init__(self, cursor, version):
         self.cursor = cursor
@@ -386,16 +392,18 @@ class KodiVideoDB(object):
         return self.cursor.fetchone()[0]
 
     def write_movie(self, kodi_id, file_id, fields, rating_id, unique_id, people, path_id):
+        # A rewritten movie stays in its box set (sync's sync_box_sets keeps sets).
         self.cursor.execute('''
             INSERT OR REPLACE INTO movie(idMovie, idFile, c00, c01, c02, c03, c05, c06, c09, c10, c11, c12,
-                                         c14, c15, c16, c18, c21, c22, c23, premiered, userrating)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                         c14, c15, c16, c18, c21, c22, c23, premiered, userrating, idSet)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    (SELECT idSet FROM movie WHERE idMovie = ?))
         ''', (kodi_id, file_id, fields['title'], fields['plot'], fields['plot'][:300], fields['tagline'],
               rating_id, mapping.joined(p[0] for p in people['writer']), unique_id, fields['sorttitle'],
               fields['runtime'], fields['mpaa'], mapping.joined(fields['genres']),
               mapping.joined(p[0] for p in people['director']), fields['originaltitle'],
               mapping.joined(fields['studios']), mapping.joined(fields['countries']), mapping.MOVIES_PATH,
-              path_id, fields['premiered'], fields['userrating']))
+              path_id, fields['premiered'], fields['userrating'], kodi_id))
         if self.has_video_version:
             # Kodi 22 (MyVideos 134+) marks the default version with itemType 1.
             item_type = 1 if self.version >= 134 else 0
@@ -409,6 +417,69 @@ class KodiVideoDB(object):
         self.cursor.execute('DELETE FROM movie WHERE idMovie = ?', (kodi_id,))
         self.remove_file(file_id)
         self.remove_orphaned_people(actors)
+
+    # ----- box sets (Kodi's movie sets) -----
+
+    def write_set(self, set_id, name, overview):
+        """A movie set's name and overview; returns its id (a new one when set_id is None or gone)."""
+        if set_id:
+            self.cursor.execute('UPDATE sets SET strSet = ?, strOverview = ? WHERE idSet = ?', (name, overview, set_id))
+            if self.cursor.rowcount:
+                return set_id
+        self.cursor.execute('INSERT INTO sets(strSet, strOverview) VALUES (?, ?)', (name, overview))
+        return self.cursor.lastrowid
+
+    def set_movies_of_set(self, set_id, movie_ids):
+        """Put exactly these movies in the set; returns how many changed."""
+        movie_ids = list(movie_ids)
+        marks = ','.join('?' * len(movie_ids)) or 'NULL'
+        self.cursor.execute('UPDATE movie SET idSet = NULL WHERE idSet = ? AND idMovie NOT IN (%s)' % marks,
+                            [set_id] + movie_ids)
+        changed = self.cursor.rowcount
+        self.cursor.execute('UPDATE movie SET idSet = ? WHERE idMovie IN (%s) AND idSet IS NOT ?' % marks,
+                            [set_id] + movie_ids + [set_id])
+        return changed + self.cursor.rowcount
+
+    def _member_tag(self):
+        self.cursor.execute('SELECT tag_id FROM tag WHERE name = ?', (BOX_SET_MEMBER,))
+        row = self.cursor.fetchone()
+        if row:
+            return row[0]
+        self.cursor.execute('INSERT INTO tag(name) VALUES (?)', (BOX_SET_MEMBER,))
+        return self.cursor.lastrowid
+
+    def mark_set_members(self, set_id=None):
+        """Tag each set's movies but its first by title (BOX_SET_MEMBER), one
+        set or every set, and untag movies in none."""
+        tag_id = self._member_tag()
+        self.cursor.execute("DELETE FROM tag_link WHERE tag_id = ? AND media_type = 'movie' AND media_id IN "
+                            "(SELECT idMovie FROM movie WHERE idSet IS NULL)", (tag_id,))
+        if set_id is None:
+            self.cursor.execute('SELECT idSet FROM sets')
+            sets = [row[0] for row in self.cursor.fetchall()]
+        else:
+            sets = [set_id]
+        for one in sets:
+            self.cursor.execute("SELECT idMovie FROM movie WHERE idSet = ? "
+                                "ORDER BY COALESCE(NULLIF(c10, ''), c00) COLLATE NOCASE, idMovie", (one,))
+            movies = [row[0] for row in self.cursor.fetchall()]
+            for index, movie_id in enumerate(movies):
+                if index:
+                    self.cursor.execute("INSERT OR IGNORE INTO tag_link(tag_id, media_id, media_type) "
+                                        "VALUES (?, ?, 'movie')", (tag_id, movie_id))
+                else:
+                    self.cursor.execute("DELETE FROM tag_link WHERE tag_id = ? AND media_id = ? AND media_type = 'movie'",
+                                        (tag_id, movie_id))
+
+    def set_of_movie(self, movie_id):
+        self.cursor.execute('SELECT idSet FROM movie WHERE idMovie = ?', (movie_id,))
+        row = self.cursor.fetchone()
+        return row[0] if row else None
+
+    def remove_set(self, set_id):
+        self.cursor.execute('UPDATE movie SET idSet = NULL WHERE idSet = ?', (set_id,))
+        self.cursor.execute("DELETE FROM art WHERE media_id = ? AND media_type = 'set'", (set_id,))
+        self.cursor.execute('DELETE FROM sets WHERE idSet = ?', (set_id,))
 
     # ----- TV -----
 

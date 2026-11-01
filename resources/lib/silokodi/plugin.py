@@ -680,8 +680,10 @@ def info(kind, dbid):
     """Open a library title's info page, with the details a Silo-style skin
     shows. A skin's info page can't open another one itself (its More Like
     This rail closes the page and asks for the next one here)."""
-    if kind not in ('movie', 'tvshow', 'episode') or not str(dbid or '').isdigit():
+    if kind not in ('movie', 'tvshow', 'episode', 'set') or not str(dbid or '').isdigit():
         return
+    if kind == 'set':
+        return box_set_info(int(dbid))
     item = library_item(kind, int(dbid))
     if item:
         url, listitem, _ = item
@@ -706,8 +708,54 @@ def info(kind, dbid):
             # A toggle on an earlier page doesn't carry over to this one.
             xbmcgui.Window(12003).clearProperty('silo.watchlist.for')
             xbmcgui.Window(12003).clearProperty('silo.myrating.for')
+        if kind == 'movie':
+            # Its box set (Silo's, as Kodi's movie set), for the page's row of the set's films.
+            movie = (kodi.jsonrpc('VideoLibrary.GetMovieDetails', movieid=int(dbid), properties=['setid', 'set'])
+                     or {}).get('moviedetails') or {}
+            if movie.get('setid'):
+                listitem.setProperty('silo.set_id', str(movie['setid']))
+                listitem.setProperty('silo.set_title', movie.get('set') or '')
         xbmcgui.Window(12003).clearProperty('silo.marked')
         xbmcgui.Dialog().info(listitem)
+
+
+def box_set_info(set_id):
+    """A box set's page (Kodi's movie set, from Silo's box set): its name,
+    overview and art, '8 films' and '2001 – 2011', and Silo's Play: the first
+    film, in release order, that's part-watched (Resume) or unwatched, else
+    the first."""
+    details = (kodi.jsonrpc('VideoLibrary.GetMovieSetDetails', setid=set_id, properties=['title', 'plot', 'art'],
+                            movies={'properties': ['title', 'year', 'playcount', 'resume', 'file'],
+                                    'sort': {'method': 'year'}}) or {}).get('setdetails')
+    if not details:
+        return
+    art = details.get('art') or {}
+    listitem = xbmcgui.ListItem(details.get('title') or '', offscreen=True)
+    listitem.setArt({kind: url for kind, url in art.items() if not kind.startswith('silo')})
+    tag = listitem.getVideoInfoTag()
+    tag.setDbId(set_id)
+    tag.setMediaType('set')
+    tag.setTitle(details.get('title') or '')
+    tag.setPlot(details.get('plot') or '')
+    movies = details.get('movies') or []
+    started = [m for m in movies if (m.get('resume') or {}).get('position')]
+    target = (started or [m for m in movies if not m.get('playcount')] or movies or [None])[0]
+    listitem.setProperty('silo.set_id', str(set_id))  # the page's row of its films
+    # From its films: Kodi gives text kept as art back as image://... addresses.
+    years = [m['year'] for m in movies if m.get('year')]
+    count, span = mapping.box_set_facts({'movie_count': len(movies), 'first_year': min(years) if years else None,
+                                         'last_year': max(years) if years else None})
+    listitem.setProperty('silo.boxset.count', count)
+    listitem.setProperty('silo.boxset.years', span)
+    if target:
+        resume = target in started
+        listitem.setProperty('silo.boxset.play', target.get('file') or '')
+        listitem.setProperty('silo.boxset.resume', 'true' if resume else '')
+        listitem.setProperty('silo.boxset.play_label', '%s %s' % (kodi.string(30195 if resume else 30194),
+                                                                  target.get('title') or ''))
+    for name in ('silo.marked', 'silo.watchlist.for', 'silo.myrating.for'):
+        xbmcgui.Window(12003).clearProperty(name)
+    xbmcgui.Dialog().info(listitem)
 
 
 # The Rate button's choices, as Silo's stars with Netflix's words.

@@ -86,3 +86,12 @@ def test_guide_times_parse_without_strptime():
     from resources.lib.silokodi.channels import utc_seconds
     for stamp in ('2026-11-01 20:00:00', '2026-01-31 00:05:09'):
         assert utc_seconds(stamp) == calendar.timegm(time.strptime(stamp, '%Y-%m-%d %H:%M:%S'))
+
+
+def test_group_steps_go_the_shorter_way_round():
+    from resources.lib.silokodi.quick import steps_to
+    names = ['All', 'UK | News', 'UK | Sports', 'UK | Sky Sports', 'US | News']
+    assert steps_to(names, 'UK | News', 'UK | Sky Sports') == 2
+    assert steps_to(names, 'UK | Sky Sports', 'UK | News') == -2
+    assert steps_to(names, 'All', 'US | News') == -1
+    assert steps_to(names, 'UK | Sports', 'UK | Sports') == 0

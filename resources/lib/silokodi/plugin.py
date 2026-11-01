@@ -38,8 +38,9 @@ def relay_port():
 
 def ask_service(path, timeout=75, **query):
     url = 'http://127.0.0.1:%d/%s' % (relay_port(), path)
-    if query:
-        url += '?' + urlencode(query)
+    # The service's key to its commands (relay.token).
+    query['token'] = kodi.get_property('relay_token')
+    url += '?' + urlencode(query)
     try:
         with urlopen(url, timeout=timeout) as response:
             return json.loads(response.read().decode('utf-8'))
@@ -54,6 +55,10 @@ def run(argv):
     mode = params.get('mode')
     if mode == 'play':
         return play(handle, params, len(argv) > 3 and argv[3] == 'resume:true')
+    if mode == 'homemenu':
+        # Home's context menu key (zz_skyline_home.xml).
+        from .context import home_menu
+        return home_menu()
     if mode == 'signin':
         return sign_in()
     if mode == 'signout':

@@ -8,14 +8,14 @@
 <keymap>
   <home>
     <keyboard>
-      <c>RunScript(special://home/addons/plugin.video.silokodiconnect/context_home.py)</c>
-      <menu>RunScript(special://home/addons/plugin.video.silokodiconnect/context_home.py)</menu>
-      <return mod="longpress">RunScript(special://home/addons/plugin.video.silokodiconnect/context_home.py)</return>
-      <enter mod="longpress">RunScript(special://home/addons/plugin.video.silokodiconnect/context_home.py)</enter>
+      <c>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=homemenu)</c>
+      <menu>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=homemenu)</menu>
+      <return mod="longpress">RunPlugin(plugin://plugin.video.silokodiconnect/?mode=homemenu)</return>
+      <enter mod="longpress">RunPlugin(plugin://plugin.video.silokodiconnect/?mode=homemenu)</enter>
     </keyboard>
     <remote>
-      <menu>RunScript(special://home/addons/plugin.video.silokodiconnect/context_home.py)</menu>
-      <title>RunScript(special://home/addons/plugin.video.silokodiconnect/context_home.py)</title>
+      <menu>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=homemenu)</menu>
+      <title>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=homemenu)</title>
     </remote>
   </home>
 </keymap>

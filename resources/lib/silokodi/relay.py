@@ -15,7 +15,10 @@
 
 It listens on 127.0.0.1 only and never logs URLs, which carry signatures.
 """
+import binascii
+import hmac
 import json
+import os
 import socket
 import threading
 import time
@@ -70,6 +73,8 @@ class Handler(BaseHTTPRequestHandler):
             if segments[0] == 'media':
                 return self.media(relay, parts, head)
             query = {k: v[0] for k, v in parse_qs(parts.query).items()}
+            if segments[0] in ('play', 'command') and not hmac.compare_digest(query.pop('token', ''), relay.token):
+                return self.json(403, {'error': 'Forbidden'})
             if segments == ['play']:
                 return self.json(200, relay.play(query))
             if len(segments) == 2 and segments[0] == 'command':
@@ -204,6 +209,10 @@ class Relay(object):
         self.port = port
         self.log = log or (lambda message: None)
         self.session = requests.Session()
+        # Asked for by /play and /command, which act for the viewer: only
+        # Kodi's add-ons can read it (a Home window property), so another
+        # app on the device, or a web page in its browser, can't send them.
+        self.token = binascii.hexlify(os.urandom(16)).decode('ascii')
         self._server = None
         self._thread = None
 

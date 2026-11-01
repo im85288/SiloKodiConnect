@@ -78,3 +78,11 @@ def test_every_row_knows_its_day_for_the_day_column():
     assert [r['day'] for r in rows] == [0, 0, 1, 1, 1, 1, 1, 2, 2]
     assert [r['today'] for r in rows if r.get('header')] == [False, True, False]
     assert channels.day_label(datetime.date(2026, 10, 27)) == 'Tue, 27 Oct'
+
+
+def test_guide_times_parse_without_strptime():
+    import calendar
+    import time
+    from resources.lib.silokodi.channels import utc_seconds
+    for stamp in ('2026-11-01 20:00:00', '2026-01-31 00:05:09'):
+        assert utc_seconds(stamp) == calendar.timegm(time.strptime(stamp, '%Y-%m-%d %H:%M:%S'))

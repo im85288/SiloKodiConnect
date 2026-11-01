@@ -133,14 +133,21 @@ def find_channel(number, name, found=None):
         next((c for c in found if c.get('label') == name), None)
 
 
+def utc_seconds(stamp):
+    """Kodi's guide time ('2026-11-01 20:00:00', UTC) as epoch seconds. Not
+    time.strptime: Kodi's embedded Python can lose _strptime after its first
+    use ("'NoneType' object is not callable")."""
+    day, _, clock = stamp.partition(' ')
+    return calendar.timegm(tuple(int(part) for part in day.split('-') + (clock or '0:0:0').split(':')) + (0, 0, 0))
+
+
 def channel_schedule(channel, now=None):
     """The channel's programmes as schedule_rows, from Kodi's guide."""
     broadcasts = (kodi.jsonrpc('PVR.GetBroadcasts', channelid=channel['channelid'],
                                properties=['title', 'starttime', 'endtime', 'plot'])
                   or {}).get('broadcasts') or []
     for broadcast in broadcasts:
-        broadcast['start'], broadcast['end'] = (calendar.timegm(time.strptime(broadcast[key], '%Y-%m-%d %H:%M:%S'))
-                                                for key in ('starttime', 'endtime'))
+        broadcast['start'], broadcast['end'] = (utc_seconds(broadcast[key]) for key in ('starttime', 'endtime'))
     return schedule_rows(broadcasts, now or time.time(), bool(channel.get('hasarchive')))
 
 

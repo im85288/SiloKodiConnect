@@ -278,6 +278,7 @@ class Service(object):
 
     def run(self):
         kodi.log('Starting SiloKodiConnect %s' % self.version)
+        kodi.set_property('relay_token', self.relay.token)  # the plugin's key to /play and /command
         try:
             self.relay.start()
         except OSError as error:

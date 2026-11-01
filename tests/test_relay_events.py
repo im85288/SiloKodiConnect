@@ -92,8 +92,17 @@ def test_unknown_artwork_is_404(relay):
 
 def test_play_and_command_routes(relay):
     server = relay[0]
-    assert json.loads(get(server, '/play?id=movie-1&resume=1')[1]) == {'url': 'u', 'id': 'movie-1'}
-    assert json.loads(get(server, '/command/sync')[1]) == {'ok': 'sync'}
+    token = 'token=' + server.token
+    assert json.loads(get(server, '/play?id=movie-1&resume=1&' + token)[1]) == {'url': 'u', 'id': 'movie-1'}
+    assert json.loads(get(server, '/command/sync?' + token)[1]) == {'ok': 'sync'}
+
+
+def test_play_and_command_need_the_token(relay):
+    server = relay[0]
+    for path in ('/play?id=movie-1', '/command/signout', '/command/signout?token=wrong'):
+        with pytest.raises(Exception) as raised:
+            get(server, path)
+        assert '403' in str(raised.value)
 
 
 def test_art_url_quotes_ids():

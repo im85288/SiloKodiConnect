@@ -73,6 +73,22 @@ def next_episode(episodes, current):
     return min(candidates, key=lambda e: (e.get('season'), e.get('episode'))) if candidates else None
 
 
+def player_episodes(current, following, episodes):
+    """A skin player's Episodes and Next Episode buttons (silokodi.playing.*):
+    the season's library folder, the playing episode's place in it (from 0),
+    and the next episode's file and "S2 E5 · Title"."""
+    season = current.get('season')
+    numbers = sorted(e.get('episode') for e in episodes if e.get('season') == season)
+    props = {'season_path': 'videodb://tvshows/titles/%s/%s/' % (current.get('tvshowid'), season),
+             'episode_index': str(numbers.index(current.get('episode'))) if current.get('episode') in numbers else '0',
+             'next': '', 'next_label': ''}
+    if following:
+        props['next'] = following.get('file') or ''
+        props['next_label'] = 'S%s E%s%s' % (following.get('season'), following.get('episode'),
+                                             ' · ' + following['title'] if following.get('title') else '')
+    return props
+
+
 def payload(current, following, found_markers, origin=0.0):
     """upnext_data for the current episode (following may be None). Marker times are converted from
     the source file's timeline to the player's (they differ only when Silo

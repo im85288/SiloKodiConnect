@@ -83,6 +83,9 @@ PUBLISHED_ROWS = {'home': 4, 'requests': 12}
 # The playing title's details for a skin's player (silokodi.playing.*).
 PLAYING_FIELDS = ('rating.imdb', 'rating.tmdb', 'rating.rtcritic', 'badge1', 'badge2', 'badge3', 'mpaa',
                   'air_date')
+# The playing episode's season and next episode, for the player's Episodes and
+# Next Episode buttons (upnext.player_episodes).
+EPISODE_FIELDS = ('season_path', 'episode_index', 'next', 'next_label')
 STARTUP_QUIET = 60
 PAGE_LOADING = 6  # seconds a page's rows show while they start loading (then empty ones hide)
 DETAILS_SAVE_INTERVAL = 30
@@ -131,7 +134,7 @@ class Player(xbmc.Player):
     def _ended(self):
         for kind in upnext.MARKER_KINDS:
             kodi.clear_property('markers.' + kind)
-        for field in PLAYING_FIELDS:
+        for field in PLAYING_FIELDS + EPISODE_FIELDS:
             kodi.clear_property('playing.' + field)
         # A trailer from a Silo-style skin's info page: reopen that page
         # (silokodi.trailer_return, "<type>|<dbid>"). The skin covers the
@@ -660,6 +663,8 @@ class Service(object):
             episodes = (kodi.jsonrpc('VideoLibrary.GetEpisodes', tvshowid=current['tvshowid'],
                                      properties=upnext.EPISODE_PROPERTIES) or {}).get('episodes') or []
             following = upnext.next_episode(episodes, current)
+            for field, value in upnext.player_episodes(current, following, episodes).items():
+                kodi.set_property('playing.' + field, value)
             data = upnext.payload(current, following, session.markers, session.origin)
             if not following and not data.get('skip_segments'):
                 return  # the last episode, with nothing to skip: nothing to offer

@@ -42,6 +42,18 @@ def test_next_episode_crosses_seasons_and_skips_specials():
     assert upnext.next_episode(episodes, episode(0, 1, 100))['episodeid'] == 1
 
 
+def test_player_episodes_give_the_season_and_the_next_one():
+    episodes = [episode(1, 1, 1), episode(1, 2, 2), episode(1, 3, 3), episode(2, 1, 4)]
+    following = dict(episode(1, 3, 3), file='plugin://x/?mode=play&id=3')
+    props = upnext.player_episodes(episode(1, 2, 2), following, episodes)
+    assert props == {'season_path': 'videodb://tvshows/titles/7/1/', 'episode_index': '1',
+                     'next': 'plugin://x/?mode=play&id=3', 'next_label': 'S1 E3 · E3'}
+    # The last episode: the season, and no next.
+    last = upnext.player_episodes(episode(2, 1, 4), None, episodes)
+    assert last['season_path'] == 'videodb://tvshows/titles/7/2/' and last['episode_index'] == '0'
+    assert last['next'] == '' and last['next_label'] == ''
+
+
 def test_payload_carries_credits_time_and_skip_ranges():
     data = upnext.payload(episode(1, 1, 1), episode(1, 2, 2), upnext.markers(VERSION))
     assert data['play_info'] == {'episodeid': 2}

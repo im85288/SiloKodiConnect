@@ -27,7 +27,7 @@ jobs:
     # longer offers on current Ubuntu: the official image has it.
     name: Tests on Python 3.8
     runs-on: ubuntu-latest
-    container: python:3.8-slim
+    container: python:3.8  # with git: checkout needs it in a container
     steps:
     - uses: actions/checkout@v4
     - name: Install dependencies

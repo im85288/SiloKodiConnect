@@ -15,7 +15,7 @@ Community project: not made or endorsed by the Silo team. Requires Kodi 20 (Nexu
   to approve at `<your server>/activate` (OIDC sign-ins such as Pocket ID work). Servers on the local network
   are found without typing an address. Then choose a household profile; PIN profiles ask for the PIN.
 - **Movies and TV in Kodi's library.** Titles, plots, cast with photos, directors, writers, genres, studios,
-  networks, countries, ratings, IMDb/TMDB/TVDB ids, artwork (poster, fanart, logo, clearart, banner, disc,
+  networks, countries, ratings (IMDb, TMDB and Rotten Tomatoes' critics), IMDb/TMDB/TVDB ids, artwork (poster, fanart, logo, clearart, banner, disc,
   landscape, season posters, episode stills) and video/audio details (4K, HDR10, Dolby Vision, Atmos-capable
   tracks) so skins show the right flags. Each Silo library becomes a Kodi tag.
 - **Kept current.** Silo's realtime event socket reports changed titles, finished scans and watch-state
@@ -28,6 +28,13 @@ Community project: not made or endorsed by the Silo team. Requires Kodi 20 (Nexu
   routes need the sign-in header, so Kodi plays through the service's loopback relay, which adds a fresh
   token to every request: long films outlive the hourly token and no token reaches Kodi's log. External text
   subtitles are added to the player.
+- **Your ratings.** Rate a film or series from one to five stars (Love it ... Not for me), which Silo's
+  recommendations learn from; Kodi's info page shows the current stars.
+- **Theme tunes.** A show's theme plays while its page (or one of its episodes') is open, as Plex and Infuse
+  play one: Silo's own theme.mp3 beside the show's media, cached on the device, never over your own playback.
+- **Dolby Atmos on live UHD channels.** Kodi never passes a live stream's audio through, so IPTV Simple
+  channels with UHD in their name or group are tagged `realtime="false"` whenever the playlist changes, and
+  their E-AC-3 Atmos reaches the receiver as TiviMate's does.
 
 ## Install
 
@@ -60,6 +67,8 @@ rows instead, point skin widgets at the add-on:
   collections, recommendations...), each a folder usable as a widget
   (`plugin://plugin.video.silokodiconnect/?mode=widget&section=<row id>`).
 - **Watchlist, Favourites and History**, kept between visits so they open at once.
+- **Coming Soon** (`section=comingsoon`): Silo's calendar for the next 14 days, each show you've started once
+  with its next episode, soonest first, captioned "Tomorrow · S2 E5".
 
 Kodi's context menu on a Continue Watching or Next Up card offers **Remove from Continue Watching**: Silo
 hides it (an episode's whole show) until it is played again.
@@ -77,14 +86,14 @@ the same properties.
   `.style` (`poster`, `landscape` or `ranked`) / `.type`, following the profile's Silo home and libraries;
   published when the service starts (from last time's copy at once, then fresh) and after every sync.
 - **Home's and Requests' cards:** each row's titles as `silo.<page>.<n>.<card>.<field>` in Silo's order, so a
-  row draws at once: title and captions, the hero's details and both ratings, art, progress, and the marks
+  row draws at once: title and captions, the hero's details and its IMDb, TMDB and Rotten Tomatoes ratings, art, progress, and the marks
   below. Rows further down load through the plugin, whose items carry the same marks as `silo.*` properties.
 - **Marks:** `playcount` (a show with every episode watched counts as played), `new` (a show you've started
   with an unwatched episode aired in the last 7 days), `left` (a part-watched title's time left, or "Next
   Episode"), `dismiss` (removable from Continue Watching), `rank` (a numbered Top 10 row) and `place` (a title
   in the first ten of a chart row such as Trending This Week, IMDb Popular or Popular on..., numbered or not).
 - **For its pages:** a title's trailers, watchlist state and ambient tint, person pages, collections, More
-  Like This, the Live TV quick guide, catch-up and recent channels, Silo's markers for the seek bar, and the
+  Like This, the Live TV quick guide (with its channel groups on Left, as TiviMate's), catch-up and recent channels, Silo's markers for the seek bar, and the
   playing title's details for the player. `silokodi.signed_in` says whether you are signed in.
 - **Keys:** with Skyline as the skin, the add-on installs keymaps in `userdata/keymaps`: Live TV's (as
   TiviMate's), the player's (Back on the pause screen) and Home's (the context menu key on a Continue
@@ -101,6 +110,7 @@ the same properties.
 - **Playback -> Live TV keys as TiviMate** (with Skyline): OK the recent channels, Left the quick guide.
 - **Playback -> Top 10 rows** chooses which Home rows Skyline numbers, as Netflix's Top 10 (Skyline's own
   settings open the same choice). Until you choose: rows titled Trending This Week or IMDb Popular.
+- **Playback -> Theme music on show pages** (on by default; Skyline's skin settings turn it off too).
 - **Sync -> Choose libraries** limits which Silo libraries are synced.
 - **Sync -> Rewrite every item** re-fetches every title (use after changing the relay port).
 - **Sync -> Remove all Silo items** removes everything this add-on wrote to the Kodi library.
@@ -167,6 +177,15 @@ Android, in the `python:3.8` image), 3.11 (Kodi 21) and 3.14. Kodi's embedded Py
 `datetime.strptime` after its first use, so dates are parsed by hand.
 
 ## Changes
+
+### Since v0.10.0 (on main, unreleased)
+- **Ratings:** your 1-5 stars for a film or series, and Rotten Tomatoes' critics' score beside IMDb's and TMDB's.
+- **Coming Soon** row from Silo's calendar.
+- **Theme tunes** on show and episode pages, from Silo.
+- **Dolby Atmos** passes through on live UHD channels.
+- **Quick guide groups** on Left, as TiviMate's.
+- Watchlist and Mark watched no longer pop up a notification: the page shows the new state.
+- Plugin rows no longer reload whenever something starts or stops playing (a theme tune made pages lag).
 
 ### v0.10.0 (2026-11-01)
 For [Silo Skyline](https://github.com/im85288/SiloSkyline) 0.3.0, tested on an NVIDIA SHIELD (Kodi 21).

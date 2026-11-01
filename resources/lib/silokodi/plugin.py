@@ -705,8 +705,11 @@ def library_item(kind, kodi_id, shows=None, cached=None):
     tag.setPlot(details.get('plot') or '')
     if details.get('rating'):
         tag.setRating(float(details['rating']))
-    if details.get('playcount'):
-        tag.setPlaycount(int(details['playcount']))
+    # A show watched in full counts as played, as Kodi's own lists have it
+    # (its details carry no play count), so skins draw its watched mark.
+    playcount = home_cards.watched_mark(kind, details)
+    if playcount:
+        tag.setPlaycount(int(playcount))
     # Skins' info lines use these for shows too.
     if details.get('year'):
         tag.setYear(int(details['year']))

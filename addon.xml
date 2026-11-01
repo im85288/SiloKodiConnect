@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="plugin.video.silokodiconnect" name="SiloKodiConnect" version="0.10.0" provider-name="im85288">
+<addon id="plugin.video.silokodiconnect" name="SiloKodiConnect" version="0.11.0" provider-name="im85288">
   <requires>
     <import addon="xbmc.python" version="3.0.1"/>
     <import addon="script.module.requests" version="2.22.0"/>
@@ -28,7 +28,9 @@
     <assets>
       <icon>icon.png</icon>
     </assets>
-    <news>0.10.0: Silo Requests (Discover and Yours), faster Home rows published as cards, Remove from Continue Watching, Top 10 rows chosen in the settings, chart places, new-episode and time-left marks, trailers, watchlist, person pages and collections for a skin, Live TV quick guide, catch-up and recent channels, sign-in from the Silo phone app. Fixes: unwatched marks reach Silo, late intros count as credits, SVG logos skipped, watched shows marked in lazy rows, the relay's commands need a token.
+    <news>0.11.0: Silo's box sets as Kodi movie sets (one card per box set in a Silo-style skin's grid, a box set page, a film's box set), your 1-5 star ratings, Rotten Tomatoes' critics' score, a Coming Soon row, show theme tunes from Silo, Dolby Atmos on live UHD channels, the quick guide's channel groups, and the playing episode's season and next episode for a player's Episodes and Next Episode buttons. No pop-up after Watchlist or Mark watched; plugin rows no longer reload when playback starts or stops.
+
+0.10.0: Silo Requests (Discover and Yours), faster Home rows published as cards, Remove from Continue Watching, Top 10 rows chosen in the settings, chart places, new-episode and time-left marks, trailers, watchlist, person pages and collections for a skin, Live TV quick guide, catch-up and recent channels, sign-in from the Silo phone app. Fixes: unwatched marks reach Silo, late intros count as credits, SVG logos skipped, watched shows marked in lazy rows, the relay's commands need a token.
 
 0.9.3: profile avatar, ambient tints, More Like This, season paths, library collections and an info route for the Silo Skyline skin; Continue Watching from the add-on menu works again.
 

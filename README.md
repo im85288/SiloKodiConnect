@@ -28,6 +28,11 @@ Community project: not made or endorsed by the Silo team. Requires Kodi 20 (Nexu
   routes need the sign-in header, so Kodi plays through the service's loopback relay, which adds a fresh
   token to every request: long films outlive the hourly token and no token reaches Kodi's log. External text
   subtitles are added to the player.
+- **Box sets.** Silo's box sets (the films of a TMDB collection, such as Harry Potter, in a library with box sets
+  on) become Kodi movie sets with Silo's name, overview, poster and backdrop. Each set's films but its first by
+  title are tagged `Silo box set member`, so a skin's grid can hide them and show the first as the box set
+  (Kodi groups sets only in its own Videos window); its set art carries `silocount` ("8 films"), `siloyears`
+  ("2001 – 2011") and `silooverview` as text. `mode=info&type=set&dbid=<set>` opens a box set's page.
 - **Your ratings.** Rate a film or series from one to five stars (Love it ... Not for me), which Silo's
   recommendations learn from; Kodi's info page shows the current stars.
 - **Theme tunes.** A show's theme plays while its page (or one of its episodes') is open, as Plex and Infuse
@@ -94,7 +99,8 @@ the same properties.
   in the first ten of a chart row such as Trending This Week, IMDb Popular or Popular on..., numbered or not).
 - **For its pages:** a title's trailers, watchlist state and ambient tint, person pages, collections, More
   Like This, the Live TV quick guide (with its channel groups on Left, as TiviMate's), catch-up and recent channels, Silo's markers for the seek bar, and the
-  playing title's details for the player. `silokodi.signed_in` says whether you are signed in.
+  playing title's details for the player, with its season and next episode for Episodes and Next Episode
+  buttons (`silokodi.playing.season_path`, `.episode_index`, `.next`, `.next_label`). `silokodi.signed_in` says whether you are signed in.
 - **Keys:** with Skyline as the skin, the add-on installs keymaps in `userdata/keymaps`: Live TV's (as
   TiviMate's), the player's (Back on the pause screen) and Home's (the context menu key on a Continue
   Watching card), and takes them away for any other skin.
@@ -178,13 +184,18 @@ Android, in the `python:3.8` image), 3.11 (Kodi 21) and 3.14. Kodi's embedded Py
 
 ## Changes
 
-### Since v0.10.0 (on main, unreleased)
+### v0.11.0 (2026-11-01)
+For [Silo Skyline](https://github.com/im85288/SiloSkyline) 0.4.0, tested on an NVIDIA SHIELD (Kodi 21).
+- **Box sets:** Silo's box sets (a TMDB collection's films, in a library with box sets on) become Kodi movie
+  sets, with Silo's name, overview and art; a skin's grid can show one card per box set, and a box set opens
+  its own page.
 - **Ratings:** your 1-5 stars for a film or series, and Rotten Tomatoes' critics' score beside IMDb's and TMDB's.
 - **Coming Soon** row from Silo's calendar.
 - **Theme tunes** on show and episode pages, from Silo.
 - **Dolby Atmos** passes through on live UHD channels.
 - **Quick guide groups** on Left, as TiviMate's.
 - Watchlist and Mark watched no longer pop up a notification: the page shows the new state.
+- **Player buttons:** the playing episode's season and next episode, for a skin's Episodes and Next Episode.
 - Plugin rows no longer reload whenever something starts or stops playing (a theme tune made pages lag).
 
 ### v0.10.0 (2026-11-01)

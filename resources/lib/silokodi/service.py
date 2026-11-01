@@ -16,6 +16,8 @@ import xbmc
 import xbmcgui
 
 from . import catchup, jump, kodi, kodidb, mapping, quick, tracks, upnext, keymap
+from . import theme
+from .theme import ThemePlayer
 from .api import ApiError, SignedOut, SiloClient
 from .events import Debouncer, EventListener
 from .playback import PlaybackError, PlaybackManager
@@ -226,6 +228,10 @@ class Service(object):
         self.playback = PlaybackManager(self.client, self.version, self.playback_settings, log=kodi.log,
                                         media_url=self.relay.media_url)
         self.player = Player(self)
+        # On in the add-on's settings and, under Skyline, its own skin setting (off: SkylineNoThemeMusic).
+        self.theme = ThemePlayer(lambda: kodi.setting_bool('theme_music')
+                                 and not xbmc.getCondVisibility('Skin.HasSetting(SkylineNoThemeMusic)'),
+                                 os.path.join(kodi.profile_dir(), 'themes'), log=kodi.log)
         self.catchup = catchup.Rewriter()
         # Tasks in order, but Home's cards first: they show the viewer's own
         # changes (a title marked watched) and would otherwise wait behind a
@@ -325,6 +331,7 @@ class Service(object):
                 self.next_progress = now + (PROGRESS_POLL if connected else PROGRESS_POLL_OFFLINE)
                 self.enqueue('progress')
             self.player.tick()
+            self.theme.tick()
             self.note_viewed_page()
             self.note_refresh()
             if self.native_recheck and self.layout and not self.playing():
@@ -738,6 +745,7 @@ class Service(object):
                 return {'tint': ''}
             answer = {'tint': mapping.ambient_tint(item.get('poster_thumbhash') or ''),
                       'trailer': mapping.trailer_key(item), 'watchlist': '', 'rating': ''}
+            self.offer_theme(item)
             if item.get('type') in ('movie', 'series'):
                 try:
                     answer['watchlist'] = 'true' if self.client.in_watchlist(item['content_id']) else 'false'
@@ -873,6 +881,26 @@ class Service(object):
         else:
             return {'error': 'unknown command'}
         return {'ok': True}
+
+    def offer_theme(self, item):
+        """A show's page, or one of its episodes', is opening: the show's theme,
+        Silo's own first (a theme.mp3 beside the media), else Plex's (by the
+        show's TVDB id, which Silo's ids carry: series-tvdb-399917)."""
+        if item.get('type') == 'series':
+            series_id, show, rail = item['content_id'], item.get('title') or '', theme.SHOW_RAIL
+            tvdb_id = item.get('tvdb_id')
+        elif item.get('type') == 'episode' and item.get('series_id'):
+            series_id, show, rail = item['series_id'], item.get('series_title') or '', theme.EPISODE_RAIL
+            tvdb_id = series_id[len('series-tvdb-'):] if series_id.startswith('series-tvdb-') else ''
+        else:
+            return
+
+        def silos_own():
+            series = item if item.get('type') == 'series' else self.client.item(series_id)
+            themes = series.get('themes') or {}
+            own = (themes.get('items') or [None])[0]
+            return self.client.theme_audio(themes.get('owner_id') or series_id, own['id']) if own else None
+        self.theme.offer(tvdb_id, ('silo-' + series_id, silos_own), show, rail)
 
     def coming_soon(self, days=COMING_DAYS, today=None):
         """Coming Soon, as Apple TV's Upcoming: for each show in the library

@@ -92,6 +92,11 @@
         </setting>
       </group>
       <group id="2">
+        <setting id="theme_music" type="boolean" label="30192" help="30193">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle"/>
+        </setting>
         <setting id="choose_top10" type="action" label="30182" help="30184">
           <level>0</level>
           <data>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=top10)</data>

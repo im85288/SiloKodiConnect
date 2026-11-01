@@ -267,6 +267,18 @@ class SiloClient(object):
         as [{'date', 'items': [...]}], a day each."""
         return self.get('/calendar', start=start, end=end).get('events') or []
 
+    def theme_audio(self, owner_id, theme_id):
+        """Silo's own theme tune for a title (a theme.mp3 kept beside its
+        media), as (bytes, file extension). The grant behind it lasts
+        minutes, so the tune is fetched at once."""
+        grant = self.request('POST', '/catalog/items/%s/themes/%s/playback' % (owner_id, theme_id),
+                             body={'accepted_formats': [{'container': 'mp3'}, {'container': 'mp4', 'audio_codec': 'aac'},
+                                                        {'container': 'm4a', 'audio_codec': 'aac'}]})
+        response = self.session.get(self.url(grant['url']), headers=self.auth_headers(), timeout=20)
+        if response.status_code != 200:
+            raise problem(response)
+        return response.content, '.mp3' if 'mpeg' in (grant.get('content_type') or '') else '.m4a'
+
     def rating(self, item_id):
         """The profile's stars (1-5) for a title, or 0 when it hasn't rated it."""
         try:

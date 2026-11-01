@@ -375,3 +375,11 @@ msgstr ""
 msgctxt "#30191"
 msgid "Coming Soon"
 msgstr ""
+
+msgctxt "#30192"
+msgid "Theme music on show pages"
+msgstr ""
+
+msgctxt "#30193"
+msgid "Plays a show's theme tune while its page is open, as Plex does, from Plex's TV theme service (about half of shows have one). Never over something you're playing."
+msgstr ""

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """The background service: owns the Silo session, keeps the library synced,
 listens for Silo's realtime events and reports playback."""
+import datetime
 import gc
 import hashlib
 import itertools
@@ -42,6 +43,8 @@ TRAILER_QUIET = 0.75        # seconds after Kodi's busy spinner with no video: i
 PERSONAL_QUIET = 30          # fetch the profile's lists again once its watch state settles...
 PERSONAL_WAIT = 300          # ...or this long after the first change
 # The profile's own lists, as Silo's avatar menu offers them: section -> (path, title string).
+# Coming Soon's window: today and the next 13 days of Silo's calendar.
+COMING_DAYS = 14
 PERSONAL_LISTS = {'watchlist': ('/watchlist', 30160), 'favorites': ('/favorites', 30161),
                   'history': ('/history', 30162)}
 AVATAR_TYPES = {'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif'}
@@ -734,10 +737,14 @@ class Service(object):
             except (ApiError, requests.RequestException):
                 return {'tint': ''}
             answer = {'tint': mapping.ambient_tint(item.get('poster_thumbhash') or ''),
-                      'trailer': mapping.trailer_key(item), 'watchlist': ''}
+                      'trailer': mapping.trailer_key(item), 'watchlist': '', 'rating': ''}
             if item.get('type') in ('movie', 'series'):
                 try:
                     answer['watchlist'] = 'true' if self.client.in_watchlist(item['content_id']) else 'false'
+                except (ApiError, requests.RequestException):
+                    pass
+                try:
+                    answer['rating'] = str(self.client.rating(item['content_id']))  # '0': not rated
                 except (ApiError, requests.RequestException):
                     pass
             return answer
@@ -753,6 +760,14 @@ class Service(object):
                 return {'error': str(error)}
             self.personal.refresh_soon(['/watchlist'])
             return {'watchlist': 'true' if query.get('add') == '1' else 'false'}
+        elif name == 'rate':
+            # Rate a film or series 1-5 stars, or 0 to take the rating away.
+            try:
+                stars = max(0, min(5, int(query.get('stars') or 0)))
+                self.client.rate(query.get('id') or '', stars)
+            except (ApiError, requests.RequestException, ValueError) as error:
+                return {'error': str(error)}
+            return {'rating': str(stars)}
         elif name == 'top10':
             # The Top 10 rows changed in the settings: Home's layout and cards again.
             self.enqueue('layout')
@@ -816,6 +831,11 @@ class Service(object):
                 return self.person(query.get('id'), query.get('name'))
             except (ApiError, requests.RequestException) as error:
                 return {'error': str(error)}
+        elif name == 'widget' and query.get('section') == 'comingsoon':
+            try:
+                return {'items': self.with_details(self.coming_soon()), 'title': kodi.string(30191)}
+            except (ApiError, requests.RequestException) as error:
+                return {'error': str(error)}
         elif name == 'widget' and query.get('section') in PERSONAL_LISTS:
             try:
                 path, title = PERSONAL_LISTS[query['section']]
@@ -853,6 +873,31 @@ class Service(object):
         else:
             return {'error': 'unknown command'}
         return {'ok': True}
+
+    def coming_soon(self, days=COMING_DAYS, today=None):
+        """Coming Soon, as Apple TV's Upcoming: for each show in the library
+        you've started, its next episode airing from today on (Silo's
+        calendar), soonest first, as a show card with that date and episode."""
+        today = today or datetime.date.today()
+        end = today + datetime.timedelta(days=days - 1)
+        seen, items = set(), []
+        for day in self.client.calendar(today.isoformat(), end.isoformat()):
+            for event in day.get('items') or []:
+                series_id = event.get('series_id')
+                if not series_id or series_id in seen or event.get('watched'):
+                    continue
+                row = self.db.get(series_id)
+                if not row or row.get('kind') != 'tvshow' or not row.get('kodi_id'):
+                    continue
+                cached = self.details.get('tvshow', row['kodi_id'])
+                if not cached or not (cached['details'].get('watchedepisodes') or 0):
+                    continue
+                seen.add(series_id)
+                items.append({'type': 'tvshow', 'kodi_id': row['kodi_id'],
+                              'caption': mapping.coming_caption(event.get('local_air_date') or day.get('date') or '',
+                                                                event.get('season_number'), event.get('episode_number'),
+                                                                today)})
+        return items
 
     def dismiss(self, kind, dbid):
         """Remove a library title's card from Silo's Continue Watching / Next

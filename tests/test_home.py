@@ -168,3 +168,69 @@ def test_the_home_menu_key_opens_kodis_menu_elsewhere(monkeypatch):
     monkeypatch.setattr(context, 'ask_service', lambda *a, **k: (_ for _ in ()).throw(AssertionError('asked')))
     context.home_menu()
     assert ran == ['Action(ContextMenu)']
+
+
+def test_a_titles_rating_is_its_stars_or_0_when_unrated():
+    from resources.lib.silokodi.api import ApiError, SiloClient
+
+    class Client(SiloClient):
+        def __init__(self, answer):
+            self.answer, self.sent = answer, []
+
+        def get(self, path, **params):
+            if isinstance(self.answer, Exception):
+                raise self.answer
+            return self.answer
+
+        def request(self, method, path, body=None, **kwargs):
+            self.sent.append((method, path, body))
+    assert Client({'rating': 4}).rating('movie-1') == 4
+    assert Client(ApiError(404, 'not_found', 'unrated')).rating('movie-1') == 0
+    client = Client({})
+    client.rate('movie-1', 5)
+    client.rate('movie-1', 0)
+    assert client.sent == [('PUT', '/ratings/movie-1', {'rating': 5}), ('DELETE', '/ratings/movie-1', None)]
+
+
+def test_rate_keeps_stars_between_0_and_5():
+    host = service([])
+    rated = []
+    host.client = type('C', (), {'rate': lambda self, item_id, stars: rated.append((item_id, stars))})()
+    assert host.command('rate', {'id': 'movie-1', 'stars': '9'}) == {'rating': '5'}
+    assert host.command('rate', {'id': 'movie-1', 'stars': '0'}) == {'rating': '0'}
+    assert rated == [('movie-1', 5), ('movie-1', 0)]
+    assert 'error' in host.command('rate', {'id': 'movie-1', 'stars': 'lots'})
+
+
+def test_coming_soon_captions():
+    from datetime import date
+    from resources.lib.silokodi.mapping import coming_caption
+    today = date(2026, 11, 1)
+    assert coming_caption('2026-11-01', 2, 7, today) == 'Today · S2 E7'
+    assert coming_caption('2026-11-02', 1, 3, today) == 'Tomorrow · S1 E3'
+    assert coming_caption('2026-11-06', 1, 6, today) == 'Fri 6 Nov · S1 E6'
+    assert coming_caption('2026-11-06', None, None, today) == 'Fri 6 Nov' and coming_caption('', 1, 1, today) == ''
+
+
+def test_coming_soon_is_each_started_shows_next_episode():
+    from datetime import date
+    host = service([])
+    library = {'series-a': 1, 'series-b': 2, 'series-new': 3}
+    watched = {1: 4, 2: 1, 3: 0}
+    host.db = type('Db', (), {'get': lambda self, content_id: {'kind': 'tvshow', 'kodi_id': library[content_id]}
+                              if content_id in library else None})()
+    host.details = type('D', (), {'get': lambda self, kind, kodi_id: {'details': {'watchedepisodes': watched[kodi_id]}}})()
+    days = [{'date': '2026-11-01', 'items': [
+                {'series_id': 'series-a', 'season_number': 2, 'episode_number': 6, 'watched': True},
+                {'series_id': 'series-b', 'season_number': 1, 'episode_number': 2, 'local_air_date': '2026-11-01'}]},
+            {'date': '2026-11-02', 'items': [
+                {'series_id': 'series-a', 'season_number': 2, 'episode_number': 7, 'local_air_date': '2026-11-02'},
+                {'series_id': 'series-b', 'season_number': 1, 'episode_number': 3},
+                {'series_id': 'series-new', 'season_number': 1, 'episode_number': 1},
+                {'series_id': 'not-in-library', 'season_number': 1, 'episode_number': 1}]}]
+    asked = []
+    host.client = type('C', (), {'calendar': lambda self, start, end: asked.append((start, end)) or days})()
+    items = host.coming_soon(today=date(2026, 11, 1))
+    assert asked == [('2026-11-01', '2026-11-14')]
+    # b's next is today's (a's today episode is watched); a's is tomorrow's; the unstarted show is left out.
+    assert [(i['kodi_id'], i['caption']) for i in items] == [(2, 'Today · S1 E2'), (1, 'Tomorrow · S2 E7')]

@@ -7,7 +7,7 @@ import base64
 import hashlib
 import json
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 try:
     from urllib.parse import parse_qsl, quote, unquote, urlencode
@@ -438,6 +438,7 @@ HDR_NAMES = {'dolbyvision': 'Dolby Vision', 'hdr10plus': 'HDR10+', 'hdr10': 'HDR
 CHANNEL_LAYOUTS = {8: '7.1', 7: '6.1', 6: '5.1', 2: '2.0', 1: 'MONO'}
 HDR_LABELS = {'dolbyvision': 'DOLBY VISION', 'hdr10': 'HDR10', 'hdr10plus': 'HDR10+', 'hlg': 'HLG'}
 MONTHS = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
+WEEKDAYS = ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun')
 
 
 LANGUAGE_NAMES = {'eng': 'English', 'en': 'English', 'fre': 'French', 'fra': 'French', 'fr': 'French',
@@ -527,6 +528,20 @@ def new_episode(details, now=None):
     except (TypeError, ValueError):
         return False
     return 0 <= ((now or datetime.now()) - aired).days < NEW_EPISODE_DAYS
+
+
+def coming_caption(local_date, season, episode, today):
+    """A Coming Soon card's line: 'Today · S2 E7', 'Tomorrow · S1 E3',
+    'Thu 6 Nov · S1 E6' (dates as YYYY-MM-DD; today a date)."""
+    try:
+        day = date(*(int(part) for part in local_date[:10].split('-')))
+    except (TypeError, ValueError):
+        return ''
+    gap = (day - today).days
+    when = 'Today' if gap == 0 else 'Tomorrow' if gap == 1 else '%s %d %s' % (
+        WEEKDAYS[day.weekday()], day.day, MONTHS[day.month - 1])
+    code = 'S%d E%d' % (season, episode) if season is not None and episode is not None else ''
+    return ' · '.join(part for part in (when, code) if part)
 
 
 def time_left(resume):

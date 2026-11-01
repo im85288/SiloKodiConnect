@@ -262,6 +262,28 @@ class SiloClient(object):
     def remove_from_watchlist(self, content_id):
         self.request('DELETE', '/watchlist/%s' % content_id)
 
+    def calendar(self, start, end):
+        """Upcoming and recent airings between two local dates (YYYY-MM-DD),
+        as [{'date', 'items': [...]}], a day each."""
+        return self.get('/calendar', start=start, end=end).get('events') or []
+
+    def rating(self, item_id):
+        """The profile's stars (1-5) for a title, or 0 when it hasn't rated it."""
+        try:
+            return int(self.get('/ratings/%s' % item_id).get('rating') or 0)
+        except ApiError as error:
+            if error.status == 404:
+                return 0
+            raise
+
+    def rate(self, item_id, stars):
+        """Rate a title 1-5 stars (Silo's recommendations learn from it), or
+        0 to take the rating away."""
+        if stars:
+            self.request('PUT', '/ratings/%s' % item_id, body={'rating': stars})
+        else:
+            self.request('DELETE', '/ratings/%s' % item_id)
+
     def dismiss_home_item(self, surface, item_id, body):
         """Hide a card from Continue Watching or Next Up (an episode's whole
         show) until it's played again. body: continue_watching needs the

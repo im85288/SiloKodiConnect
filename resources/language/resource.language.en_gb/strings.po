@@ -270,13 +270,7 @@ msgctxt "#30162"
 msgid "History"
 msgstr ""
 
-msgctxt "#30163"
-msgid "Added to your watchlist"
-msgstr ""
 
-msgctxt "#30164"
-msgid "Removed from your watchlist"
-msgstr ""
 
 msgctxt "#30165"
 msgid "See all"
@@ -352,4 +346,32 @@ msgstr ""
 
 msgctxt "#30184"
 msgid "Choose Home rows drawn as a Top 10: each title numbered, a big numeral beside its poster. Silo's Trending This Week and IMDb Popular rows until you choose."
+msgstr ""
+
+msgctxt "#30185"
+msgid "★★★★★  Love it"
+msgstr ""
+
+msgctxt "#30186"
+msgid "★★★★  Like it"
+msgstr ""
+
+msgctxt "#30187"
+msgid "★★★  It was OK"
+msgstr ""
+
+msgctxt "#30188"
+msgid "★★  Not great"
+msgstr ""
+
+msgctxt "#30189"
+msgid "★  Not for me"
+msgstr ""
+
+msgctxt "#30190"
+msgid "Remove rating"
+msgstr ""
+
+msgctxt "#30191"
+msgid "Coming Soon"
 msgstr ""

@@ -79,6 +79,8 @@ def run(argv):
         return mark(params.get('type'), params.get('dbid'), params.get('action'))
     if mode == 'info':
         return info(params.get('type'), params.get('dbid'))
+    if mode == 'rate':
+        return rate(params.get('id') or '', params.get('current') or '')
     if mode == 'watchlist':
         return toggle_watchlist(params.get('id') or '', params.get('add') == '1')
     if mode == 'sections':
@@ -419,6 +421,9 @@ def widget(handle, section, library=None, collection=None, title=None, exclude_s
                 listitem.setProperty('silo.rank', entry['rank'])
             if entry.get('place'):
                 listitem.setProperty('silo.place', entry['place'])
+            if entry.get('caption'):
+                # A card's own line under its title (Coming Soon's date and episode).
+                listitem.setProperty('silo.caption', entry['caption'])
             kinds.add(entry['type'])
             xbmcplugin.addDirectoryItem(handle, url, listitem, isFolder=folder)
     # A skin draws a folder by its content: posters for films and shows.
@@ -667,8 +672,8 @@ def mark(kind, dbid, action):
     else:
         kodi.jsonrpc('VideoLibrary.Set%sDetails' % method, playcount=count,
                      resume={'position': 0, 'total': 0}, **{key: dbid})
+    # The page shows the new state; no notice (as the Rate button).
     xbmcgui.Window(12003).setProperty('silo.marked', action)
-    kodi.notify('%s as %s' % ('Series marked' if kind == 'tvshow' else 'Marked', action))
 
 
 def info(kind, dbid):
@@ -696,10 +701,38 @@ def info(kind, dbid):
             listitem.setProperty('silo.trailer', extra.get('trailer') or '')
             listitem.setProperty('silo.content_id', content_id)
             listitem.setProperty('silo.watchlist', extra.get('watchlist') or '')
+            # Its Rate button: the profile's stars, '0' not rated ('' no button).
+            listitem.setProperty('silo.myrating', extra.get('rating') or '')
             # A toggle on an earlier page doesn't carry over to this one.
             xbmcgui.Window(12003).clearProperty('silo.watchlist.for')
+            xbmcgui.Window(12003).clearProperty('silo.myrating.for')
         xbmcgui.Window(12003).clearProperty('silo.marked')
         xbmcgui.Dialog().info(listitem)
+
+
+# The Rate button's choices, as Silo's stars with Netflix's words.
+RATINGS = ((5, 30185), (4, 30186), (3, 30187), (2, 30188), (1, 30189))
+
+
+def rate(content_id, current):
+    """Rate a film or series 1-5 stars (Silo's recommendations learn from it)
+    or take the rating away, and tell the open info page (Window(movieinformation)
+    silo.myrating.for/.now, as the Watchlist button's)."""
+    choices = [(stars, kodi.string(label)) for stars, label in RATINGS]
+    if current and current != '0':
+        choices.append((0, kodi.string(30190)))
+    labels = [('%s  ✓' % label) if str(stars) == current else label for stars, label in choices]
+    picked = xbmcgui.Dialog().contextmenu(labels)
+    if picked < 0:
+        return
+    stars = choices[picked][0]
+    answer = ask_service('command/rate', timeout=10, id=content_id, stars=str(stars))
+    if answer.get('error'):
+        kodi.notify(answer['error'])
+        return
+    page = xbmcgui.Window(12003)
+    page.setProperty('silo.myrating.now', answer.get('rating') or '0')
+    page.setProperty('silo.myrating.for', content_id)
 
 
 def toggle_watchlist(content_id, add):
@@ -711,8 +744,7 @@ def toggle_watchlist(content_id, add):
         return
     page = xbmcgui.Window(12003)
     page.setProperty('silo.watchlist.now', answer.get('watchlist') or '')
-    page.setProperty('silo.watchlist.for', content_id)
-    kodi.notify(kodi.string(30163 if add else 30164))
+    page.setProperty('silo.watchlist.for', content_id)  # the button shows it; no notice
 
 
 def library_item(kind, kodi_id, shows=None, cached=None):

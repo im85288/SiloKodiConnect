@@ -12,7 +12,13 @@ file changes, and has Kodi reload them. Logs give counts, never addresses
 The same playlists fix every channel's stream mode as live, which keeps
 IPTV Simple's timeshift from applying: channels without catch-up couldn't
 be paused. They're made timeshift (catch-up channels play in catch-up mode
-either way)."""
+either way).
+
+And Kodi never passes a live channel's audio through: it keeps pace with
+the broadcast by nudging decoded audio, so a UHD channel's Dolby Atmos
+(E-AC-3) reached the receiver as plain PCM 5.1. IPTV Simple's own
+realtime="false" tag lets a channel pass through; it's added to UHD
+channels (by name or group), where the Atmos is."""
 import glob
 import os
 import re
@@ -26,16 +32,34 @@ ARCHIVE = ('catchup-source="{0}/streaming/timeshift.php?username={1}&password={2
            '&start={{Y}}-{{m}}-{{d}}:{{H}}-{{M}}&duration={{duration:60}}"')
 LIVE_MODE = '#KODIPROP:inputstream.ffmpegdirect.stream_mode=live'
 TIMESHIFT_MODE = '#KODIPROP:inputstream.ffmpegdirect.stream_mode=timeshift'
+GROUP = re.compile(r'group-title="([^"]*)"')
 SETTING = re.compile(r'<setting id="(m3uPathType|m3uPath)"(?: default="true")?>([^<]*)</setting>')
 
 
 def rewrite(text):
     """The playlist with each live-address catch-up-source made an archive
-    one and each live stream mode made timeshift, and how many lines were
-    changed."""
+    one, each live stream mode made timeshift and each UHD channel's audio
+    allowed through (realtime="false"), and how many lines were changed."""
     text, archives = LIVE_CATCHUP.subn(lambda m: ARCHIVE.format(*m.groups()), text)
     modes = text.count(LIVE_MODE)
-    return text.replace(LIVE_MODE, TIMESHIFT_MODE), archives + modes
+    text, uhd = pass_uhd_audio(text)
+    return text.replace(LIVE_MODE, TIMESHIFT_MODE), archives + modes + uhd
+
+
+def pass_uhd_audio(text):
+    """Each UHD channel's #EXTINF (UHD in its name or group, not just in an
+    address) tagged realtime="false", and how many were tagged."""
+    lines = text.split('\n')
+    tagged = 0
+    for index, line in enumerate(lines):
+        if not line.startswith('#EXTINF:') or 'realtime=' in line:
+            continue
+        group = GROUP.search(line)
+        if 'UHD' in line.rpartition(',')[2] or (group and 'UHD' in group.group(1)):
+            duration, _, rest = line[len('#EXTINF:'):].partition(' ')
+            lines[index] = '#EXTINF:%s realtime="false" %s' % (duration, rest)
+            tagged += 1
+    return '\n'.join(lines), tagged
 
 
 def playlists(addon_data):
@@ -76,7 +100,7 @@ class Rewriter(object):
                     handle.write(text)
                 os.replace(temporary, path)
                 self.reload_due = True
-                kodi.log('Catch-up: %d playlist lines rewritten (archive, timeshift)' % count)
+                kodi.log('Catch-up: %d playlist lines rewritten (archive, timeshift, UHD audio)' % count)
             self.seen[path] = os.path.getmtime(path)
         if self.reload_due and not playing:
             self.reload_due = False

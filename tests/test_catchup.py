@@ -29,3 +29,17 @@ def test_the_playlists_come_from_iptv_simples_local_instances(tmp_path):
     (folder / 'instance-settings-31.xml').write_text(
         '<settings><setting id="m3uPathType">0</setting><setting id="m3uPath">/data/live.m3u8</setting></settings>')
     assert catchup.playlists(str(tmp_path)) == ['/data/live.m3u8']
+
+
+def test_uhd_channels_let_their_audio_through():
+    text = ('#EXTINF:-1 tvg-id="a" group-title="EN | 4K UHD",UK: TNT Sports Ultimate 4K\nhttps://h/1.ts\n'
+            '#EXTINF:-1 tvg-id="b" group-title="UK | Sky Sports",Sky Sports Main Event UHD\nhttps://h/2.ts\n'
+            '#EXTINF:-1 tvg-id="c" tvg-logo="https://h/UHDlogo.png" group-title="UK | Sky Sports",Sky Sports News\n'
+            'https://h/3.ts\n'
+            '#EXTINF:-1 realtime="false" tvg-id="d" group-title="EN | 4K UHD",Already\nhttps://h/4.ts\n')
+    rewritten, count = catchup.rewrite(text)
+    assert count == 2
+    assert '#EXTINF:-1 realtime="false" tvg-id="a"' in rewritten and '#EXTINF:-1 realtime="false" tvg-id="b"' in rewritten
+    assert '#EXTINF:-1 tvg-id="c"' in rewritten                  # UHD only in its logo's address
+    assert rewritten.count('realtime=') == 3                      # the tagged one isn't tagged twice
+    assert catchup.rewrite(rewritten) == (rewritten, 0)

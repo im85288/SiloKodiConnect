@@ -513,6 +513,33 @@ def aired_label(date):
         return ''
 
 
+# How long a show's newest episode counts as new (Netflix's "New Episode").
+NEW_EPISODE_DAYS = 7
+
+
+def new_episode(details, now=None):
+    """Whether a show you've started has an episode you haven't watched that
+    aired in the last NEW_EPISODE_DAYS days (library.newest_unwatched_aired)."""
+    # Not datetime.strptime: Kodi's embedded Python can lose it after the
+    # first call ("'NoneType' object is not callable").
+    try:
+        aired = datetime(*(int(part) for part in (details.get('newestaired') or '')[:10].split('-')))
+    except (TypeError, ValueError):
+        return False
+    return 0 <= ((now or datetime.now()) - aired).days < NEW_EPISODE_DAYS
+
+
+def time_left(resume):
+    """A part-watched title's time left: '32 min left', '1 h 5 min left'."""
+    resume = resume or {}
+    if not resume.get('position') or not resume.get('total'):
+        return ''
+    minutes = max(1, int(round((resume['total'] - resume['position']) / 60.0)))
+    if minutes < 60:
+        return '%d min left' % minutes
+    return '%d h %d min left' % divmod(minutes, 60) if minutes % 60 else '%d h left' % (minutes // 60)
+
+
 # About what a skin's person page shows of a biography: seven of Skyline's lines (about 67 characters).
 BIO_LIMIT = 470
 
@@ -642,6 +669,10 @@ def skyline_properties(kind, details, show=None):
                  or {}).get('rating')
         props['silo.rating.%s' % key] = '%.1f' % value if value else ''
     props.update(tech_lines(details.get('streamdetails')))
+    if kind == 'tvshow':
+        props['silo.new'] = 'New episode' if new_episode(details) else ''
+    else:
+        props['silo.left'] = time_left(details.get('resume'))
     if kind in ('movie', 'tvshow') and genres:
         props['silo.similar'] = similar_path(kind, genres[0], details.get('title') or '')
     elif kind == 'episode' and show and show.get('genre'):

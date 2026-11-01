@@ -311,7 +311,7 @@ def test_home_rows_map_to_library_items(syncer, query):
     # In "what next" rows a show card is its next episode; elsewhere it is the show.
     assert home_row_items({'section_type': 'continue_watching', 'items': cards}, 'continue_watching', syncer.db) \
         == [{'type': 'movie', 'kodi_id': movie_id, 'tint': TOY_STORY_TINT},
-            {'type': 'episode', 'kodi_id': next_episode, 'tint': ''}]
+            {'type': 'episode', 'kodi_id': next_episode, 'tint': '', 'next': True}]
     assert home_row_items({'section_type': 'collection', 'items': cards}, 'popular-imdb', syncer.db) \
         == [{'type': 'movie', 'kodi_id': movie_id, 'tint': TOY_STORY_TINT},
             {'type': 'tvshow', 'kodi_id': show_id, 'tint': ''}]
@@ -1017,3 +1017,22 @@ def test_artwork_skips_svg_kodi_cannot_draw():
             'logo_url': 'https://image.tmdb.org/t/p/w500/b.SVG?sig=2'}
     local, remote = mapping.artwork(item, mapping.SHOW_ART, 57578)
     assert set(local) == set(remote) == {'poster'}
+
+
+def test_new_episode_is_a_recent_unwatched_air_date():
+    from datetime import datetime
+    now = datetime(2026, 11, 1, 12, 0, 0)
+    assert mapping.new_episode({'newestaired': '2026-10-30'}, now)
+    assert mapping.new_episode({'newestaired': '2026-11-01'}, now)
+    assert not mapping.new_episode({'newestaired': '2026-10-20'}, now)  # older than a week
+    assert not mapping.new_episode({'newestaired': '2026-11-05'}, now)  # not aired yet
+    assert not mapping.new_episode({'newestaired': ''}, now)
+    assert not mapping.new_episode({}, now)
+
+
+def test_time_left():
+    assert mapping.time_left({'position': 600, 'total': 2520}) == '32 min left'
+    assert mapping.time_left({'position': 60, 'total': 3960}) == '1 h 5 min left'
+    assert mapping.time_left({'position': 60, 'total': 3660}) == '1 h left'
+    assert mapping.time_left({'position': 2500, 'total': 2520}) == '1 min left'
+    assert mapping.time_left({}) == '' and mapping.time_left(None) == ''

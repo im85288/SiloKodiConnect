@@ -18,10 +18,12 @@ open its info page; a title Silo can request has `request.type` and
 """
 from . import mapping
 
+# A Continue Watching card's third line when it isn't started (Silo's web app).
+NEXT_EPISODE = 'Next Episode'
 CARDS = 20  # cards per row; Silo's rows go up to 50 (most hold 13-20), and each costs a skin's load time
 FIELDS = ('type', 'dbid', 'label', 'card.title', 'card.sub', 'card.wide_sub', 'hero.title', 'hero.meta',
           'hero.facts', 'rating.imdb', 'rating.tmdb',
-          'hero.detail', 'plot', 'mpaa', 'badge1', 'badge2', 'badge3', 'tint', 'percent', 'playcount',
+          'hero.detail', 'plot', 'mpaa', 'badge1', 'badge2', 'badge3', 'tint', 'percent', 'playcount', 'new', 'left',
           'art.poster', 'art.landscape', 'art.fanart', 'art.clearlogo', 'request.type', 'request.tmdb',
           'status.tint', 'status.seg1', 'status.seg2', 'status.seg3', 'status.seg4',
           'request.library', 'request.state', 'request.more', 'request.logo', 'request.from', 'request.to')
@@ -64,6 +66,8 @@ def card(kind, details, show=None, tint='', landscape=''):
         'badge1': props.get('silo.badge1', ''), 'badge2': props.get('silo.badge2', ''),
         'badge3': props.get('silo.badge3', ''), 'tint': tint or '',
         'percent': str(percent) if percent else '', 'playcount': watched_mark(kind, details),
+        # Netflix's marks: a show's new episode, a part-watched title's time left.
+        'new': props.get('silo.new', ''), 'left': props.get('silo.left', ''),
         'art.poster': art.get('poster') or art.get('tvshow.poster') or art.get('thumb') or '',
         'art.landscape': landscape or (art.get('thumb') if episode and art.get('thumb') else
                                        art.get('landscape') or art.get('fanart') or art.get('tvshow.fanart') or ''),

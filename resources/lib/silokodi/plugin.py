@@ -387,6 +387,8 @@ def widget(handle, section, library=None, collection=None, title=None, exclude_s
             if exclude_show and listitem.getVideoInfoTag().getTVShowTitle() == exclude_show:
                 continue
             listitem.setProperty('silo.tint', entry.get('tint') or '')
+            if entry.get('next') and not listitem.getProperty('silo.left'):
+                listitem.setProperty('silo.left', home_cards.NEXT_EPISODE)
             kinds.add(entry['type'])
             xbmcplugin.addDirectoryItem(handle, url, listitem, isFolder=folder)
     # A skin draws a folder by its content: posters for films and shows.

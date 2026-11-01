@@ -1168,6 +1168,8 @@ class Service(object):
             if cached:
                 card = home_cards.card(kind, cached['details'], cached.get('show'), source.get('tint'),
                                        self.series_art(source))
+                if source.get('next') and not card['left']:
+                    card['left'] = home_cards.NEXT_EPISODE
                 if page == 'requests' and source.get('label'):
                     # In the library: Silo's LIBRARY and Available tags, its type and year under it.
                     card['card.sub'] = card['card.wide_sub'] = home_cards.type_year(source)

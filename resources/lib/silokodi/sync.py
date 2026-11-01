@@ -70,6 +70,9 @@ def home_row_items(page, section, db):
                     'tint': mapping.ambient_tint(card.get('poster_thumbhash') or '')}
             if next_episode and row['kind'] == 'episode' and card.get('backdrop_url'):
                 item.update(backdrop=card['backdrop_url'], content_id=row['content_id'])
+            if next_episode and row['kind'] == 'episode':
+                # Silo's third caption line: its time left, else "Next Episode".
+                item['next'] = True
             items.append(item)
     return items
 

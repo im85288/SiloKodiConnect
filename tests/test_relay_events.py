@@ -248,7 +248,7 @@ def test_skyline_properties_for_an_episode_and_a_show():
     assert show == {'silo.mpaa': 'TV-14', 'silo.genre': 'Horror', 'silo.genres': 'Horror', 'silo.rating': 'TMDB 8.3', 'silo.cast': '',
                     'silo.similar': mapping.similar_path('tvshow', 'Horror', ''),
                     'silo.rating.imdb': '', 'silo.rating.tmdb': '8.3',
-                    'silo.version': '', 'silo.audio': '', 'silo.subtitles': 'None'}
+                    'silo.version': '', 'silo.audio': '', 'silo.subtitles': 'None', 'silo.new': ''}
 
 
 def test_quality_badges_cover_common_files():

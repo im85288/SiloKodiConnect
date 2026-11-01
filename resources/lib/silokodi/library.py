@@ -7,6 +7,7 @@ import os
 import threading
 
 from . import kodi
+from .mapping import NEW_EPISODE_DAYS
 
 MOVIE_FIELDS = ['title', 'plot', 'year', 'rating', 'ratings', 'runtime', 'genre', 'mpaa', 'art', 'resume',
                 'playcount', 'file', 'premiered', 'streamdetails', 'dateadded', 'lastplayed', 'tagline', 'studio',
@@ -35,6 +36,8 @@ def details_of(kind, kodi_id, shows=None):
         return None, None
     if details.get('cast'):
         details['cast'] = details['cast'][:CAST_LIMIT]
+    if kind == 'tvshow':
+        details['newestaired'] = newest_unwatched_aired(kodi_id, details)
     show = None
     if kind == 'episode' and details.get('tvshowid'):
         shows = {} if shows is None else shows
@@ -45,11 +48,24 @@ def details_of(kind, kodi_id, shows=None):
     return details, show
 
 
+def newest_unwatched_aired(tvshowid, details):
+    """The air date of a started show's newest episode you haven't watched
+    that aired in the last NEW_EPISODE_DAYS days, or ''. Silo's added dates
+    can't say this: it knows an episode, and dates it, before it airs."""
+    if not 0 < (details.get('watchedepisodes') or 0) < (details.get('episode') or 0):
+        return ''
+    rules = [{'field': 'playcount', 'operator': 'is', 'value': '0'},
+             {'field': 'airdate', 'operator': 'inthelast', 'value': '%d days' % NEW_EPISODE_DAYS}]
+    episodes = (kodi.jsonrpc('VideoLibrary.GetEpisodes', tvshowid=tvshowid, properties=['firstaired'],
+                             filter={'and': rules}) or {}).get('episodes') or []
+    return max([episode['firstaired'] for episode in episodes if episode.get('firstaired')] or [''])
+
+
 class DetailsCache(object):
     """details_of, remembered until Kodi reports the title changed (forget)
     or SiloKodiConnect writes the library (clear)."""
 
-    VERSION = 2  # 2: shows carry ratings
+    VERSION = 3  # 2: shows carry ratings; 3: and their newest unwatched episode's air date
 
     def __init__(self, fetch=details_of):
         self.fetch = fetch

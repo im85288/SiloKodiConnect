@@ -1,25 +1,22 @@
 # -*- coding: utf-8 -*-
 """A show's theme tune while its page is open, as Plex and Infuse play one.
 
-Silo's own theme comes first (a theme.mp3 kept beside the media); else the
-tune comes from Plex's public TV theme service, by the show's TVDB id (about
-half of a library's shows have one there). A theme never interrupts what the viewer
-is playing, and stops when the show's page closes (a video started from the
-page replaces it anyway).
+The tune is Silo's: a theme.mp3 kept beside the show's media, through Silo's
+theme playback grant. A theme never interrupts what the viewer is playing,
+and stops when the show's page closes (a video started from the page
+replaces it anyway).
 
 Kodi opens what it plays on its main thread, which also draws the page: a
-web address held the page up until Plex answered. So a theme is fetched
-into a small cache first and played from there, once the page has drawn its
-episodes."""
+network address held the page up until the server answered. So a theme is
+fetched into a small cache first and played from there, once the page has
+drawn its episodes; it then starts at once on every later visit."""
 import os
 import threading
 import time
 
-import requests
 import xbmc
 import xbmcgui
 
-URL = 'https://tvthemes.plexapp.com/%s.mp3'
 PAGE = 'Window.IsVisible(movieinformation)'
 PAGE_WAIT = 3.0  # how long a theme waits for the page it was asked for to open
 # The page has drawn this show's episodes (Skyline's rail: a show page's list 61,
@@ -34,39 +31,44 @@ AUDIO = ('.mp3', '.m4a')
 
 
 class ThemePlayer(object):
-    def __init__(self, enabled, folder, log=None, session=None):
+    def __init__(self, enabled, folder, log=None):
         self.enabled = enabled
         self.folder = folder
         self.log = log or (lambda message: None)
-        self.session = session or requests.Session()
-        self.missing = set()  # TVDB ids Plex has no theme for
+        self.missing = set()  # shows Silo has no theme for (asked again after a restart)
         self.url = None
         self.player = xbmc.Player()
         self.lock = threading.Lock()
 
-    def offer(self, tvdb_id, silo=None, show='', rail=SHOW_RAIL):
+    def offer(self, show_id, download, show='', rail=SHOW_RAIL):
         """A show's page (or one of its episodes') is opening: play the show's
-        theme, if it has one, in the background. silo: (cache key, a function
-        giving Silo's own tune as (bytes, extension) or None), preferred to
-        Plex's. show: the show's title, rail: the page's episode list, which
-        the theme waits for."""
-        if not (tvdb_id or silo) or not self.enabled():
+        theme, if it has one, in the background. download: a function giving
+        Silo's tune as (bytes, extension), or None when the show has none.
+        show: the show's title, rail: the page's episode list, which the
+        theme waits for."""
+        if not show_id or not self.enabled():
             return
-        thread = threading.Thread(target=self._start, args=(str(tvdb_id or ''), silo, show, rail),
-                                  name='silokodi-theme')
+        thread = threading.Thread(target=self._start, args=(show_id, download, show, rail), name='silokodi-theme')
         thread.daemon = True
         thread.start()
 
-    def fetch(self, tvdb_id, silo=None):
-        """The theme as a local file (fetched once): Silo's own, else Plex's;
-        None when neither has one."""
-        if silo:
-            path = self.cached('silo-%s' % silo[0]) or self.save('silo-%s' % silo[0], self.from_silo(silo[1]))
-            if path:
-                return path
-        if not tvdb_id or tvdb_id in self.missing:
+    def fetch(self, show_id, download):
+        """The show's theme as a local file (fetched once), or None when it has none."""
+        if show_id in self.missing:
             return None
-        return self.cached(tvdb_id) or self.save(tvdb_id, self.from_plex(tvdb_id))
+        key = 'silo-%s' % show_id
+        path = self.cached(key)
+        if path:
+            return path
+        try:
+            tune = download()
+        except Exception as error:  # Silo's grant or audio failed: asked again next time
+            self.log('Theme unavailable: %s' % error)
+            return None
+        if not tune:
+            self.missing.add(show_id)
+            return None
+        return self.save(key, tune)
 
     def cached(self, key):
         for extension in AUDIO:
@@ -76,26 +78,7 @@ class ThemePlayer(object):
                 return path
         return None
 
-    def from_silo(self, download):
-        try:
-            return download()
-        except Exception as error:  # Silo's grant or audio failed: Plex's instead
-            self.log('Silo theme unavailable: %s' % error)
-            return None
-
-    def from_plex(self, tvdb_id):
-        try:
-            response = self.session.get(URL % tvdb_id, timeout=8)
-        except requests.RequestException:
-            return None  # unknown, asked again next time
-        if response.status_code != 200 or not response.content:
-            self.missing.add(tvdb_id)
-            return None
-        return response.content, '.mp3'
-
     def save(self, key, tune):
-        if not tune:
-            return None
         content, extension = tune
         if not os.path.isdir(self.folder):
             os.makedirs(self.folder)
@@ -112,8 +95,8 @@ class ThemePlayer(object):
         for _, name in files[:-KEEP]:
             os.remove(os.path.join(self.folder, name))
 
-    def _start(self, tvdb_id, silo=None, show='', rail=SHOW_RAIL):
-        path = self.fetch(tvdb_id, silo)
+    def _start(self, show_id, download, show='', rail=SHOW_RAIL):
+        path = self.fetch(show_id, download)
         if path and path == self.url and self.playing_ours():
             return  # still playing (back on the same show's page)
         if not path:

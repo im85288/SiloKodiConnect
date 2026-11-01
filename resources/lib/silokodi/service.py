@@ -883,24 +883,21 @@ class Service(object):
         return {'ok': True}
 
     def offer_theme(self, item):
-        """A show's page, or one of its episodes', is opening: the show's theme,
-        Silo's own first (a theme.mp3 beside the media), else Plex's (by the
-        show's TVDB id, which Silo's ids carry: series-tvdb-399917)."""
+        """A show's page, or one of its episodes', is opening: the show's
+        theme, Silo's own (a theme.mp3 beside the media)."""
         if item.get('type') == 'series':
             series_id, show, rail = item['content_id'], item.get('title') or '', theme.SHOW_RAIL
-            tvdb_id = item.get('tvdb_id')
         elif item.get('type') == 'episode' and item.get('series_id'):
             series_id, show, rail = item['series_id'], item.get('series_title') or '', theme.EPISODE_RAIL
-            tvdb_id = series_id[len('series-tvdb-'):] if series_id.startswith('series-tvdb-') else ''
         else:
             return
 
-        def silos_own():
+        def download():
             series = item if item.get('type') == 'series' else self.client.item(series_id)
             themes = series.get('themes') or {}
             own = (themes.get('items') or [None])[0]
             return self.client.theme_audio(themes.get('owner_id') or series_id, own['id']) if own else None
-        self.theme.offer(tvdb_id, ('silo-' + series_id, silos_own), show, rail)
+        self.theme.offer(series_id, download, show, rail)
 
     def coming_soon(self, days=COMING_DAYS, today=None):
         """Coming Soon, as Apple TV's Upcoming: for each show in the library

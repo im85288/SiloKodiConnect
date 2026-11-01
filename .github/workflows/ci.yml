@@ -9,8 +9,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 3.8 is Kodi 20 on Android; 3.11 Kodi 21.
-        python-version: ['3.8', '3.11', '3.14']
+        # 3.11 is Kodi 21.
+        python-version: ['3.11', '3.14']
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-python@v5
@@ -19,6 +19,20 @@ jobs:
     - name: Install dependencies
       run: pip install -r requirements-dev.txt
     - name: Lint
-      run: python -m pyflakes resources tests default.py service.py
+      run: python -m pyflakes resources tests default.py service.py context_dismiss.py
+    - name: Test
+      run: python -m pytest -q tests
+  tests-kodi20:
+    # Kodi 20 on Android runs Python 3.8, which the runners' setup-python no
+    # longer offers on current Ubuntu: the official image has it.
+    name: Tests on Python 3.8
+    runs-on: ubuntu-latest
+    container: python:3.8  # with git: checkout needs it in a container
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install dependencies
+      run: pip install -r requirements-dev.txt
+    - name: Lint
+      run: python -m pyflakes resources tests default.py service.py context_dismiss.py
     - name: Test
       run: python -m pytest -q tests

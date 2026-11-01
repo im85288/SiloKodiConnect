@@ -22,6 +22,18 @@ def test_markers_from_segments_or_older_fields():
     assert upnext.markers({'intro': {}}, None) == []
 
 
+def test_a_late_intro_with_no_credits_after_it_is_the_credits():
+    # House of the Dragon S3E05: its title sequence over the end titles, tagged intro.
+    late = {'marker_segments': [{'kind': 'intro', 'start_seconds': 3718.1, 'end_seconds': 3804}]}
+    assert upnext.markers(late, {'runtime': 60}) == [('credits', 3718.1, 3804.0)]
+    # S3E08: the credits come later, so that intro stays an intro.
+    later = {'marker_segments': [{'kind': 'intro', 'start_seconds': 3779, 'end_seconds': 3877},
+                                 {'kind': 'credits', 'start_seconds': 4132.6, 'end_seconds': 4207.3}]}
+    assert [m[0] for m in upnext.markers(later, {'runtime': 70})] == ['intro', 'credits']
+    # An intro at the start, whatever the file's length.
+    assert upnext.markers({'intro': {'start': 6, 'end': 113}}, {'runtime': 60}) == [('intro', 6.0, 113.0)]
+
+
 def test_next_episode_crosses_seasons_and_skips_specials():
     episodes = [episode(0, 1, 100), episode(1, 1, 1), episode(1, 2, 2), episode(2, 1, 3)]
     assert upnext.next_episode(episodes, episode(1, 1, 1))['episodeid'] == 2

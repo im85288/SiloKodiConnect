@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Silo Skyline: Live TV keys as TiviMate's. Copy to userdata/keymaps/ (named to
+     load after other keymaps, which it overrides only for these keys):
+       OK         the recently watched channels (Skyline's window 1196)
+       Up / Down  the channel above or below, as in the guide (Kodi's Channel
+                  Down / Up: lower and higher numbers)
+       Left       the quick guide (Kodi's channel list over the video)
+       Right      the channel watched before this one (SiloKodiConnect) -->
+<keymap>
+  <FullscreenLiveTV>
+    <keyboard>
+      <return>ActivateWindow(1196)</return>
+      <enter>ActivateWindow(1196)</enter>
+      <up>ChannelDown</up>
+      <down>ChannelUp</down>
+      <left>ActivateWindow(PVROSDChannels)</left>
+      <right>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=previous_channel)</right>
+    </keyboard>
+    <remote>
+      <select>ActivateWindow(1196)</select>
+      <up>ChannelDown</up>
+      <down>ChannelUp</down>
+      <left>ActivateWindow(PVROSDChannels)</left>
+      <right>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=previous_channel)</right>
+    </remote>
+  </FullscreenLiveTV>
+</keymap>

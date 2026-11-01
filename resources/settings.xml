@@ -91,6 +91,25 @@
           <control type="list" format="string"/>
         </setting>
       </group>
+      <group id="2">
+        <setting id="choose_top10" type="action" label="30182" help="30184">
+          <level>0</level>
+          <data>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=top10)</data>
+          <constraints><allowempty>true</allowempty></constraints>
+          <control type="button" format="action"><close>true</close></control>
+        </setting>
+        <setting id="top10_rows" type="string" label="30182">
+          <level>3</level>
+          <default/>
+          <constraints><allowempty>true</allowempty></constraints>
+          <control type="edit" format="string"/>
+        </setting>
+        <setting id="livetv_keys" type="boolean" label="30166" help="30167">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle"/>
+        </setting>
+      </group>
     </category>
     <category id="advanced" label="30030">
       <group id="1">

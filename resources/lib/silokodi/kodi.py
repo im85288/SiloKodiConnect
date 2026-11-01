@@ -32,6 +32,10 @@ def profile_dir():
     return path
 
 
+def addon_data_dir():
+    return xbmcvfs.translatePath('special://profile/addon_data/')
+
+
 def database_dir():
     return xbmcvfs.translatePath('special://database/')
 
@@ -88,10 +92,28 @@ def clear_property(key):
     HOME.clearProperty('silokodi.%s' % key)
 
 
+JSONRPC_SECONDS = [0.0]  # time spent in jsonrpc, for timing logs
+
+
 def jsonrpc(method, **params):
+    started = time.time()
     request = {'jsonrpc': '2.0', 'id': 1, 'method': method, 'params': params}
     response = json.loads(xbmc.executeJSONRPC(json.dumps(request)))
+    JSONRPC_SECONDS[0] += time.time() - started
     return response.get('result')
+
+
+def forget_textures(urls):
+    """Drop images from Kodi's texture cache, so Kodi fetches them again
+    the next time they show. Returns how many were cached."""
+    dropped = 0
+    for url in urls:
+        found = jsonrpc('Textures.GetTextures', properties=['url'],
+                        filter={'field': 'url', 'operator': 'is', 'value': url}) or {}
+        for texture in found.get('textures') or []:
+            jsonrpc('Textures.RemoveTexture', textureid=texture['textureid'])
+            dropped += 1
+    return dropped
 
 
 def refresh_library_views(refresh_list=True, update_library=True):

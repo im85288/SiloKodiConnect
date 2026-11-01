@@ -20,21 +20,49 @@ EPISODE_PROPERTIES = ['art', 'dateadded', 'episode', 'file', 'firstaired', 'last
 MARKER_KINDS = ('intro', 'recap', 'credits', 'preview')
 
 
+# An intro this far into a file is the title sequence played over the end
+# (House of the Dragon's third season): the credits, when none follow it.
+LATE_INTRO = 0.85
+
+
 def markers(version, item=None):
     """[(kind, start, end)] in source seconds, from a file version's
-    marker_segments, or the older single intro/recap/credits fields."""
+    marker_segments, or the older single intro/recap/credits fields; a late
+    intro with no credits after it counts as the credits (late_intro_as_credits)."""
     found = []
     for segment in (version or {}).get('marker_segments') or []:
         if segment.get('kind') in MARKER_KINDS and segment.get('end_seconds') is not None:
             found.append((segment['kind'], float(segment.get('start_seconds') or 0), float(segment['end_seconds'])))
-    if found:
-        return sorted(found, key=lambda marker: marker[1])
-    for source in (version or {}, item or {}):
-        for kind in MARKER_KINDS:
-            marker = source.get(kind) or {}
-            if marker.get('end') is not None and not any(m[0] == kind for m in found):
-                found.append((kind, float(marker.get('start') or 0), float(marker['end'])))
-    return sorted(found, key=lambda marker: marker[1])
+    if not found:
+        for source in (version or {}, item or {}):
+            for kind in MARKER_KINDS:
+                marker = source.get(kind) or {}
+                if marker.get('end') is not None and not any(m[0] == kind for m in found):
+                    found.append((kind, float(marker.get('start') or 0), float(marker['end'])))
+    return late_intro_as_credits(sorted(found, key=lambda marker: marker[1]), length(version, item, found))
+
+
+def length(version, item, found):
+    """The file's length in seconds, as best known: Silo's figures, its
+    runtime (minutes), or at least where its last marker ends."""
+    version, item = version or {}, item or {}
+    return max([float(version.get('duration_seconds') or 0), float(item.get('duration_seconds') or 0),
+                float(item.get('runtime') or 0) * 60] + [end for _, _, end in found])
+
+
+def late_intro_as_credits(found, total):
+    """An intro in the last part of a file with no credits marker after it is
+    the title sequence over the end titles: the credits, so Up Next opens
+    there and there's no Skip intro over them."""
+    if not total:
+        return found
+    out = []
+    for kind, start, end in found:
+        late = kind == 'intro' and start >= LATE_INTRO * total
+        if late and not any(k == 'credits' and s >= start for k, s, _ in found):
+            kind = 'credits'
+        out.append((kind, start, end))
+    return out
 
 
 def next_episode(episodes, current):
@@ -46,14 +74,15 @@ def next_episode(episodes, current):
 
 
 def payload(current, following, found_markers, origin=0.0):
-    """upnext_data for the current episode. Marker times are converted from
+    """upnext_data for the current episode (following may be None). Marker times are converted from
     the source file's timeline to the player's (they differ only when Silo
     converts a stream that starts part-way in)."""
-    data = {
-        'current_episode': current,
-        'next_episode': following,
-        'play_info': {'episodeid': following['episodeid']},
-    }
+    data = {'current_episode': current}
+    if following:
+        # Without one (the last episode in the library) Up Next still offers
+        # Skip, and shows no popup.
+        data['next_episode'] = following
+        data['play_info'] = {'episodeid': following['episodeid']}
     to_player = lambda seconds: max(0.0, seconds - origin)
     credits = [m for m in found_markers if m[0] == 'credits']
     if credits:
@@ -63,6 +92,19 @@ def payload(current, following, found_markers, origin=0.0):
     if segments:
         data['skip_segments'] = segments
     return data
+
+
+def marker_ranges(found_markers, total, origin=0.0):
+    """Each marker kind's ranges as a skin's ranges control reads them:
+    'start,end[,start,end...]' in percent of the player's timeline."""
+    ranges = {}
+    if total <= 0:
+        return ranges
+    for kind, start, end in found_markers:
+        start, end = max(0.0, start - origin), min(total, end - origin)
+        if end > start:
+            ranges.setdefault(kind, []).append('%.2f,%.2f' % (start * 100 / total, end * 100 / total))
+    return {kind: ','.join(parts) for kind, parts in ranges.items()}
 
 
 def encode(data):

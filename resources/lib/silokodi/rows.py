@@ -18,12 +18,29 @@ open its info page; a title Silo can request has `request.type` and
 """
 from . import mapping
 
+# Rows drawn as Netflix's Top 10 (a numeral beside each poster) until you
+# choose them in the settings: Silo's ranked lists, by title, as Silo has no
+# flag for one. Every card of such a row is numbered (rows hold CARDS).
+DEFAULT_RANKED = ('Trending This Week', 'IMDb Popular')
+
+
+def ranked_rows(choice, sections):
+    """The ids of Home rows to rank. choice: the setting (ids, 'none', or ''
+    for the default: rows titled as DEFAULT_RANKED)."""
+    if choice == 'none':
+        return set()
+    if choice:
+        return set(choice.split(','))
+    return set(str(section['id']) for section in sections
+               if (section.get('title') or '').startswith(DEFAULT_RANKED))
+
+
 # A Continue Watching card's third line when it isn't started (Silo's web app).
 NEXT_EPISODE = 'Next Episode'
 CARDS = 20  # cards per row; Silo's rows go up to 50 (most hold 13-20), and each costs a skin's load time
 FIELDS = ('type', 'dbid', 'label', 'card.title', 'card.sub', 'card.wide_sub', 'hero.title', 'hero.meta',
           'hero.facts', 'rating.imdb', 'rating.tmdb',
-          'hero.detail', 'plot', 'mpaa', 'badge1', 'badge2', 'badge3', 'tint', 'percent', 'playcount', 'new', 'left',
+          'hero.detail', 'plot', 'mpaa', 'badge1', 'badge2', 'badge3', 'tint', 'percent', 'playcount', 'new', 'left', 'dismiss', 'rank',
           'art.poster', 'art.landscape', 'art.fanart', 'art.clearlogo', 'request.type', 'request.tmdb',
           'status.tint', 'status.seg1', 'status.seg2', 'status.seg3', 'status.seg4',
           'request.library', 'request.state', 'request.more', 'request.logo', 'request.from', 'request.to')

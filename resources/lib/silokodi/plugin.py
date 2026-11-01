@@ -117,7 +117,7 @@ def run(argv):
         return make_request(params.get('type') or 'movie', params.get('tmdb') or '')
     if mode == 'collections':
         return collections(base, handle, params.get('libraries') or '', int(params.get('top') or 0))
-    if mode in ('sync', 'fullsync', 'libraries', 'reset'):
+    if mode in ('sync', 'fullsync', 'libraries', 'reset', 'top10'):
         return command(mode)
     return menu(base, handle)
 
@@ -180,6 +180,8 @@ def command(name):
         return
     if name == 'libraries':
         return choose_libraries()
+    if name == 'top10':
+        return choose_top10()
     answer = ask_service('command/%s' % name, timeout=10)
     if answer.get('error'):
         kodi.notify(answer['error'])
@@ -202,6 +204,23 @@ def choose_libraries():
     excluded = [library['id'] for index, library in enumerate(libraries) if index not in chosen]
     kodi.set_setting('excluded_libraries', ','.join(excluded))
     ask_service('command/sync', timeout=10)
+
+
+def choose_top10():
+    """Which Home rows are drawn as Netflix's Top 10 (numbered, a numeral
+    beside each poster). Silo's poster rows only: its Continue Watching style
+    rows have their own cards."""
+    answer = ask_service('command/sections', timeout=20)
+    if answer.get('error'):
+        kodi.notify(answer['error'])
+        return
+    rows = [row for row in answer.get('sections') or [] if not row.get('wide')]
+    chosen = xbmcgui.Dialog().multiselect(kodi.string(30183), [row['title'] for row in rows],
+                                          preselect=[index for index, row in enumerate(rows) if row.get('ranked')])
+    if chosen is None:
+        return
+    kodi.set_setting('top10_rows', ','.join(str(rows[index]['id']) for index in chosen) or 'none')
+    ask_service('command/top10', timeout=10)
 
 
 CHANNEL_FIELDS = ['channelnumber', 'icon', 'broadcastnow', 'hidden']
@@ -389,6 +408,10 @@ def widget(handle, section, library=None, collection=None, title=None, exclude_s
             listitem.setProperty('silo.tint', entry.get('tint') or '')
             if entry.get('next') and not listitem.getProperty('silo.left'):
                 listitem.setProperty('silo.left', home_cards.NEXT_EPISODE)
+            if entry.get('dismiss'):
+                listitem.setProperty('silo.dismiss', '1')
+            if entry.get('rank'):
+                listitem.setProperty('silo.rank', entry['rank'])
             kinds.add(entry['type'])
             xbmcplugin.addDirectoryItem(handle, url, listitem, isFolder=folder)
     # A skin draws a folder by its content: posters for films and shows.

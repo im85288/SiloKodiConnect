@@ -262,6 +262,12 @@ class SiloClient(object):
     def remove_from_watchlist(self, content_id):
         self.request('DELETE', '/watchlist/%s' % content_id)
 
+    def dismiss_home_item(self, surface, item_id, body):
+        """Hide a card from Continue Watching or Next Up (an episode's whole
+        show) until it's played again. body: continue_watching needs the
+        card's progress_updated_at, next_up its series_id."""
+        self.request('PUT', '/home/dismissals/%s/%s' % (surface, item_id), body=body)
+
     # ----- requests -----
 
     def my_requests(self):

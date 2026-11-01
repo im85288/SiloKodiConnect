@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Silo Skyline: Home keys. Copy to userdata/keymaps/ (named to load after
+     other keymaps, which it overrides only for these keys):
+       the context menu (C, Menu, a long OK) on Home: on a Continue Watching
+       or Next Up card, Silo's menu (Remove from Continue Watching); on
+       anything else, Kodi's own. A skin's card isn't a library item, so
+       Kodi has no context menu for it. -->
+<keymap>
+  <home>
+    <keyboard>
+      <c>RunScript(special://home/addons/plugin.video.silokodiconnect/context_home.py)</c>
+      <menu>RunScript(special://home/addons/plugin.video.silokodiconnect/context_home.py)</menu>
+      <return mod="longpress">RunScript(special://home/addons/plugin.video.silokodiconnect/context_home.py)</return>
+      <enter mod="longpress">RunScript(special://home/addons/plugin.video.silokodiconnect/context_home.py)</enter>
+    </keyboard>
+    <remote>
+      <menu>RunScript(special://home/addons/plugin.video.silokodiconnect/context_home.py)</menu>
+      <title>RunScript(special://home/addons/plugin.video.silokodiconnect/context_home.py)</title>
+    </remote>
+  </home>
+</keymap>

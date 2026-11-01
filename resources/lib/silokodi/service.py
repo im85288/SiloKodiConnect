@@ -23,7 +23,7 @@ from .store import Store
 from . import rows as home_cards
 from .library import DetailsCache
 from .personal import PersonalLists
-from .sync import MAX_ROWS, MOVIE_LIBRARY_TYPES, SHOW_LIBRARY_TYPES, Stopped, Syncer, collection_cards, home_row_items, page_of, skin_layout
+from .sync import MAX_ROWS, MOVIE_LIBRARY_TYPES, NEXT_EPISODE_SECTIONS, SHOW_LIBRARY_TYPES, WIDE_SECTIONS, Stopped, Syncer, collection_cards, home_row_items, page_of, skin_layout
 from .syncdb import SyncDB
 
 PROGRESS_POLL = 300          # seconds between resume-point checks while the socket is up
@@ -238,6 +238,7 @@ class Service(object):
         self.signed_out_notice = False
         self.published_signed_in = None
         self.home_rows = []  # the profile's Silo home rows, as last published
+        self.ranked = set()  # ids of Home rows drawn as a Top 10 (rows.ranked_rows)
         self.details = DetailsCache()  # library details for rows, until they change
         self.home_cards = {}  # every page's rows as published properties (rows.py)
         self.brand_pictures = {}  # (kind, slug) -> (when, its hero picture): brand_picture
@@ -376,6 +377,9 @@ class Service(object):
         if loaded:
             self.next_recheck = time.time() + STARTUP_QUIET
         self.layout = self.db.meta('layout') or {}
+        # The ranked rows the layout was made with: rows a skin loads before
+        # the layout is published again still get their numbers.
+        self.ranked = set(self.db.meta('ranked') or [])
         if self.layout:
             self.apply_layout()
         # Home's rows as last published: drawn at once, before any lookup.
@@ -748,11 +752,23 @@ class Service(object):
                 return {'error': str(error)}
             self.personal.refresh_soon(['/watchlist'])
             return {'watchlist': 'true' if query.get('add') == '1' else 'false'}
-        elif name == 'sections':
+        elif name == 'top10':
+            # The Top 10 rows changed in the settings: Home's layout and cards again.
+            self.enqueue('layout')
+        elif name == 'dismiss':
             try:
-                return {'sections': self.home_sections()}
+                return self.dismiss(query.get('type') or '', query.get('dbid') or '')
             except (ApiError, requests.RequestException) as error:
                 return {'error': str(error)}
+        elif name == 'sections':
+            try:
+                sections = self.home_sections()
+            except (ApiError, requests.RequestException) as error:
+                return {'error': str(error)}
+            for section in sections:
+                section['ranked'] = str(section['id']) in self.ranked
+                section['wide'] = section['type'] in WIDE_SECTIONS
+            return {'sections': sections}
         elif name == 'requests':
             try:
                 return {'cards': self.request_cards(query.get('row') or 'mine')}
@@ -808,8 +824,15 @@ class Service(object):
         elif name == 'widget':
             try:
                 section = query.get('section') or 'continue_watching'
-                return {'items': self.with_details(self.widget_items(section, query.get('library'))),
-                        'title': self.row_title(section, query.get('library'))}
+                items = self.with_details(self.widget_items(section, query.get('library')))
+                if not query.get('library') and str(section) in self.ranked:
+                    for number, item in enumerate(items[:home_cards.CARDS], 1):
+                        item['rank'] = str(number)
+                # The title Silo just sent with the items (it names a ranked
+                # row), else the one last published.
+                title = self.row_titles.get((query.get('library') or None, str(section))) \
+                    or self.row_title(section, query.get('library'))
+                return {'items': items, 'title': title}
             except (ApiError, requests.RequestException) as error:
                 return {'error': str(error)}
         elif name == 'list_libraries':
@@ -824,6 +847,29 @@ class Service(object):
         else:
             return {'error': 'unknown command'}
         return {'ok': True}
+
+    def dismiss(self, kind, dbid):
+        """Remove a library title's card from Silo's Continue Watching / Next
+        Up, as Silo's apps do: a part-watched card by its progress stamp,
+        an unstarted next episode by its series. Home's rows then refresh."""
+        row = self.db.by_kodi(kind, int(dbid)) if dbid.isdigit() else None
+        if not row:
+            return {'error': 'Not a Silo title'}
+        for section in self.home_sections():
+            if section['type'] not in NEXT_EPISODE_SECTIONS:
+                continue
+            page = self.client.get('/home/sections/%s/items' % section['id'])
+            for card in page.get('items') or []:
+                if row['content_id'] not in (card.get('content_id'), card.get('play_content_id')):
+                    continue
+                if card.get('progress_updated_at'):
+                    surface, body = 'continue_watching', {'progress_updated_at': card['progress_updated_at']}
+                else:
+                    surface, body = 'next_up', {'series_id': card.get('series_id') or card['content_id']}
+                self.client.dismiss_home_item(surface, card['content_id'], body)
+                self.enqueue('homecards')
+                return {'dismissed': card['content_id']}
+        return {'error': 'Not in Continue Watching'}
 
     def home_sections(self):
         """The profile's Silo home rows, in Silo's order."""
@@ -1019,7 +1065,8 @@ class Service(object):
             except ApiError as error:
                 kodi.log_warning('No rows for library %s: %s' % (library.get('name'), error))
         request_rows = self.request_rows()
-        self.layout = skin_layout(home, libraries, library_sections, request_rows)
+        self.ranked = home_cards.ranked_rows(kodi.setting('top10_rows') or '', home)
+        self.layout = skin_layout(home, libraries, library_sections, request_rows, self.ranked)
         # Where each page's rows come from, in the layout's order, for its cards.
         self.page_sources = {'home': [(section['id'], None) for section in home if section.get('id')],
                              'requests': [(row[0], None) for row in request_rows or []]}
@@ -1029,6 +1076,7 @@ class Service(object):
                                        for section in library_sections.get(str(library['id'])) or []]
         self.apply_layout()
         self.db.set_meta('layout', self.layout)
+        self.db.set_meta('ranked', sorted(self.ranked))
         kodi.set_property('layout_updated', str(int(time.time())))
         self.home_cards_soon()  # the cards for this layout's rows (a profile's own)
 
@@ -1170,12 +1218,17 @@ class Service(object):
                                        self.series_art(source))
                 if source.get('next') and not card['left']:
                     card['left'] = home_cards.NEXT_EPISODE
+                if source.get('dismiss'):
+                    card['dismiss'] = '1'
                 if page == 'requests' and source.get('label'):
                     # In the library: Silo's LIBRARY and Available tags, its type and year under it.
                     card['card.sub'] = card['card.wide_sub'] = home_cards.type_year(source)
                     card.update(home_cards.request_status(source))
                     card.update({'request.library': '1', 'request.state': 'Available'})
                 cards.append(card)
+        if page == 'home' and str(row_id) in self.ranked:
+            for number, card in enumerate(cards, 1):
+                card['rank'] = str(number)
         return cards
 
     def publish_playing(self, content_id):

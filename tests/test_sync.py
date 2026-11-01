@@ -310,8 +310,8 @@ def test_home_rows_map_to_library_items(syncer, query):
              {'content_id': 'ebook-9', 'type': 'ebook'}]
     # In "what next" rows a show card is its next episode; elsewhere it is the show.
     assert home_row_items({'section_type': 'continue_watching', 'items': cards}, 'continue_watching', syncer.db) \
-        == [{'type': 'movie', 'kodi_id': movie_id, 'tint': TOY_STORY_TINT},
-            {'type': 'episode', 'kodi_id': next_episode, 'tint': '', 'next': True}]
+        == [{'type': 'movie', 'kodi_id': movie_id, 'tint': TOY_STORY_TINT, 'dismiss': True},
+            {'type': 'episode', 'kodi_id': next_episode, 'tint': '', 'dismiss': True, 'next': True}]
     assert home_row_items({'section_type': 'collection', 'items': cards}, 'popular-imdb', syncer.db) \
         == [{'type': 'movie', 'kodi_id': movie_id, 'tint': TOY_STORY_TINT},
             {'type': 'tvshow', 'kodi_id': show_id, 'tint': ''}]
@@ -1036,3 +1036,60 @@ def test_time_left():
     assert mapping.time_left({'position': 60, 'total': 3660}) == '1 h left'
     assert mapping.time_left({'position': 2500, 'total': 2520}) == '1 min left'
     assert mapping.time_left({}) == '' and mapping.time_left(None) == ''
+
+
+def test_dismiss_uses_silos_anchor_for_each_kind_of_card():
+    from resources.lib.silokodi import service as service_module
+
+    class Host(object):
+        def __init__(self, cards):
+            self.cards, self.calls, self.queued = cards, [], []
+            self.db = self
+            self.client = self
+
+        def by_kodi(self, kind, kodi_id):
+            return {'content_id': {7: 'episode-1', 8: 'episode-2'}.get(kodi_id)} if kind == 'episode' else None
+
+        def home_sections(self):
+            return [{'id': 'pop', 'type': 'collection'}, {'id': 'cw', 'type': 'continue_watching'}]
+
+        def get(self, path):
+            assert path == '/home/sections/cw/items'
+            return {'items': self.cards}
+
+        def dismiss_home_item(self, surface, item_id, body):
+            self.calls.append((surface, item_id, body))
+
+        def enqueue(self, task):
+            self.queued.append(task)
+
+    host = Host([{'content_id': 'episode-1', 'series_id': 'series-1', 'progress_updated_at': '2026-10-25T11:57:37.000Z'},
+                 {'content_id': 'episode-2', 'play_content_id': 'episode-2', 'series_id': 'series-2'}])
+    dismiss = service_module.Service.dismiss
+    assert dismiss(host, 'episode', '7') == {'dismissed': 'episode-1'}
+    assert dismiss(host, 'episode', '8') == {'dismissed': 'episode-2'}
+    assert host.calls == [('continue_watching', 'episode-1', {'progress_updated_at': '2026-10-25T11:57:37.000Z'}),
+                          ('next_up', 'episode-2', {'series_id': 'series-2'})]
+    assert host.queued == ['homecards', 'homecards']
+    assert 'error' in dismiss(host, 'movie', '3') and 'error' in dismiss(host, 'episode', 'x')
+
+
+def test_ranked_rows_default_to_silos_ranked_lists_until_chosen():
+    from resources.lib.silokodi import rows
+    sections = [{'id': 1, 'title': 'IMDb Popular Shows'}, {'id': 2, 'title': 'Trending This Week Movies'},
+                {'id': 3, 'title': 'Popular on Netflix Shows'}]
+    assert rows.ranked_rows('', sections) == {'1', '2'}
+    assert rows.ranked_rows('3,1', sections) == {'3', '1'}
+    assert rows.ranked_rows('none', sections) == set()
+
+
+def test_a_ranked_home_row_has_its_own_style():
+    from resources.lib.silokodi.sync import skin_layout
+    home = [{'id': 7, 'title': 'IMDb Popular Shows', 'section_type': 'collection'},
+            {'id': 8, 'title': 'Continue Watching', 'section_type': 'continue_watching'},
+            {'id': 9, 'title': 'Popular on Netflix Shows', 'section_type': 'collection'}]
+    layout = skin_layout(home, [], {}, ranked={'7'})
+    assert [layout['silo.home.%d.style' % n] for n in (1, 2, 3)] == ['ranked', 'landscape', 'poster']
+    assert layout['silo.home.1.ranked'] == layout['silo.home.1.path'] and layout['silo.home.1.poster'] == ''
+    # Ranking a row changes its path, so the row reloads.
+    assert 'ranked=1' in layout['silo.home.1.path'] and 'ranked' not in layout['silo.home.3.path']

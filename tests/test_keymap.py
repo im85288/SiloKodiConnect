@@ -22,16 +22,17 @@ def kodi_home(tmp_path, monkeypatch):
 
 def test_the_keymaps_follow_the_skin_and_setting(kodi_home):
     target, state = kodi_home
-    player = target.parent / keymap.PLAYER_NAME
-    assert keymap.sync() == {keymap.NAME: 'installed', keymap.PLAYER_NAME: 'installed'}
+    player, home = target.parent / keymap.PLAYER_NAME, target.parent / keymap.HOME_NAME
+    assert keymap.sync() == {keymap.NAME: 'installed', keymap.PLAYER_NAME: 'installed', keymap.HOME_NAME: 'installed'}
     assert keymap.MARK in target.read_bytes() and keymap.PLAYER_MARK in player.read_bytes()
+    assert keymap.HOME_MARK in home.read_bytes()
     assert keymap.sync() == {}                        # already there
     state['skin'] = 'skin.estuary'
-    assert keymap.sync() == {keymap.NAME: 'removed', keymap.PLAYER_NAME: 'removed'}
-    assert not target.exists() and not player.exists()
+    assert keymap.sync() == {keymap.NAME: 'removed', keymap.PLAYER_NAME: 'removed', keymap.HOME_NAME: 'removed'}
+    assert not target.exists() and not player.exists() and not home.exists()
     # The Live TV setting off: only the player's keys.
     state['skin'], state['on'] = keymap.SKIN, False
-    assert keymap.sync() == {keymap.PLAYER_NAME: 'installed'} and not target.exists()
+    assert keymap.sync() == {keymap.PLAYER_NAME: 'installed', keymap.HOME_NAME: 'installed'} and not target.exists()
 
 
 def test_someone_elses_keymap_of_that_name_is_left_alone(kodi_home):

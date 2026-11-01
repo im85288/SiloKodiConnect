@@ -70,6 +70,9 @@ def home_row_items(page, section, db):
                     'tint': mapping.ambient_tint(card.get('poster_thumbhash') or '')}
             if next_episode and row['kind'] == 'episode' and card.get('backdrop_url'):
                 item.update(backdrop=card['backdrop_url'], content_id=row['content_id'])
+            if next_episode:
+                # Removable from the row (the context menu's "Remove from Continue Watching").
+                item['dismiss'] = True
             if next_episode and row['kind'] == 'episode':
                 # Silo's third caption line: its time left, else "Next Episode".
                 item['next'] = True
@@ -116,31 +119,38 @@ def native_sort(section):
     return method, direction, str(NATIVE_LIMIT)
 
 
-def row_entry(section, library_id=None, library=None):
+def row_entry(section, library_id=None, library=None, ranked=()):
     query = {'mode': 'widget', 'section': section['id']}
     if library_id:
         query['library'] = library_id
+    is_ranked = not library_id and str(section.get('id')) in ranked
+    if is_ranked:
+        # Its own path, so turning ranking on or off reloads the row (Kodi
+        # keeps a loaded item's properties, its rank among them).
+        query['ranked'] = '1'
     path = native_path(section, library) if library else None
     return {'title': section.get('title') or section['id'],
             'path': path or PLUGIN + '?' + '&'.join('%s=%s' % (k, quote(str(v), safe='')) for k, v in sorted(query.items())),
-            'style': 'landscape' if section.get('section_type') in WIDE_SECTIONS else 'poster',
+            'style': 'landscape' if section.get('section_type') in WIDE_SECTIONS
+            else 'ranked' if is_ranked else 'poster',
             # Silo's row type: a skin marks some rows (Continue Watching's play icon).
             'type': section.get('section_type') or '',
             **dict(zip(('sort', 'order', 'limit'), native_sort(section) if path else ('', '', '')))}
 
 
-def skin_layout(home_sections, libraries, library_sections, request_rows=None):
+def skin_layout(home_sections, libraries, library_sections, request_rows=None, ranked=()):
     """The pages and rows a Silo-style skin shows, as Home window properties.
 
     home_sections:     Silo's home rows, in order
     libraries:         the synced movie and series libraries, in Silo's order
     library_sections:  {library id: that library's rows, in order}
     request_rows:      [(row key, title[, style])] for the Requests page, or None
+    ranked:            ids of Home rows drawn as a Top 10 (style 'ranked')
 
     Pages are Home plus one per library type present, as in Silo's top bar;
     a type with several libraries shows their rows one library after another.
     """
-    pages = OrderedDict([('home', [row_entry(s) for s in home_sections])])
+    pages = OrderedDict([('home', [row_entry(s, ranked=ranked) for s in home_sections])])
     collections = {}
     for page, types in (('movies', MOVIE_LIBRARY_TYPES), ('series', SHOW_LIBRARY_TYPES)):
         rows, ids = [], []
@@ -177,7 +187,7 @@ def skin_layout(home_sections, libraries, library_sections, request_rows=None):
     return properties
 
 
-ROW_STYLES = ('poster', 'landscape')
+ROW_STYLES = ('poster', 'landscape', 'ranked')
 
 
 def page_of(key):

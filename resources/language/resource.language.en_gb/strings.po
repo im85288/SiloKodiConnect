@@ -333,3 +333,23 @@ msgstr ""
 msgctxt "#30179"
 msgid "Couldn't sign in to %s. Try again from your phone, or press Back."
 msgstr ""
+
+msgctxt "#30180"
+msgid "Remove from Continue Watching"
+msgstr ""
+
+msgctxt "#30181"
+msgid "Couldn't remove it: %s"
+msgstr ""
+
+msgctxt "#30182"
+msgid "Top 10 rows"
+msgstr ""
+
+msgctxt "#30183"
+msgid "Rows to number, as Netflix's Top 10"
+msgstr ""
+
+msgctxt "#30184"
+msgid "Choose Home rows drawn as a Top 10: each title numbered, a big numeral beside its poster. Silo's Trending This Week and IMDb Popular rows until you choose."
+msgstr ""

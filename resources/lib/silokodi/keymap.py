@@ -17,9 +17,12 @@ NAME = 'zz_skyline_livetv.xml'
 MARK = b'Silo Skyline: Live TV keys'
 PLAYER_NAME = 'zz_skyline_player.xml'
 PLAYER_MARK = b'Silo Skyline: player keys'
+HOME_NAME = 'zz_skyline_home.xml'
+HOME_MARK = b'Silo Skyline: Home keys'
 # (file, the mark that makes it ours, whether it's wanted with Skyline)
 KEYMAPS = ((NAME, MARK, lambda: kodi.setting_bool('livetv_keys')),
-           (PLAYER_NAME, PLAYER_MARK, lambda: True))
+           (PLAYER_NAME, PLAYER_MARK, lambda: True),
+           (HOME_NAME, HOME_MARK, lambda: True))
 
 
 def sync():

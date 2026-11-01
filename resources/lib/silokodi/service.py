@@ -825,9 +825,14 @@ class Service(object):
             try:
                 section = query.get('section') or 'continue_watching'
                 items = self.with_details(self.widget_items(section, query.get('library')))
-                if not query.get('library') and str(section) in self.ranked:
+                if not query.get('library'):
+                    numbered = str(section) in self.ranked
+                    placed = home_cards.ranking(self.row_titles.get((None, str(section))))
                     for number, item in enumerate(items[:home_cards.CARDS], 1):
-                        item['rank'] = str(number)
+                        if numbered:
+                            item['rank'] = str(number)
+                        if placed and number <= home_cards.PLACES:
+                            item['place'] = str(number)
                 # The title Silo just sent with the items (it names a ranked
                 # row), else the one last published.
                 title = self.row_titles.get((query.get('library') or None, str(section))) \
@@ -1226,9 +1231,14 @@ class Service(object):
                     card.update(home_cards.request_status(source))
                     card.update({'request.library': '1', 'request.state': 'Available'})
                 cards.append(card)
-        if page == 'home' and str(row_id) in self.ranked:
+        if page == 'home':
+            numbered = str(row_id) in self.ranked
+            placed = home_cards.ranking(self.row_titles.get((None, str(row_id))))
             for number, card in enumerate(cards, 1):
-                card['rank'] = str(number)
+                if numbered:
+                    card['rank'] = str(number)
+                if placed and number <= home_cards.PLACES:
+                    card['place'] = str(number)
         return cards
 
     def publish_playing(self, content_id):

@@ -412,6 +412,8 @@ def widget(handle, section, library=None, collection=None, title=None, exclude_s
                 listitem.setProperty('silo.dismiss', '1')
             if entry.get('rank'):
                 listitem.setProperty('silo.rank', entry['rank'])
+            if entry.get('place'):
+                listitem.setProperty('silo.place', entry['place'])
             kinds.add(entry['type'])
             xbmcplugin.addDirectoryItem(handle, url, listitem, isFolder=folder)
     # A skin draws a folder by its content: posters for films and shows.

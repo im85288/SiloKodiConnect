@@ -24,6 +24,17 @@ from . import mapping
 DEFAULT_RANKED = ('Trending This Week', 'IMDb Popular')
 
 
+# Silo's ranking rows, whose order is a chart: a title in their first ten
+# has its place (Netflix's "#3 in Shows Today" over the hero), whether or not
+# the row is drawn numbered.
+RANKING_ROWS = ('Trending This Week', 'IMDb Popular', 'Popular on')
+PLACES = 10
+
+
+def ranking(title):
+    return (title or '').startswith(RANKING_ROWS)
+
+
 def ranked_rows(choice, sections):
     """The ids of Home rows to rank. choice: the setting (ids, 'none', or ''
     for the default: rows titled as DEFAULT_RANKED)."""
@@ -40,7 +51,7 @@ NEXT_EPISODE = 'Next Episode'
 CARDS = 20  # cards per row; Silo's rows go up to 50 (most hold 13-20), and each costs a skin's load time
 FIELDS = ('type', 'dbid', 'label', 'card.title', 'card.sub', 'card.wide_sub', 'hero.title', 'hero.meta',
           'hero.facts', 'rating.imdb', 'rating.tmdb',
-          'hero.detail', 'plot', 'mpaa', 'badge1', 'badge2', 'badge3', 'tint', 'percent', 'playcount', 'new', 'left', 'dismiss', 'rank',
+          'hero.detail', 'plot', 'mpaa', 'badge1', 'badge2', 'badge3', 'tint', 'percent', 'playcount', 'new', 'left', 'dismiss', 'rank', 'place',
           'art.poster', 'art.landscape', 'art.fanart', 'art.clearlogo', 'request.type', 'request.tmdb',
           'status.tint', 'status.seg1', 'status.seg2', 'status.seg3', 'status.seg4',
           'request.library', 'request.state', 'request.more', 'request.logo', 'request.from', 'request.to')

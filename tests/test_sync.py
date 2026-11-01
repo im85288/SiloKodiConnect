@@ -1093,3 +1093,9 @@ def test_a_ranked_home_row_has_its_own_style():
     assert layout['silo.home.1.ranked'] == layout['silo.home.1.path'] and layout['silo.home.1.poster'] == ''
     # Ranking a row changes its path, so the row reloads.
     assert 'ranked=1' in layout['silo.home.1.path'] and 'ranked' not in layout['silo.home.3.path']
+
+
+def test_ranking_rows_give_places_whatever_is_numbered():
+    from resources.lib.silokodi import rows
+    assert rows.ranking('Trending This Week Shows') and rows.ranking('Popular on Netflix Movies')
+    assert rows.ranking('IMDb Popular Shows') and not rows.ranking('Family Halloween') and not rows.ranking(None)

@@ -166,6 +166,12 @@ class SyncDB(object):
         return [kind for kind, url in urls.items()
                 if before.get(kind) and unsigned(before[kind]) != unsigned(url)]
 
+    def forget_svg_art(self):
+        """Clear the fingerprint of items saved with SVG art (written before
+        mapping.drawable), so the next sync rewrites them without it."""
+        self._write("UPDATE items SET fingerprint = NULL WHERE content_id IN (SELECT content_id FROM art "
+                    "WHERE lower(substr(url, 1, instr(url || '?', '?') - 1)) LIKE '%.svg')")
+
     def art(self, content_id, kind):
         rows = self._query('SELECT url FROM art WHERE content_id = ? AND kind = ?', (content_id, kind))
         return rows[0]['url'] if rows else None

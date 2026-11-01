@@ -1010,3 +1010,10 @@ def test_marking_unwatched_right_after_playback_reaches_silo(monkeypatch):
     assert calls == []                      # Kodi's own "watched" after playback
     service.kodi_updated({'item': {'type': 'episode', 'id': 7}, 'playcount': 0})
     assert calls == [('unwatched', 'episode-1')]
+
+
+def test_artwork_skips_svg_kodi_cannot_draw():
+    item = {'content_id': 'series-1', 'poster_url': 'https://image.tmdb.org/t/p/w500/a.webp?sig=1',
+            'logo_url': 'https://image.tmdb.org/t/p/w500/b.SVG?sig=2'}
+    local, remote = mapping.artwork(item, mapping.SHOW_ART, 57578)
+    assert set(local) == set(remote) == {'poster'}

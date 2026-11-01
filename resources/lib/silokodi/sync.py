@@ -281,6 +281,9 @@ class Syncer(object):
         service has handled it (its cache, Kodi's lists, Home's cards): a
         sync queued right behind a full resync must not wipe it out."""
         pending, self.changed = self.changed, False
+        if not self.db.meta('svg_art_dropped'):
+            self.db.forget_svg_art()
+            self.db.set_meta('svg_art_dropped', True)
         with self.writing() as kodi:
             kodi.setup_root_paths()
         try:

@@ -219,12 +219,18 @@ def unique_ids(item):
     return ids
 
 
+def drawable(url):
+    """Whether Kodi can draw an image: it has no SVG support (some TMDB
+    logos are SVG), and a skin falls back only on missing art."""
+    return not url.partition('?')[0].lower().endswith('.svg')
+
+
 def artwork(item, mapping, port, content_id=None):
     """({kodi_art_type: local URL}, {kodi_art_type: Silo URL})."""
     content_id = content_id or item['content_id']
     local, remote = {}, {}
     for field, kind in mapping:
-        if item.get(field):
+        if item.get(field) and drawable(item[field]):
             local[kind] = art_url(port, content_id, kind)
             remote[kind] = item[field]
     return local, remote

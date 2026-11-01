@@ -10,9 +10,10 @@ Community project: not made or endorsed by the Silo team. Requires Kodi 20 (Nexu
 
 ## What it does
 
-- **Sign in with a TV code.** Kodi shows an 8-digit code; approve it at `<your server>/activate` on a phone
-  or computer where you're signed in to Silo (OIDC sign-ins such as Pocket ID work). Then choose a
-  household profile; PIN profiles ask for the PIN.
+- **Sign in from the Silo phone app, or with a TV code.** Kodi appears in the phone app's "set up a TV"
+  sheet, as Silo's own TV apps do, and the phone approves it: nothing to type. Or Kodi shows an 8-digit code
+  to approve at `<your server>/activate` (OIDC sign-ins such as Pocket ID work). Servers on the local network
+  are found without typing an address. Then choose a household profile; PIN profiles ask for the PIN.
 - **Movies and TV in Kodi's library.** Titles, plots, cast with photos, directors, writers, genres, studios,
   networks, countries, ratings, IMDb/TMDB/TVDB ids, artwork (poster, fanart, logo, clearart, banner, disc,
   landscape, season posters, episode stills) and video/audio details (4K, HDR10, Dolby Vision, Atmos-capable
@@ -58,18 +59,36 @@ rows instead, point skin widgets at the add-on:
 - **Silo home rows**: every row on the profile's Silo home screen (Popular on IMDb, Recently added,
   collections, recommendations...), each a folder usable as a widget
   (`plugin://plugin.video.silokodiconnect/?mode=widget&section=<row id>`).
+- **Watchlist, Favourites and History**, kept between visits so they open at once.
+
+Kodi's context menu on a Continue Watching or Next Up card offers **Remove from Continue Watching**: Silo
+hides it (an episode's whole show) until it is played again.
 
 Rows list the matching Kodi library items, so art, resume points and play behave as usual. In "what to watch
 next" rows a show stands for its next episode; elsewhere for the show. Titles not synced to Kodi are skipped.
 
 ## Silo Skyline skin
 
-[Silo Skyline](https://github.com/im85288/SiloSkyline) lays Kodi out like the Silo TV apps. The add-on
-tells it which pages and rows to show, following the profile's Silo home and libraries: Home window
-properties `silo.pages`, `silo.<page>.count` and `silo.<page>.<n>.title` / `.path` / `.style`, published when
-the service starts and after every sync, plus `silokodi.signed_in`. Widget items carry what Silo's hero and
-detail page show (`silo.code`, `silo.aired`, `silo.mpaa`, `silo.genre`, `silo.rating`, `silo.cast`,
-`silo.badge1`-`3`) and their cast, directors and studios. Other skins can use the same properties.
+[Silo Skyline](https://github.com/im85288/SiloSkyline) lays Kodi out like the Silo TV apps, and the add-on
+gives it what to show, as Home window properties a skin reads without running the plugin. Other skins can use
+the same properties.
+
+- **Pages and rows:** `silo.pages`, `silo.<page>.count` and, for each row, `silo.<page>.<n>.title` / `.path` /
+  `.style` (`poster`, `landscape` or `ranked`) / `.type`, following the profile's Silo home and libraries;
+  published when the service starts (from last time's copy at once, then fresh) and after every sync.
+- **Home's and Requests' cards:** each row's titles as `silo.<page>.<n>.<card>.<field>` in Silo's order, so a
+  row draws at once: title and captions, the hero's details and both ratings, art, progress, and the marks
+  below. Rows further down load through the plugin, whose items carry the same marks as `silo.*` properties.
+- **Marks:** `playcount` (a show with every episode watched counts as played), `new` (a show you've started
+  with an unwatched episode aired in the last 7 days), `left` (a part-watched title's time left, or "Next
+  Episode"), `dismiss` (removable from Continue Watching), `rank` (a numbered Top 10 row) and `place` (a title
+  in the first ten of a chart row such as Trending This Week, IMDb Popular or Popular on..., numbered or not).
+- **For its pages:** a title's trailers, watchlist state and ambient tint, person pages, collections, More
+  Like This, the Live TV quick guide, catch-up and recent channels, Silo's markers for the seek bar, and the
+  playing title's details for the player. `silokodi.signed_in` says whether you are signed in.
+- **Keys:** with Skyline as the skin, the add-on installs keymaps in `userdata/keymaps`: Live TV's (as
+  TiviMate's), the player's (Back on the pause screen) and Home's (the context menu key on a Continue
+  Watching card), and takes them away for any other skin.
 
 ## Settings
 
@@ -79,6 +98,9 @@ detail page show (`silo.code`, `silo.aired`, `silo.mpaa`, `silo.genre`, `silo.ra
   Kodi's own **Settings -> Player -> Videos -> Dolby Vision compatibility mode**, which converts profile 7
   (UHD Blu-ray remuxes) to 8.1. Without the profile 7 option Silo strips such files to HDR10 in a converted
   4K stream, which the SHIELD can't hardware-decode in Kodi; the add-on refuses those with a message.
+- **Playback -> Live TV keys as TiviMate** (with Skyline): OK the recent channels, Left the quick guide.
+- **Playback -> Top 10 rows** chooses which Home rows Skyline numbers, as Netflix's Top 10 (Skyline's own
+  settings open the same choice). Until you choose: rows titled Trending This Week or IMDb Popular.
 - **Sync -> Choose libraries** limits which Silo libraries are synced.
 - **Sync -> Rewrite every item** re-fetches every title (use after changing the relay port).
 - **Sync -> Remove all Silo items** removes everything this add-on wrote to the Kodi library.
@@ -89,6 +111,7 @@ detail page show (`silo.code`, `silo.aired`, `silo.mpaa`, `silo.genre`, `silo.ra
 | --- | --- |
 | Silo /api/v2 client, token refresh | `resources/lib/silokodi/api.py` |
 | TV-code sign-in and profile choice | `resources/lib/silokodi/auth.py` |
+| Sign-in from the Silo phone app; servers on the network | `pairing.py`, `discovery.py` |
 | Silo JSON -> Kodi fields | `resources/lib/silokodi/mapping.py` |
 | Kodi video database writer (adapted from PKC) | `resources/lib/silokodi/kodidb.py` |
 | Fingerprint sync of movies, shows, seasons, episodes | `resources/lib/silokodi/sync.py` |
@@ -96,7 +119,12 @@ detail page show (`silo.code`, `silo.aired`, `silo.mpaa`, `silo.genre`, `silo.ra
 | Playback v3 sessions | `resources/lib/silokodi/playback.py` |
 | Loopback relay (artwork, media, plugin <-> service) | `resources/lib/silokodi/relay.py` |
 | Background service | `resources/lib/silokodi/service.py` |
-| Plugin entry: play and menu | `resources/lib/silokodi/plugin.py` |
+| Plugin entry: play, menu, widget rows | `resources/lib/silokodi/plugin.py` |
+| Home's rows as properties; titles' details and their cache | `rows.py`, `library.py` |
+| Home's saved layout and cards at start-up | `quickstart.py` |
+| Watchlist, Favourites, History | `personal.py` |
+| Live TV: recent channels, quick guide, catch-up | `channels.py`, `quick.py`, `catchup.py` |
+| Skyline's keymaps; context menu items | `keymap.py`, `context.py` |
 
 Items are written with add-on paths (`plugin://plugin.video.silokodiconnect/movies/?mode=play&id=...`), so
 playing one asks the add-on, which starts a Silo session and hands Kodi the stream.
@@ -106,7 +134,9 @@ Silo's artwork URLs are signed and change daily, so Kodi's art table holds stabl
 image once.
 
 Only the service refreshes sign-in tokens (Silo rotates refresh tokens); the plugin asks the service over the
-loopback relay to start playback.
+loopback relay to start playback and for everything else (`/play`, `/command/...`). Those two routes need a
+token the service makes at each start and shares only as a Kodi window property, so another app on the
+device, or a web page in its browser, can't send them.
 
 ## Known limits
 
@@ -126,14 +156,32 @@ check with no changes. The media relay moved a 4K remux at about 350 Mbit/s on a
 ## Development
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install pytest requests websocket-client
+python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python -m pyflakes resources tests default.py service.py context_dismiss.py
 .venv/bin/python -m pytest tests
 ```
 
 The tests run the sync against Kodi 21's real video database schema (`tests/fixtures/MyVideos131.sql`,
-extracted from Kodi's `VideoDatabase.cpp`) and a fake Silo server.
+extracted from Kodi's `VideoDatabase.cpp`) and a fake Silo server. CI runs them on Python 3.8 (Kodi 20 on
+Android, in the `python:3.8` image), 3.11 (Kodi 21) and 3.14. Kodi's embedded Python can lose
+`datetime.strptime` after its first use, so dates are parsed by hand.
 
 ## Changes
+
+### v0.10.0 (2026-11-01)
+For [Silo Skyline](https://github.com/im85288/SiloSkyline) 0.3.0, tested on an NVIDIA SHIELD (Kodi 21).
+- **Requests:** Silo's Discover and Yours rows, a full info page, season choice and search.
+- **Faster Home:** rows published as cards in Silo's order (no plugin per row), far rows loaded later, a cache
+  of titles' details, and Home drawn from last time's copy while the service starts.
+- **Remove from Continue Watching**, through Silo's own dismissal.
+- **Top 10 rows** chosen in the settings, chart places for a hero's "#3 in ..." line, New Episode and time-left
+  marks, Silo's Watchlist, Favourites and History.
+- For a skin: trailers, person pages, collections, the Live TV quick guide, catch-up that plays the past
+  programme, TiviMate-style recent channels, Showcase player details and keys.
+- Sign in from the Silo phone app.
+- Fixes: marking unwatched in Kodi reaches Silo right after playback; a late intro with no credits after it
+  counts as the credits; SVG logos (which Kodi can't draw) are skipped so the title shows; fully watched shows
+  are marked in plugin rows; the relay's commands need a per-start token.
 
 ### v0.9.3 (2026-10-25)
 - For the [Silo Skyline](https://github.com/im85288/SiloSkyline) skin: the profile's name and avatar (DiceBear

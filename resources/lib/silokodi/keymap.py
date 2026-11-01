@@ -1,6 +1,7 @@
 """Keys for the Silo Skyline skin: Live TV's, as TiviMate's (OK the recent
-channels, Left the quick guide, Up/Down the channel above or below), and the
-player's (Back on the pause screen only dismisses it).
+channels, Left the quick guide, Up/Down the channel above or below), the
+player's (Back on the pause screen only dismisses it) and Home's (the
+context menu key on a Continue Watching card offers Remove).
 
 A skin can't set keys, so the add-on installs each keymap in Kodi's
 userdata/keymaps while the skin is Skyline (Live TV's also needs its setting),

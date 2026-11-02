@@ -2,31 +2,41 @@ name: Release
 # Pushing a tag v<version> publishes it: the add-on's zip (what git archive
 # ships, .gitattributes leaving the tests and tools out) and its notes from
 # README.md's "### v<version>" section.
+# Run by hand (Actions > Release) to publish or refresh an existing tag's release.
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The tag to release, e.g. v1.2.3
+        required: true
 permissions:
   contents: write
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
     - uses: actions/checkout@v4
+      with:
+        ref: ${{ env.TAG }}
     - name: The tag matches addon.xml's version
       run: |
         version=$(python3 -c "import xml.etree.ElementTree as E; print(E.parse('addon.xml').getroot().get('version'))")
-        [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "addon.xml says $version, the tag is $GITHUB_REF_NAME"; exit 1; }
+        [ "v$version" = "$TAG" ] || { echo "addon.xml says $version, the tag is $TAG"; exit 1; }
     - name: Build the zip
-      run: git archive --prefix=plugin.video.silokodiconnect/ -o "plugin.video.silokodiconnect-${GITHUB_REF_NAME#v}.zip" "$GITHUB_REF_NAME"
+      run: git archive --prefix=plugin.video.silokodiconnect/ -o "plugin.video.silokodiconnect-${TAG#v}.zip" "$TAG"
     - name: Notes
-      run: python3 .github/release_notes.py "${GITHUB_REF_NAME#v}" > notes.md
+      run: python3 .github/release_notes.py "${TAG#v}" > notes.md
     - name: Publish
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
-        zip="plugin.video.silokodiconnect-${GITHUB_REF_NAME#v}.zip"
-        if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-          gh release upload "$GITHUB_REF_NAME" "$zip" --clobber
+        zip="plugin.video.silokodiconnect-${TAG#v}.zip"
+        if gh release view "$TAG" >/dev/null 2>&1; then
+          gh release upload "$TAG" "$zip" --clobber
         else
-          gh release create "$GITHUB_REF_NAME" "$zip" --title "SiloKodiConnect ${GITHUB_REF_NAME#v}" --notes-file notes.md --latest
+          gh release create "$TAG" "$zip" --title "SiloKodiConnect ${TAG#v}" --notes-file notes.md --latest
         fi

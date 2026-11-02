@@ -184,6 +184,10 @@ Android, in the `python:3.8` image), 3.11 (Kodi 21) and 3.14. Kodi's embedded Py
 
 ## Changes
 
+### v0.11.1 (2026-11-02)
+- Dates read "21 Oct 2026" (Aired, the playing title's), and each episode carries its air date as text art
+  (`siloaired`), so a skin writes every date one way whatever Kodi's region.
+
 ### v0.11.0 (2026-11-01)
 For [Silo Skyline](https://github.com/im85288/SiloSkyline) 0.4.0, tested on an NVIDIA SHIELD (Kodi 21).
 - **Box sets:** Silo's box sets (a TMDB collection's films, in a library with box sets on) become Kodi movie

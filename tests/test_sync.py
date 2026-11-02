@@ -976,7 +976,7 @@ def test_the_playing_episode_has_its_series_ratings_and_silos_badges(monkeypatch
     service.publish_playing('episode-1')
     assert (published['playing.rating.imdb'], published['playing.rating.tmdb']) == ('8.2', '8.4')
     assert published['playing.badge3'] == 'ATMOS 5.1' and published['playing.mpaa'] == 'TV-MA'
-    assert published['playing.air_date'] == 'Jul 19, 2026'
+    assert published['playing.air_date'] == '19 Jul 2026'
 
 
 def test_the_hero_extras_carry_tmdbs_score_for_kodis_lists():
@@ -1141,3 +1141,11 @@ def test_box_sets_become_kodi_movie_sets(silo, syncer, query):
 def test_box_set_facts_read_as_silos():
     assert mapping.box_set_facts({'movie_count': 8, 'first_year': 2001, 'last_year': 2011}) == ('8 films', '2001 – 2011')
     assert mapping.box_set_facts({'movie_count': 1, 'first_year': 2020, 'last_year': 2020}) == ('1 film', '2020')
+
+
+def test_episodes_carry_their_air_date_as_a_skin_writes_it(silo, syncer, query):
+    syncer.sync()
+    dates = query("SELECT a.url, e.c05 FROM art a JOIN episode e ON e.idEpisode = a.media_id "
+                  "WHERE a.media_type = 'episode' AND a.type = 'siloaired'")
+    assert dates and all(url == mapping.short_date(aired) for url, aired in dates)
+    assert mapping.short_date('2026-10-21') == '21 Oct 2026' and mapping.short_date('') == ''

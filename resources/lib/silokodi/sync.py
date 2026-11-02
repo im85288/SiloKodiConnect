@@ -312,6 +312,10 @@ class Syncer(object):
             self.db.set_meta('svg_art_dropped', True)
         with self.writing() as kodi:
             kodi.setup_root_paths()
+            if not self.db.meta('episode_dates_written'):
+                # Episodes written before their date art: from Kodi's own air dates, once.
+                self.log('Episode dates: %d' % kodi.write_episode_dates(mapping.short_date))
+                self.db.set_meta('episode_dates_written', True)
         try:
             libraries = self.libraries(excluded)
             self.household = False
@@ -736,6 +740,8 @@ class Syncer(object):
                                season_id, filename, show['kodi_path_id'])
             kodi.set_people(kodi_id, 'episode', people)
             local_art, remote_art = mapping.artwork(episode, mapping.EPISODE_ART, self.port)
+            # Its air date as a skin writes dates ("21 Oct 2026"; Kodi's own follows its region).
+            local_art.update({k: v for k, v in (('siloaired', mapping.short_date(episode.get('air_date'))),) if v})
             kodi.set_art(kodi_id, 'episode', local_art)
             kodi.set_streams(file_id, mapping.episode_stream_details(episode), fields['runtime'])
             # The season listing carries the resume position; catalog cards don't.

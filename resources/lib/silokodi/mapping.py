@@ -526,13 +526,20 @@ def quality_badges(streamdetails):
     return badges
 
 
-def aired_label(date):
-    """2026-09-25 -> 'Aired Sep 25, 2026'."""
+def short_date(date):
+    """2026-09-25 -> '25 Sep 2026': the one way a skin writes a date (its
+    clock is day-first too), whatever Kodi's region."""
     try:
         year, month, day = (int(part) for part in (date or '')[:10].split('-'))
-        return 'Aired %s %d, %d' % (MONTHS[month - 1], day, year)
+        return '%d %s %d' % (day, MONTHS[month - 1], year)
     except (ValueError, IndexError):
         return ''
+
+
+def aired_label(date):
+    """2026-09-25 -> 'Aired 25 Sep 2026'."""
+    date = short_date(date)
+    return 'Aired ' + date if date else ''
 
 
 # How long a show's newest episode counts as new (Netflix's "New Episode").

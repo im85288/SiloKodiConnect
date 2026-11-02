@@ -418,6 +418,17 @@ class KodiVideoDB(object):
         self.remove_file(file_id)
         self.remove_orphaned_people(actors)
 
+    def write_episode_dates(self, label):
+        """Every episode's air date as text art ('siloaired', label(its
+        YYYY-MM-DD)), for skins; returns how many."""
+        self.cursor.execute("SELECT idEpisode, c05 FROM episode WHERE c05 IS NOT NULL AND c05 != ''")
+        rows = [(episode_id, label(aired)) for episode_id, aired in self.cursor.fetchall()]
+        rows = [(episode_id, text) for episode_id, text in rows if text]
+        self.cursor.execute("DELETE FROM art WHERE media_type = 'episode' AND type = 'siloaired'")
+        self.cursor.executemany("INSERT INTO art(media_id, media_type, type, url) VALUES (?, 'episode', 'siloaired', ?)",
+                                rows)
+        return len(rows)
+
     # ----- box sets (Kodi's movie sets) -----
 
     def write_set(self, set_id, name, overview):

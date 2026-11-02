@@ -110,6 +110,7 @@ class Player(xbmc.Player):
             self.service.tell_upnext(session)
             self.show_markers(session)
             self.service.publish_playing(session.content_id)
+            self.service.apply_subtitle_pick(self, session)
 
     def onPlayBackStopped(self):
         self._ended()
@@ -166,6 +167,14 @@ class Player(xbmc.Player):
         except RuntimeError:
             return
         self.service.playback.on_tick(self.last_time, paused)
+
+
+def subtitle_languages():
+    """Kodi's preferred subtitle language as Silo's search takes it (English
+    names are accepted), English as well; English alone without one."""
+    setting = (kodi.jsonrpc('Settings.GetSettingValue', setting='locale.subtitlelanguage') or {}).get('value') or ''
+    named = setting not in ('', 'original', 'default', 'forced_only', 'none')
+    return [setting, 'English'] if named and setting != 'English' else ['English']
 
 
 def library_facts(counts):
@@ -244,6 +253,7 @@ class Service(object):
         self.task_number = itertools.count()
         self.listener = None
         self.recently_played = {}
+        self.subtitle_pick = None  # (stored subtitle id, position) to apply when Search online's restart starts
         self.art_attempts = {}
         self.progress_dialog = None
         self.next_sync = 0
@@ -782,6 +792,38 @@ class Service(object):
             except (ApiError, requests.RequestException, ValueError) as error:
                 return {'error': str(error)}
             return {'rating': str(stars)}
+        elif name == 'subtitle_search':
+            # The Options sheet's Search online: Silo's providers for the playing file.
+            session = self.playback.active
+            file_id = (session.plan.get('effective_media_file_id') if session else None) or ''
+            if not file_id:
+                return {'error': kodi.string(30196)}
+            try:
+                if not self.client.subtitle_search_enabled():
+                    return {'error': kodi.string(30201)}
+                return {'results': self.client.search_subtitles(file_id, subtitle_languages())}
+            except (ApiError, requests.RequestException) as error:
+                return {'error': str(error)}
+        elif name == 'subtitle_get':
+            # Store the chosen result with the file, then play on from the same
+            # moment: Silo serves a subtitle only through a session that lists it.
+            session = self.playback.active
+            row = self.db.get(session.content_id) if session else None
+            if not row or row.get('kodi_id') is None or row.get('kind') not in ('movie', 'episode'):
+                return {'error': kodi.string(30196)}
+            try:
+                result = json.loads(query.get('result') or '{}')
+                stored = self.client.download_subtitle(session.plan.get('effective_media_file_id'), result)
+            except (ApiError, requests.RequestException, ValueError) as error:
+                return {'error': str(error)}
+            try:
+                position = xbmc.Player().getTime()
+            except RuntimeError:
+                position = 0
+            self.subtitle_pick = (str(stored.get('id') or ''), position)
+            key = 'movieid' if row['kind'] == 'movie' else 'episodeid'
+            kodi.jsonrpc('Player.Open', item={key: row['kodi_id']}, options={'resume': False})
+            return {'subtitle': stored.get('id')}
         elif name == 'top10':
             # The Top 10 rows changed in the settings: Home's layout and cards again.
             self.enqueue('layout')
@@ -1317,6 +1359,34 @@ class Service(object):
                 if placed and number <= home_cards.PLACES:
                     card['place'] = str(number)
         return cards
+
+    def apply_subtitle_pick(self, player, session):
+        """After Search online's restart: back to where it was, the new
+        subtitle on (Kodi adds the session's sidecars after the file's own
+        tracks, in order, a moment after the video starts)."""
+        pick, self.subtitle_pick = self.subtitle_pick, None
+        if not pick:
+            return
+        stored_id, position = pick
+        def apply():
+            try:
+                if position:
+                    player.seekTime(position)
+                marker = 'downloaded_subtitle_id=%s' % stored_id
+                wanted = [i for i, url in enumerate(session.subtitles) if marker in url]
+                for _ in range(20):
+                    streams = player.getAvailableSubtitleStreams()
+                    if wanted and len(streams) >= len(session.subtitles):
+                        player.setSubtitleStream(len(streams) - len(session.subtitles) + wanted[0])
+                        player.showSubtitles(True)
+                        return
+                    time.sleep(0.5)
+                kodi.log_warning('Downloaded subtitle %s not among the player\'s tracks' % stored_id)
+            except RuntimeError:
+                pass
+        thread = threading.Thread(target=apply, name='silokodi-subtitle')
+        thread.daemon = True
+        thread.start()
 
     def publish_playing(self, content_id):
         """The playing title's details as a Silo-style skin's hero and info

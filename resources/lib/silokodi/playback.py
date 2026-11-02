@@ -107,6 +107,7 @@ class Session(object):
         self.last_report = 0
         self.started_at = time.time()
         self.markers = []
+        self.subtitles = []
 
     def source_position(self, player_seconds):
         return max(0.0, self.origin + float(player_seconds or 0))
@@ -236,9 +237,11 @@ class PlaybackManager(object):
                 self._safe_stop(self.pending)
             self.pending = session
         timeline = plan.get('timeline') or {}
+        # Text sidecars: the file's own and ones downloaded through Silo (its apps' or this add-on's).
         subtitles = [self.media_url(self.client.url(entry['url'])) for entry in (plan.get('subtitle') or {}).get('inventory') or []
-                     if entry.get('source') == 'external' and entry.get('url')
+                     if entry.get('source') in ('external', 'downloaded') and entry.get('url')
                      and entry.get('codec') in ('srt', 'subrip', 'vtt', 'webvtt', 'ass', 'ssa')]
+        session.subtitles = subtitles  # in the order Kodi adds them, after the file's own tracks
         self.log('Playing %s as %s' % (content_id, plan.get('delivery')))
         return {
             'url': self.media_url(self.client.url(stream['url'])),

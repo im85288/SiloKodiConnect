@@ -300,6 +300,25 @@ class SiloClient(object):
                 return 0
             raise
 
+    def subtitle_search_enabled(self):
+        """Whether the server has a subtitle provider on (Silo's Admin > Subtitles)."""
+        status = self.get('/subtitles/providers/status')
+        return bool(status.get('enabled') and status.get('allowed', True) and status.get('providers'))
+
+    def search_subtitles(self, media_file_id, languages):
+        """Silo's subtitle providers' results for a media file, best first."""
+        return self.post('/subtitles/search', body={'media_file_id': str(media_file_id),
+                                                    'languages': list(languages)}).get('results') or []
+
+    def download_subtitle(self, media_file_id, result):
+        """Store a search result with the file (Silo lists it at the next
+        playback); returns the stored subtitle."""
+        body = {'media_file_id': str(media_file_id), 'subtitle_id': result.get('id'),
+                'provider': result.get('provider'), 'language': result.get('language'),
+                'release_name': result.get('release_name') or '', 'score': result.get('score') or 0,
+                'hearing_impaired': bool(result.get('hearing_impaired'))}
+        return self.post('/subtitles/download', body=body).get('subtitle') or {}
+
     def rate(self, item_id, stars):
         """Rate a title 1-5 stars (Silo's recommendations learn from it), or
         0 to take the rating away."""

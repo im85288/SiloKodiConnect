@@ -137,7 +137,9 @@ def plan(delivery='original_http', url='/api/v2/stream/s1?st=signed', **timeline
                               'timeline': dict({'stream_origin_seconds': 0, 'player_start_seconds': 0}, **timeline),
                               'subtitle': {'inventory': [
                                   {'source': 'external', 'codec': 'srt', 'url': '/api/v2/stream/s1/subtitles/0.srt?st=x'},
-                                  {'source': 'embedded', 'codec': 'pgs', 'url': '/api/v2/stream/s1/subtitles/1.sup'}]}}}
+                                  {'source': 'embedded', 'codec': 'pgs', 'url': '/api/v2/stream/s1/subtitles/1.sup'},
+                                  {'source': 'downloaded', 'codec': 'srt',
+                                   'url': '/api/v2/stream/s1/subtitles/2.srt?downloaded_subtitle_id=9'}]}}}
 
 
 def manager(store, answers, settings=None):
@@ -166,7 +168,9 @@ def test_start_builds_a_v3_request_and_returns_a_signed_url(store):
     assert caps['max_resolution'] == '2160p' and caps['hdr_details']['dolby_vision_profiles'] == [5, 8]
     assert sorted(body['client_playback_context']['deliveries']) == ['hls', 'original_http']
     assert answer['url'] == 'https://silo.test/api/v2/stream/s1?st=signed'
-    assert answer['subtitles'] == ['https://silo.test/api/v2/stream/s1/subtitles/0.srt?st=x']
+    # The file's own sidecars and ones downloaded through Silo; never a bitmap track.
+    assert answer['subtitles'] == ['https://silo.test/api/v2/stream/s1/subtitles/0.srt?st=x',
+                                   'https://silo.test/api/v2/stream/s1/subtitles/2.srt?downloaded_subtitle_id=9']
     assert answer['hls'] is False and answer['start_offset'] == 0
     assert 'Authorization' not in json.dumps(answer)
 

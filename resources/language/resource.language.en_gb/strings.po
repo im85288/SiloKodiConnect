@@ -391,3 +391,27 @@ msgstr ""
 msgctxt "#30195"
 msgid "Resume"
 msgstr ""
+
+msgctxt "#30196"
+msgid "Nothing from Silo is playing"
+msgstr ""
+
+msgctxt "#30197"
+msgid "Subtitles from Silo"
+msgstr ""
+
+msgctxt "#30198"
+msgid "Searching Silo's subtitle providers..."
+msgstr ""
+
+msgctxt "#30199"
+msgid "No subtitles found for this file"
+msgstr ""
+
+msgctxt "#30200"
+msgid "Hearing impaired"
+msgstr ""
+
+msgctxt "#30201"
+msgid "Subtitle search is off on this Silo server (Admin, Subtitles)"
+msgstr ""

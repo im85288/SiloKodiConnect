@@ -20,7 +20,7 @@ import xbmcplugin
 # Kept light: Kodi starts a fresh Python for every play and widget refresh,
 # and on a 2 GB device the ~7 MB that requests costs is worth saving. Sign-in
 # code (which needs requests) is imported only when used.
-from . import channels, kodi, mapping
+from . import channels, kodi, mapping, tracks
 from . import rows as home_cards
 from .library import CAST_LIMIT, details_of
 from .mapping import RELAY_PORT as DEFAULT_PORT
@@ -79,6 +79,8 @@ def run(argv):
         return mark(params.get('type'), params.get('dbid'), params.get('action'))
     if mode == 'info':
         return info(params.get('type'), params.get('dbid'))
+    if mode == 'subtitles':
+        return subtitles()
     if mode == 'rate':
         return rate(params.get('id') or '', params.get('current') or '')
     if mode == 'watchlist':
@@ -756,6 +758,36 @@ def box_set_info(set_id):
     for name in ('silo.marked', 'silo.watchlist.for', 'silo.myrating.for'):
         xbmcgui.Window(12003).clearProperty(name)
     xbmcgui.Dialog().info(listitem)
+
+
+def subtitles():
+    """Search online, from a Silo-style skin's player: Silo's subtitle
+    providers for the playing file; the chosen one is stored with it on Silo
+    and playback goes on from the same moment with it showing."""
+    dialog = xbmcgui.Dialog()
+    busy = xbmcgui.DialogProgress()
+    busy.create(kodi.string(30197), kodi.string(30198))
+    answer = ask_service('command/subtitle_search', timeout=60)
+    busy.close()
+    if answer.get('error'):
+        return dialog.notification(kodi.string(30197), answer['error'], xbmcgui.NOTIFICATION_WARNING)
+    results = answer.get('results') or []
+    if not results:
+        return dialog.notification(kodi.string(30197), kodi.string(30199))
+    items = []
+    for result in results:
+        item = xbmcgui.ListItem('%s  ·  %s' % (tracks.language(result.get('language')), result.get('release_name') or ''))
+        details = [result.get('provider') or '', '%s downloads' % '{:,}'.format(result.get('downloads') or 0)]
+        if result.get('hearing_impaired'):
+            details.append(kodi.string(30200))
+        item.setLabel2('  ·  '.join(d for d in details if d))
+        items.append(item)
+    chosen = dialog.select(kodi.string(30197), items, useDetails=True)
+    if chosen < 0:
+        return
+    answer = ask_service('command/subtitle_get', timeout=60, result=json.dumps(results[chosen]))
+    if answer.get('error'):
+        dialog.notification(kodi.string(30197), answer['error'], xbmcgui.NOTIFICATION_WARNING)
 
 
 # The Rate button's choices, as Silo's stars with Netflix's words.

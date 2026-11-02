@@ -79,6 +79,10 @@ def run(argv):
         return mark(params.get('type'), params.get('dbid'), params.get('action'))
     if mode == 'info':
         return info(params.get('type'), params.get('dbid'))
+    if mode == 'playitem':
+        return play_item(params.get('type') or '', params.get('dbid') or '')
+    if mode == 'shuffle':
+        return shuffle_play(params.get('scope') or '', params.get('id'))
     if mode == 'subtitles':
         return subtitles()
     if mode == 'rate':
@@ -758,6 +762,39 @@ def box_set_info(set_id):
     for name in ('silo.marked', 'silo.watchlist.for', 'silo.myrating.for'):
         xbmcgui.Window(12003).clearProperty(name)
     xbmcgui.Dialog().info(listitem)
+
+
+def play_item(kind, dbid):
+    """A skin's Play for a library title (Home's hero): a film or episode
+    from where it was left, a show at its next episode (its first when all
+    are watched)."""
+    from . import shuffle
+    if not dbid.isdigit():
+        return
+    if kind == 'tvshow':
+        episodes = (kodi.jsonrpc('VideoLibrary.GetEpisodes', tvshowid=int(dbid),
+                                 properties=['playcount', 'season', 'episode']) or {}).get('episodes') or []
+        episode = shuffle.next_episode(episodes) or shuffle.next_episode(
+            [dict(e, playcount=0) for e in episodes])
+        if not episode:
+            return kodi.notify(kodi.string(30211))
+        chosen = {'episodeid': episode['episodeid']}
+    elif kind in ('movie', 'episode'):
+        chosen = {'%sid' % kind: int(dbid)}
+    else:
+        return
+    xbmc.executebuiltin('Dialog.Close(all,true)')
+    kodi.jsonrpc('Player.Open', item=chosen, options={'resume': True})
+
+
+def shuffle_play(scope, item_id):
+    """Shuffle (shuffle.py): play a random title from the scope a skin names."""
+    from . import shuffle
+    chosen = shuffle.choose(scope, item_id)
+    if not chosen:
+        return kodi.notify(kodi.string(30211))
+    xbmc.executebuiltin('Dialog.Close(all,true)')
+    kodi.jsonrpc('Player.Open', item=chosen, options={'resume': False})
 
 
 def subtitles():

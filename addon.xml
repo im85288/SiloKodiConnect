@@ -10,6 +10,7 @@
     <provides>video</provides>
   </extension>
   <extension point="xbmc.service" library="service.py"/>
+  <extension point="xbmc.ui.screensaver" library="screensaver.py"/>
   <extension point="kodi.context.item">
     <menu id="kodi.core.main">
       <item library="context_dismiss.py">

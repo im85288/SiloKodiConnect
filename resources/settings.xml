@@ -103,8 +103,9 @@
           <constraints><allowempty>true</allowempty></constraints>
           <control type="button" format="action"><close>true</close></control>
         </setting>
+        <!-- Where the Top 10 choice is kept (choose_top10 writes it): internal, never shown. -->
         <setting id="top10_rows" type="string" label="30182">
-          <level>3</level>
+          <level>4</level>
           <default/>
           <constraints><allowempty>true</allowempty></constraints>
           <control type="edit" format="string"/>

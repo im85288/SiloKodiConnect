@@ -451,3 +451,7 @@ msgstr ""
 msgctxt "#30210"
 msgid "Silo"
 msgstr ""
+
+msgctxt "#30211"
+msgid "Nothing to shuffle here"
+msgstr ""

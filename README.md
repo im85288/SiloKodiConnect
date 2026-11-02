@@ -33,6 +33,8 @@ Community project: not made or endorsed by the Silo team. Requires Kodi 20 (Nexu
   title are tagged `Silo box set member`, so a skin's grid can hide them and show the first as the box set
   (Kodi groups sets only in its own Videos window); its set art carries `silocount` ("8 films"), `siloyears`
   ("2001 – 2011") and `silooverview` as text. `mode=info&type=set&dbid=<set>` opens a box set's page.
+- **A screensaver** of your library's backdrops and logos, slowly zooming: choose SiloKodiConnect in
+  Settings > Interface > Screensaver.
 - **Your ratings.** Rate a film or series from one to five stars (Love it ... Not for me), which Silo's
   recommendations learn from; Kodi's info page shows the current stars.
 - **Theme tunes.** A show's theme plays while its page (or one of its episodes') is open, as Plex and Infuse
@@ -183,6 +185,16 @@ Android, in the `python:3.8` image), 3.11 (Kodi 21) and 3.14. Kodi's embedded Py
 `datetime.strptime` after its first use, so dates are parsed by hand.
 
 ## Changes
+
+### v0.12.0 (2026-11-02)
+- **Remembered subtitles:** an episode starts with its show's subtitle choice, as Silo's apps keep it
+  (subtitle-prefs), and a change you make is saved for the next episode, here or in Silo's apps.
+- **Card menu:** Remove from Continue Watching, the watchlist, Rate, watched, and **Not interested** (Silo's
+  recommendations leave the title out); Home's menu key, and "Silo" in Kodi's context menu elsewhere.
+- **Shuffle** (`mode=shuffle`): a random unwatched film, a started show's next episode, or a random episode of
+  a show or film of a box set.
+- **Play for a skin's hero** (`mode=playitem`) and a short time-left label for Resume (`silo.left_short`).
+- **Screensaver:** the library's backdrops and logos, slowly zooming (Settings > Interface > Screensaver).
 
 ### v0.11.2 (2026-11-02)
 - Subtitles downloaded through Silo (its apps') reach Kodi with the file's own; they were left out.

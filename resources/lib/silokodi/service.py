@@ -16,7 +16,7 @@ import xbmc
 import xbmcgui
 
 from . import catchup, jump, kodi, kodidb, mapping, quick, tracks, upnext, keymap
-from . import subtitleprefs, theme
+from . import commands, playersubs, theme
 from .theme import ThemePlayer
 from .api import ApiError, SignedOut, SiloClient
 from .events import Debouncer, EventListener
@@ -26,7 +26,7 @@ from .store import Store
 from . import rows as home_cards
 from .library import DetailsCache
 from .personal import PersonalLists
-from .sync import MAX_ROWS, MOVIE_LIBRARY_TYPES, NEXT_EPISODE_SECTIONS, SHOW_LIBRARY_TYPES, WIDE_SECTIONS, Stopped, Syncer, collection_cards, home_row_items, page_of, skin_layout
+from .sync import MAX_ROWS, MOVIE_LIBRARY_TYPES, NEXT_EPISODE_SECTIONS, SHOW_LIBRARY_TYPES, Stopped, Syncer, collection_cards, home_row_items, page_of, skin_layout
 from .syncdb import SyncDB
 
 PROGRESS_POLL = 300          # seconds between resume-point checks while the socket is up
@@ -47,9 +47,7 @@ PERSONAL_WAIT = 300          # ...or this long after the first change
 # The profile's own lists, as Silo's avatar menu offers them: section -> (path, title string).
 # Coming Soon's window: today and the next 13 days of Silo's calendar.
 COMING_DAYS = 14
-PERSONAL_LISTS = {'watchlist': ('/watchlist', 30160), 'favorites': ('/favorites', 30161),
-                  'history': ('/history', 30162)}
-AVATAR_TYPES = {'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif'}
+
 
 
 # Tasks the worker takes before the others queued (see Service.tasks).
@@ -86,6 +84,7 @@ PLAYING_FIELDS = ('rating.imdb', 'rating.tmdb', 'rating.rtcritic', 'badge1', 'ba
 # The playing episode's season and next episode, for the player's Episodes and
 # Next Episode buttons (upnext.player_episodes).
 EPISODE_FIELDS = ('season_path', 'episode_index', 'next', 'next_label')
+AVATAR_TYPES = {'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif'}
 STARTUP_QUIET = 60
 PAGE_LOADING = 6  # seconds a page's rows show while they start loading (then empty ones hide)
 DETAILS_SAVE_INTERVAL = 30
@@ -110,8 +109,8 @@ class Player(xbmc.Player):
             self.service.tell_upnext(session)
             self.show_markers(session)
             self.service.publish_playing(session.content_id)
-            if not self.service.apply_subtitle_pick(self, session):
-                self.service.apply_subtitle_pref(session)
+            if not playersubs.apply_pick(self.service, self, session):
+                playersubs.apply_pref(self.service, session)
 
     def onPlayBackStopped(self):
         self._ended()
@@ -168,15 +167,7 @@ class Player(xbmc.Player):
         except RuntimeError:
             return
         self.service.playback.on_tick(self.last_time, paused)
-        self.service.save_subtitle_choice(self.service.playback.active)
-
-
-def subtitle_languages():
-    """Kodi's preferred subtitle language as Silo's search takes it (English
-    names are accepted), English as well; English alone without one."""
-    setting = (kodi.jsonrpc('Settings.GetSettingValue', setting='locale.subtitlelanguage') or {}).get('value') or ''
-    named = setting not in ('', 'original', 'default', 'forced_only', 'none')
-    return [setting, 'English'] if named and setting != 'English' else ['English']
+        playersubs.save_choice(self.service, self.service.playback.active)
 
 
 def library_facts(counts):
@@ -736,221 +727,7 @@ class Service(object):
             return {'error': kodi.string(30124)}
 
     def command(self, name, query):
-        if name == 'signed_in':
-            self.store.reload()
-            self.signed_out_notice = False
-            self.stop_listener()
-            self.next_sync = 0
-        elif name == 'profile_switched':
-            # Another profile: its own rows, requests and watch states.
-            self.store.reload()
-            self.stop_listener()
-            self.db.set_meta('history_since', None)  # its own watch history, from the start
-            self.enqueue('layout')
-            self.next_sync = 0
-        elif name == 'signout':
-            self.client.logout()
-            self.stop_listener()
-            self.store.sign_out()
-        elif name in ('sync', 'fullsync', 'reset'):
-            self.enqueue(name)
-        elif name == 'tint':
-            # For an info page opened by the plugin: the title's ambient tint,
-            # its trailer and (a film or series) whether it's on the watchlist.
-            try:
-                item = self.client.item(query.get('id') or '')
-            except (ApiError, requests.RequestException):
-                return {'tint': ''}
-            answer = {'tint': mapping.ambient_tint(item.get('poster_thumbhash') or ''),
-                      'trailer': mapping.trailer_key(item), 'watchlist': '', 'rating': ''}
-            self.offer_theme(item)
-            if item.get('type') in ('movie', 'series'):
-                try:
-                    answer['watchlist'] = 'true' if self.client.in_watchlist(item['content_id']) else 'false'
-                except (ApiError, requests.RequestException):
-                    pass
-                try:
-                    answer['rating'] = str(self.client.rating(item['content_id']))  # '0': not rated
-                except (ApiError, requests.RequestException):
-                    pass
-            return answer
-        elif name == 'watchlist':
-            # Add a title to the watchlist or take it off; the lists refresh.
-            content_id = query.get('id') or ''
-            try:
-                if query.get('add') == '1':
-                    self.client.add_to_watchlist(content_id)
-                else:
-                    self.client.remove_from_watchlist(content_id)
-            except (ApiError, requests.RequestException) as error:
-                return {'error': str(error)}
-            self.personal.refresh_soon(['/watchlist'])
-            return {'watchlist': 'true' if query.get('add') == '1' else 'false'}
-        elif name == 'rate':
-            # Rate a film or series 1-5 stars, or 0 to take the rating away.
-            try:
-                stars = max(0, min(5, int(query.get('stars') or 0)))
-                self.client.rate(query.get('id') or '', stars)
-            except (ApiError, requests.RequestException, ValueError) as error:
-                return {'error': str(error)}
-            return {'rating': str(stars)}
-        elif name == 'subtitle_search':
-            # The Options sheet's Search online: Silo's providers for the playing file.
-            session = self.playback.active
-            file_id = (session.plan.get('effective_media_file_id') if session else None) or ''
-            if not file_id:
-                return {'error': kodi.string(30196)}
-            try:
-                if not self.client.subtitle_search_enabled():
-                    return {'error': kodi.string(30201)}
-                return {'results': self.client.search_subtitles(file_id, subtitle_languages())}
-            except (ApiError, requests.RequestException) as error:
-                return {'error': str(error)}
-        elif name == 'subtitle_get':
-            # Store the chosen result with the file, then play on from the same
-            # moment: Silo serves a subtitle only through a session that lists it.
-            session = self.playback.active
-            row = self.db.get(session.content_id) if session else None
-            if not row or row.get('kodi_id') is None or row.get('kind') not in ('movie', 'episode'):
-                return {'error': kodi.string(30196)}
-            try:
-                result = json.loads(query.get('result') or '{}')
-                stored = self.client.download_subtitle(session.plan.get('effective_media_file_id'), result)
-            except (ApiError, requests.RequestException, ValueError) as error:
-                return {'error': str(error)}
-            try:
-                position = xbmc.Player().getTime()
-            except RuntimeError:
-                position = 0
-            self.subtitle_pick = (str(stored.get('id') or ''), position)
-            key = 'movieid' if row['kind'] == 'movie' else 'episodeid'
-            kodi.jsonrpc('Player.Open', item={key: row['kodi_id']}, options={'resume': False})
-            return {'subtitle': stored.get('id')}
-        elif name == 'top10':
-            # The Top 10 rows changed in the settings: Home's layout and cards again.
-            self.enqueue('layout')
-        elif name == 'card':
-            # A card's menu (a library title): its title (an episode's show),
-            # and whether it's on the watchlist, rated and Not interested.
-            row = self.db.by_kodi(query.get('type') or '', query.get('dbid') or '')
-            if not row:
-                return {'error': kodi.string(30196)}
-            title = row.get('parent_id') if row.get('kind') == 'episode' else row['content_id']
-            try:
-                return {'content_id': title, 'watchlist': self.client.in_watchlist(title),
-                        'rating': self.client.rating(title), 'not_interested': self.client.not_interested(title)}
-            except (ApiError, requests.RequestException) as error:
-                return {'error': str(error)}
-        elif name == 'not_interested':
-            try:
-                self.client.set_not_interested(query.get('id') or '', query.get('on') == '1')
-            except (ApiError, requests.RequestException) as error:
-                return {'error': str(error)}
-            # Silo rebuilds its rows within seconds: Home's cards after that.
-            self.home_cards_soon(delay=20)
-            return {'not_interested': query.get('on') == '1'}
-        elif name == 'dismiss':
-            try:
-                return self.dismiss(query.get('type') or '', query.get('dbid') or '')
-            except (ApiError, requests.RequestException) as error:
-                return {'error': str(error)}
-        elif name == 'sections':
-            try:
-                sections = self.home_sections()
-            except (ApiError, requests.RequestException) as error:
-                return {'error': str(error)}
-            for section in sections:
-                section['ranked'] = str(section['id']) in self.ranked
-                section['wide'] = section['type'] in WIDE_SECTIONS
-            return {'sections': sections}
-        elif name == 'requests':
-            try:
-                return {'cards': self.request_cards(query.get('row') or 'mine')}
-            except (ApiError, requests.RequestException) as error:
-                return {'error': str(error)}
-        elif name == 'request_detail':
-            try:
-                return mapping.request_summary(self.client.request_detail(query.get('type') or 'movie',
-                                                                          query.get('tmdb') or ''))
-            except (ApiError, requests.RequestException) as error:
-                return {'error': str(error)}
-        elif name == 'request':
-            try:
-                seasons = [int(n) for n in (query.get('seasons') or '').split(',') if n.strip().isdigit()]
-                answer = self.make_request(query.get('type') or 'movie', query.get('tmdb') or '', seasons)
-                self.home_cards_soon()  # Your requests shows it
-                return answer
-            except (ApiError, requests.RequestException) as error:
-                return {'error': str(error)}
-        elif name == 'collections':
-            try:
-                return {'collections': self.library_collections(query.get('libraries') or '')}
-            except (ApiError, requests.RequestException) as error:
-                return {'error': str(error)}
-        elif name == 'widget' and query.get('collection'):
-            try:
-                # With the saved library details, as other rows: looking each
-                # title up in Kodi took 13 s for 191 on a SHIELD.
-                return {'items': self.with_details(self.collection_items(query.get('library'), query['collection']))}
-            except (ApiError, requests.RequestException) as error:
-                return {'error': str(error)}
-        elif name == 'widget' and query.get('person'):
-            try:
-                return {'items': self.with_details(self.person_items(query['person'], query.get('type')))}
-            except (ApiError, requests.RequestException) as error:
-                return {'error': str(error)}
-        elif name == 'videos':
-            try:
-                return {'videos': self.title_videos(query.get('id') or '')}
-            except (ApiError, requests.RequestException) as error:
-                return {'error': str(error)}
-        elif name == 'person':
-            try:
-                return self.person(query.get('id'), query.get('name'))
-            except (ApiError, requests.RequestException) as error:
-                return {'error': str(error)}
-        elif name == 'widget' and query.get('section') == 'comingsoon':
-            try:
-                return {'items': self.with_details(self.coming_soon()), 'title': kodi.string(30191)}
-            except (ApiError, requests.RequestException) as error:
-                return {'error': str(error)}
-        elif name == 'widget' and query.get('section') in PERSONAL_LISTS:
-            try:
-                path, title = PERSONAL_LISTS[query['section']]
-                return {'items': self.with_details(self.personal_items(path)), 'title': kodi.string(title)}
-            except (ApiError, requests.RequestException) as error:
-                return {'error': str(error)}
-        elif name == 'widget':
-            try:
-                section = query.get('section') or 'continue_watching'
-                items = self.with_details(self.widget_items(section, query.get('library')))
-                if not query.get('library'):
-                    numbered = str(section) in self.ranked
-                    placed = home_cards.ranking(self.row_titles.get((None, str(section))))
-                    for number, item in enumerate(items[:home_cards.CARDS], 1):
-                        if numbered:
-                            item['rank'] = str(number)
-                        if placed and number <= home_cards.PLACES:
-                            item['place'] = str(number)
-                # The title Silo just sent with the items (it names a ranked
-                # row), else the one last published.
-                title = self.row_titles.get((query.get('library') or None, str(section))) \
-                    or self.row_title(section, query.get('library'))
-                return {'items': items, 'title': title}
-            except (ApiError, requests.RequestException) as error:
-                return {'error': str(error)}
-        elif name == 'list_libraries':
-            excluded = self.excluded()
-            try:
-                return {'libraries': [{'id': str(library['id']), 'name': library.get('name') or '',
-                                       'type': library.get('type') or '',
-                                       'synced': str(library['id']) not in excluded}
-                                      for library in self.syncer.libraries()]}
-            except (ApiError, requests.RequestException) as error:
-                return {'error': str(error)}
-        else:
-            return {'error': 'unknown command'}
-        return {'ok': True}
+        return commands.handle(self, name, query)
 
     def offer_theme(self, item):
         """A show's page, or one of its episodes', is opening: the show's
@@ -1381,99 +1158,6 @@ class Service(object):
                 if placed and number <= home_cards.PLACES:
                     card['place'] = str(number)
         return cards
-
-    def apply_subtitle_pick(self, player, session):
-        """After Search online's restart: back to where it was, the new
-        subtitle on (Kodi adds the session's sidecars after the file's own
-        tracks, in order, a moment after the video starts)."""
-        pick, self.subtitle_pick = self.subtitle_pick, None
-        if not pick:
-            return False
-        stored_id, position = pick
-        def apply():
-            try:
-                if position:
-                    player.seekTime(position)
-                marker = 'downloaded_subtitle_id=%s' % stored_id
-                wanted = [i for i, url in enumerate(session.subtitles) if marker in url]
-                for _ in range(20):
-                    streams = player.getAvailableSubtitleStreams()
-                    if wanted and len(streams) >= len(session.subtitles):
-                        player.setSubtitleStream(len(streams) - len(session.subtitles) + wanted[0])
-                        player.showSubtitles(True)
-                        return
-                    time.sleep(0.5)
-                kodi.log_warning('Downloaded subtitle %s not among the player\'s tracks' % stored_id)
-            except RuntimeError:
-                pass
-        thread = threading.Thread(target=apply, name='silokodi-subtitle')
-        thread.daemon = True
-        thread.start()
-        return True
-
-    # ----- a show's remembered subtitle choice (subtitleprefs) -----
-
-    @staticmethod
-    def player_subtitles():
-        """(enabled, the current track, every track) from Kodi's video player."""
-        answer = kodi.jsonrpc('Player.GetProperties', playerid=1,
-                              properties=['subtitles', 'currentsubtitle', 'subtitleenabled']) or {}
-        return bool(answer.get('subtitleenabled')), answer.get('currentsubtitle') or {}, answer.get('subtitles') or []
-
-    def apply_subtitle_pref(self, session):
-        """An episode starts: its show's remembered subtitle choice, from Silo,
-        once Kodi has added the session's sidecar tracks."""
-        if not session.series_id:
-            return
-        def apply():
-            try:
-                pref = self.client.get('/subtitle-prefs/%s' % session.series_id)
-            except (ApiError, requests.RequestException):
-                pref = None  # none stored (404), or Silo unreachable: Kodi's own default stands
-            tracks, count = [], -1
-            for _ in range(10):  # until the sidecars are in (their count stops changing)
-                time.sleep(0.5)
-                enabled, current, tracks = self.player_subtitles()
-                if len(tracks) == count:
-                    break
-                count = len(tracks)
-            target = subtitleprefs.pick(pref, tracks)
-            if target == 'off':
-                kodi.jsonrpc('Player.SetSubtitle', playerid=1, subtitle='off')
-            elif target is not None:
-                kodi.jsonrpc('Player.SetSubtitle', playerid=1, subtitle=target, enable=True)
-            enabled, current, _ = self.player_subtitles()
-            session.subtitle_state = (enabled, current.get('index'))
-            if target is not None:
-                kodi.log('Subtitles for %s as remembered for its show: %s' % (session.content_id, target))
-        thread = threading.Thread(target=apply, name='silokodi-subtitle-pref')
-        thread.daemon = True
-        thread.start()
-
-    def save_subtitle_choice(self, session):
-        """Each second while an episode plays: a subtitle change the viewer
-        made is saved as the show's choice, once it has settled (3 s), so the
-        next episode, here or in Silo's apps, starts the same way."""
-        if not session or not session.series_id or session.subtitle_state is None:
-            return
-        enabled, current, _ = self.player_subtitles()
-        state = (enabled, current.get('index'))
-        if state == session.subtitle_state:
-            session.subtitle_changed = None
-            return
-        changed = getattr(session, 'subtitle_changed', None)
-        if not changed or changed[0] != state:
-            session.subtitle_changed = (state, time.time())
-            return
-        if time.time() - changed[1] < 3:
-            return
-        session.subtitle_state, session.subtitle_changed = state, None
-        try:
-            self.client.request('PUT', '/subtitle-prefs/%s' % session.series_id,
-                                body=subtitleprefs.choice(enabled, current))
-            kodi.log('Saved the subtitle choice for series %s' % session.series_id)
-        except (ApiError, requests.RequestException) as error:
-            kodi.log_warning('Could not save the subtitle choice: %s' % error)
 
     def publish_playing(self, content_id):
         """The playing title's details as a Silo-style skin's hero and info

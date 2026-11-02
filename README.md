@@ -184,6 +184,12 @@ Android, in the `python:3.8` image), 3.11 (Kodi 21) and 3.14. Kodi's embedded Py
 
 ## Changes
 
+### v0.11.2 (2026-11-02)
+- Subtitles downloaded through Silo (its apps') reach Kodi with the file's own; they were left out.
+- `mode=subtitles` (a skin's Search online): Silo's subtitle providers for the playing file; the chosen one is
+  stored with the file and playback goes on from the same moment with it showing. A server with no provider on
+  says so.
+
 ### v0.11.1 (2026-11-02)
 - Dates read "21 Oct 2026" (Aired, the playing title's), and each episode carries its air date as text art
   (`siloaired`), so a skin writes every date one way whatever Kodi's region.

@@ -16,7 +16,7 @@ import xbmc
 import xbmcgui
 
 from . import catchup, jump, kodi, kodidb, mapping, quick, tracks, upnext, keymap
-from . import theme
+from . import subtitleprefs, theme
 from .theme import ThemePlayer
 from .api import ApiError, SignedOut, SiloClient
 from .events import Debouncer, EventListener
@@ -110,7 +110,8 @@ class Player(xbmc.Player):
             self.service.tell_upnext(session)
             self.show_markers(session)
             self.service.publish_playing(session.content_id)
-            self.service.apply_subtitle_pick(self, session)
+            if not self.service.apply_subtitle_pick(self, session):
+                self.service.apply_subtitle_pref(session)
 
     def onPlayBackStopped(self):
         self._ended()
@@ -167,6 +168,7 @@ class Player(xbmc.Player):
         except RuntimeError:
             return
         self.service.playback.on_tick(self.last_time, paused)
+        self.service.save_subtitle_choice(self.service.playback.active)
 
 
 def subtitle_languages():
@@ -827,6 +829,26 @@ class Service(object):
         elif name == 'top10':
             # The Top 10 rows changed in the settings: Home's layout and cards again.
             self.enqueue('layout')
+        elif name == 'card':
+            # A card's menu (a library title): its title (an episode's show),
+            # and whether it's on the watchlist, rated and Not interested.
+            row = self.db.by_kodi(query.get('type') or '', query.get('dbid') or '')
+            if not row:
+                return {'error': kodi.string(30196)}
+            title = row.get('parent_id') if row.get('kind') == 'episode' else row['content_id']
+            try:
+                return {'content_id': title, 'watchlist': self.client.in_watchlist(title),
+                        'rating': self.client.rating(title), 'not_interested': self.client.not_interested(title)}
+            except (ApiError, requests.RequestException) as error:
+                return {'error': str(error)}
+        elif name == 'not_interested':
+            try:
+                self.client.set_not_interested(query.get('id') or '', query.get('on') == '1')
+            except (ApiError, requests.RequestException) as error:
+                return {'error': str(error)}
+            # Silo rebuilds its rows within seconds: Home's cards after that.
+            self.home_cards_soon(delay=20)
+            return {'not_interested': query.get('on') == '1'}
         elif name == 'dismiss':
             try:
                 return self.dismiss(query.get('type') or '', query.get('dbid') or '')
@@ -1366,7 +1388,7 @@ class Service(object):
         tracks, in order, a moment after the video starts)."""
         pick, self.subtitle_pick = self.subtitle_pick, None
         if not pick:
-            return
+            return False
         stored_id, position = pick
         def apply():
             try:
@@ -1387,6 +1409,71 @@ class Service(object):
         thread = threading.Thread(target=apply, name='silokodi-subtitle')
         thread.daemon = True
         thread.start()
+        return True
+
+    # ----- a show's remembered subtitle choice (subtitleprefs) -----
+
+    @staticmethod
+    def player_subtitles():
+        """(enabled, the current track, every track) from Kodi's video player."""
+        answer = kodi.jsonrpc('Player.GetProperties', playerid=1,
+                              properties=['subtitles', 'currentsubtitle', 'subtitleenabled']) or {}
+        return bool(answer.get('subtitleenabled')), answer.get('currentsubtitle') or {}, answer.get('subtitles') or []
+
+    def apply_subtitle_pref(self, session):
+        """An episode starts: its show's remembered subtitle choice, from Silo,
+        once Kodi has added the session's sidecar tracks."""
+        if not session.series_id:
+            return
+        def apply():
+            try:
+                pref = self.client.get('/subtitle-prefs/%s' % session.series_id)
+            except (ApiError, requests.RequestException):
+                pref = None  # none stored (404), or Silo unreachable: Kodi's own default stands
+            tracks, count = [], -1
+            for _ in range(10):  # until the sidecars are in (their count stops changing)
+                time.sleep(0.5)
+                enabled, current, tracks = self.player_subtitles()
+                if len(tracks) == count:
+                    break
+                count = len(tracks)
+            target = subtitleprefs.pick(pref, tracks)
+            if target == 'off':
+                kodi.jsonrpc('Player.SetSubtitle', playerid=1, subtitle='off')
+            elif target is not None:
+                kodi.jsonrpc('Player.SetSubtitle', playerid=1, subtitle=target, enable=True)
+            enabled, current, _ = self.player_subtitles()
+            session.subtitle_state = (enabled, current.get('index'))
+            if target is not None:
+                kodi.log('Subtitles for %s as remembered for its show: %s' % (session.content_id, target))
+        thread = threading.Thread(target=apply, name='silokodi-subtitle-pref')
+        thread.daemon = True
+        thread.start()
+
+    def save_subtitle_choice(self, session):
+        """Each second while an episode plays: a subtitle change the viewer
+        made is saved as the show's choice, once it has settled (3 s), so the
+        next episode, here or in Silo's apps, starts the same way."""
+        if not session or not session.series_id or session.subtitle_state is None:
+            return
+        enabled, current, _ = self.player_subtitles()
+        state = (enabled, current.get('index'))
+        if state == session.subtitle_state:
+            session.subtitle_changed = None
+            return
+        changed = getattr(session, 'subtitle_changed', None)
+        if not changed or changed[0] != state:
+            session.subtitle_changed = (state, time.time())
+            return
+        if time.time() - changed[1] < 3:
+            return
+        session.subtitle_state, session.subtitle_changed = state, None
+        try:
+            self.client.request('PUT', '/subtitle-prefs/%s' % session.series_id,
+                                body=subtitleprefs.choice(enabled, current))
+            kodi.log('Saved the subtitle choice for series %s' % session.series_id)
+        except (ApiError, requests.RequestException) as error:
+            kodi.log_warning('Could not save the subtitle choice: %s' % error)
 
     def publish_playing(self, content_id):
         """The playing title's details as a Silo-style skin's hero and info

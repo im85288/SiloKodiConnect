@@ -16,6 +16,10 @@
         <label>30180</label>
         <visible>!String.IsEmpty(ListItem.Property(home.dismiss)) | !String.IsEmpty(ListItem.Property(silo.dismiss))</visible>
       </item>
+      <item library="context_card.py">
+        <label>30210</label>
+        <visible>[String.IsEqual(ListItem.DBType,movie) | String.IsEqual(ListItem.DBType,episode) | String.IsEqual(ListItem.DBType,tvshow)] + [String.StartsWith(ListItem.FileNameAndPath,plugin://plugin.video.silokodiconnect/) | String.StartsWith(ListItem.Path,plugin://plugin.video.silokodiconnect/)]</visible>
+      </item>
     </menu>
   </extension>
   <extension point="xbmc.addon.metadata">

@@ -291,6 +291,21 @@ class SiloClient(object):
             raise problem(response)
         return response.content, '.mp3' if 'mpeg' in (grant.get('content_type') or '') else '.m4a'
 
+    def not_interested(self, item_id):
+        """Whether the profile marked a movie or series Not interested (Silo answers 404 when not)."""
+        try:
+            self.get('/not-interested/%s' % item_id)
+            return True
+        except ApiError as error:
+            if error.status == 404:
+                return False
+            raise
+
+    def set_not_interested(self, item_id, marked):
+        """Mark a movie or series Not interested (Silo's recommendation and
+        discovery rows leave it out, after a rebuild within seconds), or clear it."""
+        self.request('PUT' if marked else 'DELETE', '/not-interested/%s' % item_id)
+
     def rating(self, item_id):
         """The profile's stars (1-5) for a title, or 0 when it hasn't rated it."""
         try:

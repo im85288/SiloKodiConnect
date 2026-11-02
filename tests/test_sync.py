@@ -1034,6 +1034,9 @@ def test_new_episode_is_a_recent_unwatched_air_date():
 def test_time_left():
     assert mapping.time_left({'position': 600, 'total': 2520}) == '32 min left'
     assert mapping.time_left({'position': 60, 'total': 3960}) == '1 h 5 min left'
+    assert mapping.time_left({'position': 600, 'total': 2520}, short=True) == '32m'
+    assert mapping.time_left({'position': 60, 'total': 3960}, short=True) == '1h 5m'
+    assert mapping.time_left({'position': 0, 'total': 7200}, short=True) == ''
     assert mapping.time_left({'position': 60, 'total': 3660}) == '1 h left'
     assert mapping.time_left({'position': 2500, 'total': 2520}) == '1 min left'
     assert mapping.time_left({}) == '' and mapping.time_left(None) == ''

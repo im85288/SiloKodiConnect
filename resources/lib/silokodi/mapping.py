@@ -572,15 +572,19 @@ def coming_caption(local_date, season, episode, today):
     return ' · '.join(part for part in (when, code) if part)
 
 
-def time_left(resume):
-    """A part-watched title's time left: '32 min left', '1 h 5 min left'."""
+def time_left(resume, short=False):
+    """A part-watched title's time left: '32 min left', '1 h 5 min left';
+    short (a Resume button's, as Apple TV's): '32m', '1h 5m'."""
     resume = resume or {}
     if not resume.get('position') or not resume.get('total'):
         return ''
     minutes = max(1, int(round((resume['total'] - resume['position']) / 60.0)))
+    hours, rest = divmod(minutes, 60)
+    if short:
+        return '%dm' % minutes if not hours else '%dh %dm' % (hours, rest) if rest else '%dh' % hours
     if minutes < 60:
         return '%d min left' % minutes
-    return '%d h %d min left' % divmod(minutes, 60) if minutes % 60 else '%d h left' % (minutes // 60)
+    return '%d h %d min left' % (hours, rest) if rest else '%d h left' % hours
 
 
 # About what a skin's person page shows of a biography: seven of Skyline's lines (about 67 characters).
@@ -719,6 +723,7 @@ def skyline_properties(kind, details, show=None):
         props['silo.new'] = 'New episode' if new_episode(details) else ''
     else:
         props['silo.left'] = time_left(details.get('resume'))
+        props['silo.left_short'] = time_left(details.get('resume'), short=True)
     if kind in ('movie', 'tvshow') and genres:
         props['silo.similar'] = similar_path(kind, genres[0], details.get('title') or '')
     elif kind == 'episode' and show and show.get('genre'):

@@ -415,3 +415,39 @@ msgstr ""
 msgctxt "#30201"
 msgid "Subtitle search is off on this Silo server (Admin, Subtitles)"
 msgstr ""
+
+msgctxt "#30202"
+msgid "Add to Watchlist"
+msgstr ""
+
+msgctxt "#30203"
+msgid "Remove from Watchlist"
+msgstr ""
+
+msgctxt "#30204"
+msgid "Rate..."
+msgstr ""
+
+msgctxt "#30205"
+msgid "Mark as watched"
+msgstr ""
+
+msgctxt "#30206"
+msgid "Mark as unwatched"
+msgstr ""
+
+msgctxt "#30207"
+msgid "Not interested"
+msgstr ""
+
+msgctxt "#30208"
+msgid "Interested again"
+msgstr ""
+
+msgctxt "#30209"
+msgid "Silo will show you less like this"
+msgstr ""
+
+msgctxt "#30210"
+msgid "Silo"
+msgstr ""

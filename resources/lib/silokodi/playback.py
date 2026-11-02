@@ -108,6 +108,8 @@ class Session(object):
         self.started_at = time.time()
         self.markers = []
         self.subtitles = []
+        self.series_id = None
+        self.subtitle_state = None  # (enabled, track index) as last applied or saved
 
     def source_position(self, player_seconds):
         return max(0.0, self.origin + float(player_seconds or 0))
@@ -230,6 +232,8 @@ class PlaybackManager(object):
                                 'have to decode in software. If it is Dolby Vision from a UHD Blu-ray, set '
                                 'Playback > HDR to the profile 7 option.')
         session = Session(self.client, body['installation_id'], session_id, content_id, plan)
+        # An episode's series: its remembered subtitle choice (subtitleprefs).
+        session.series_id = item.get('series_id') if item.get('type') == 'episode' else None
         # Intro, recap and credits ranges, for Up Next's Skip button and popup.
         session.markers = upnext.markers(self._played_version(item, plan, version), item)
         with self._lock:

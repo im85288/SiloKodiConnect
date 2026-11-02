@@ -156,9 +156,33 @@ def test_the_home_menu_key_offers_remove_on_a_continue_watching_card(monkeypatch
     monkeypatch.setattr(context.xbmc, 'getInfoLabel', lambda label: labels.get(label, ''))
     monkeypatch.setattr(context.xbmc, 'executebuiltin', ran.append)
     monkeypatch.setattr(context.xbmcgui, 'Dialog', lambda: type('D', (), {'contextmenu': lambda self, items: 0})())
-    monkeypatch.setattr(context, 'ask_service', lambda path, **query: asked.append((path, query)) or {})
+    card = {'content_id': 'series-1', 'watchlist': False, 'rating': 0, 'not_interested': False}
+    monkeypatch.setattr(context, 'ask_service',
+                        lambda path, **query: asked.append((path, query)) or (card if path == 'command/card' else {}))
     context.home_menu()
-    assert asked == [('command/dismiss', {'timeout': 20, 'type': 'episode', 'dbid': '42'})] and ran == []
+    assert asked == [('command/card', {'timeout': 20, 'type': 'episode', 'dbid': '42'}),
+                     ('command/dismiss', {'timeout': 20, 'type': 'episode', 'dbid': '42'})] and ran == []
+
+
+def test_the_card_menu_marks_a_title_not_interested(monkeypatch):
+    labels = {'ListItem.Property(home.type)': 'movie', 'ListItem.Property(home.dbid)': '7'}
+    asked, shown, notes = [], [], []
+    monkeypatch.setattr(context.xbmc, 'getInfoLabel', lambda label: labels.get(label, ''))
+    monkeypatch.setattr(context.kodi, 'notify', notes.append)
+
+    class Dialog(object):
+        def contextmenu(self, items):
+            shown.extend(items)
+            return len(items) - 1  # the last: Not interested
+    monkeypatch.setattr(context.xbmcgui, 'Dialog', Dialog)
+    card = {'content_id': 'movie-1', 'watchlist': True, 'rating': 4, 'not_interested': False}
+    monkeypatch.setattr(context, 'ask_service',
+                        lambda path, **query: asked.append((path, query)) or (card if path == 'command/card' else {}))
+    context.home_menu()
+    # Not on Continue Watching: no Remove; on the watchlist: Remove from Watchlist.
+    assert len(shown) == 4 and shown[0] == context.kodi.string(30203)
+    assert asked[-1] == ('command/not_interested', {'timeout': 20, 'id': 'movie-1', 'on': '1'})
+    assert notes
 
 
 def test_the_home_menu_key_opens_kodis_menu_elsewhere(monkeypatch):

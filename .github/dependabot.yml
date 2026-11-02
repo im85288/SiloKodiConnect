@@ -1,0 +1,10 @@
+# Keeps the workflows' actions (checkout, setup-python...) current with small PRs.
+version: 2
+updates:
+- package-ecosystem: github-actions
+  directory: /
+  schedule:
+    interval: monthly
+  groups:
+    actions:
+      patterns: ['*']

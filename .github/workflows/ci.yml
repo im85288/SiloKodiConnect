@@ -19,7 +19,7 @@ jobs:
     - name: Install dependencies
       run: pip install -r requirements-dev.txt
     - name: Lint
-      run: python -m pyflakes resources tests default.py service.py context_dismiss.py context_card.py screensaver.py
+      run: python -m pyflakes resources tests default.py service.py context_dismiss.py context_card.py screensaver.py .github
     - name: Test
       run: python -m pytest -q tests
   tests-kodi20:
@@ -33,6 +33,6 @@ jobs:
     - name: Install dependencies
       run: pip install -r requirements-dev.txt
     - name: Lint
-      run: python -m pyflakes resources tests default.py service.py context_dismiss.py context_card.py screensaver.py
+      run: python -m pyflakes resources tests default.py service.py context_dismiss.py context_card.py screensaver.py .github
     - name: Test
       run: python -m pytest -q tests

@@ -1,0 +1,32 @@
+name: Release
+# Pushing a tag v<version> publishes it: the add-on's zip (what git archive
+# ships, .gitattributes leaving the tests and tools out) and its notes from
+# README.md's "### v<version>" section.
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: The tag matches addon.xml's version
+      run: |
+        version=$(python3 -c "import xml.etree.ElementTree as E; print(E.parse('addon.xml').getroot().get('version'))")
+        [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "addon.xml says $version, the tag is $GITHUB_REF_NAME"; exit 1; }
+    - name: Build the zip
+      run: git archive --prefix=plugin.video.silokodiconnect/ -o "plugin.video.silokodiconnect-${GITHUB_REF_NAME#v}.zip" "$GITHUB_REF_NAME"
+    - name: Notes
+      run: python3 .github/release_notes.py "${GITHUB_REF_NAME#v}" > notes.md
+    - name: Publish
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        zip="plugin.video.silokodiconnect-${GITHUB_REF_NAME#v}.zip"
+        if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+          gh release upload "$GITHUB_REF_NAME" "$zip" --clobber
+        else
+          gh release create "$GITHUB_REF_NAME" "$zip" --title "SiloKodiConnect ${GITHUB_REF_NAME#v}" --notes-file notes.md --latest
+        fi

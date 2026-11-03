@@ -186,6 +186,11 @@ Android, in the `python:3.8` image), 3.11 (Kodi 21) and 3.14. Kodi's embedded Py
 
 ## Changes
 
+### v0.12.3 (2026-11-03)
+- **Skyline's YouTube page:** its search box opens the keyboard and the page shows the YouTube add-on's
+  results; Back closes them for the page's Home. The menu key on a video offers Play, or Play choosing
+  its quality first, as the YouTube app's menu does.
+
 ### v0.12.2 (2026-11-03)
 - **Steadier service:** an unexpected error in its once-a-second loop is logged and the loop goes on
   (before, syncs, row refreshes and progress checks stopped until Kodi restarted).

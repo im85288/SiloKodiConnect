@@ -186,6 +186,13 @@ Android, in the `python:3.8` image), 3.11 (Kodi 21) and 3.14. Kodi's embedded Py
 
 ## Changes
 
+### v0.12.2 (2026-11-03)
+- **Steadier service:** an unexpected error in its once-a-second loop is logged and the loop goes on
+  (before, syncs, row refreshes and progress checks stopped until Kodi restarted).
+- **No repeated jobs:** progress checks and row refreshes no longer pile up behind a long sync or a film.
+- Tests for the service's queue, its main loop, playback stopping, the artwork relay's start-up and the
+  plugin's commands.
+
 ### v0.12.1 (2026-11-03)
 - **Artwork after Kodi starts:** the artwork relay's port opens first thing, so a title Kodi hadn't
   cached yet (newly added) no longer stays blank until the next restart.

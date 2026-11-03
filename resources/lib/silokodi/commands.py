@@ -35,6 +35,8 @@ def handle(service, name, query):
         service.store.sign_out()
     elif name in ('sync', 'fullsync', 'reset'):
         service.enqueue(name)
+        if name == 'fullsync':
+            return {'waiting': service.playing()}  # a sync waits for playback to stop
     elif name == 'tint':
         # For an info page opened by the plugin: the title's ambient tint,
         # its trailer and (a film or series) whether it's on the watchlist.

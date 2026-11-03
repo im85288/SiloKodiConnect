@@ -1152,3 +1152,40 @@ def test_episodes_carry_their_air_date_as_a_skin_writes_it(silo, syncer, query):
                   "WHERE a.media_type = 'episode' AND a.type = 'siloaired'")
     assert dates and all(url == mapping.short_date(aired) for url, aired in dates)
     assert mapping.short_date('2026-10-21') == '21 Oct 2026' and mapping.short_date('') == ''
+
+
+def test_a_full_resync_drops_silos_cached_images_and_shows_progress(monkeypatch):
+    from resources.lib.silokodi import kodi
+    from resources.lib.silokodi import service as service_module
+    calls = []
+
+    def jsonrpc(method, **params):
+        calls.append((method, params))
+        if method == 'Textures.GetTextures':
+            return {'textures': [{'textureid': 4}, {'textureid': 9}]}
+    monkeypatch.setattr(kodi, 'jsonrpc', jsonrpc)
+    synced, forgot = [], []
+    service = service_module.Service.__new__(service_module.Service)
+    service.store = type('Store', (), {'signed_in': True})()
+    service.db = type('Db', (), {'forget_fingerprints': lambda self: forgot.append(True)})()
+    service.port = 57578
+    service.playing = lambda: False
+    service.run_sync = lambda show=False: synced.append(show)
+    service.do('fullsync')
+    assert calls[0] == ('Textures.GetTextures', {'properties': ['url'], 'filter': {
+        'field': 'url', 'operator': 'startswith', 'value': 'http://127.0.0.1:57578/art/'}})
+    assert [params['textureid'] for method, params in calls[1:]] == [4, 9]
+    assert forgot == [True] and synced == [True]
+    # The hourly sync leaves the cache alone, and its progress to the setting.
+    del calls[:], synced[:]
+    service.do('sync')
+    assert calls == [] and synced == [False]
+
+
+def test_a_full_resync_asked_for_during_playback_says_it_waits():
+    from resources.lib.silokodi import commands
+    queued = []
+    service = type('Service', (), {'enqueue': lambda self, task: queued.append(task),
+                                   'playing': lambda self: True})()
+    assert commands.handle(service, 'fullsync', {}) == {'waiting': True}
+    assert queued == ['fullsync']

@@ -198,6 +198,8 @@ def command(name):
     answer = ask_service('command/%s' % name, timeout=10)
     if answer.get('error'):
         kodi.notify(answer['error'])
+    elif name == 'fullsync':
+        kodi.notify(kodi.string(30213 if answer.get('waiting') else 30212))
 
 
 def choose_libraries():

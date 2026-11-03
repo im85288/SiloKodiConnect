@@ -482,7 +482,9 @@ class Service(object):
         if kind in ('sync', 'fullsync'):
             if kind == 'fullsync':
                 self.db.forget_fingerprints()
-            self.run_sync()
+                kodi.log('Full resync: %d of Silo\'s images dropped from Kodi\'s cache'
+                         % kodi.forget_textures_under('http://127.0.0.1:%d/art/' % self.port))
+            self.run_sync(show=kind == 'fullsync')
         elif kind == 'progress':
             self.poll_progress()
         elif kind == 'layout':
@@ -572,10 +574,11 @@ class Service(object):
     def excluded(self):
         return [value for value in (kodi.setting('excluded_libraries') or '').split(',') if value]
 
-    def run_sync(self):
-        # Until one sync has finished, keep showing progress, even across restarts.
+    def run_sync(self, show=False):
+        # Until one sync has finished, keep showing progress, even across
+        # restarts; and for a full resync someone asked for.
         first = not self.db.meta('first_sync_done')
-        show = first or kodi.setting_bool('show_sync_progress')
+        show = show or first or kodi.setting_bool('show_sync_progress')
         if show:
             self.progress_dialog = xbmcgui.DialogProgressBG()
             self.progress_dialog.create('SiloKodiConnect', kodi.string(30140))

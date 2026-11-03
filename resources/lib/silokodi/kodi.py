@@ -116,6 +116,17 @@ def forget_textures(urls):
     return dropped
 
 
+def forget_textures_under(prefix):
+    """Drop every cached image whose address starts with prefix (a full
+    resync: an image cached broken would otherwise stay). Returns how many."""
+    found = jsonrpc('Textures.GetTextures', properties=['url'],
+                    filter={'field': 'url', 'operator': 'startswith', 'value': prefix}) or {}
+    textures = found.get('textures') or []
+    for texture in textures:
+        jsonrpc('Textures.RemoveTexture', textureid=texture['textureid'])
+    return len(textures)
+
+
 def refresh_library_views(refresh_list=True, update_library=True):
     """Make Kodi show what was just written to its database. Returns False when
     a library update has to wait (in a library list or during playback).

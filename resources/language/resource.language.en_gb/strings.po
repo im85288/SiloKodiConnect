@@ -455,3 +455,11 @@ msgstr ""
 msgctxt "#30211"
 msgid "Nothing to shuffle here"
 msgstr ""
+
+msgctxt "#30212"
+msgid "Full resync started"
+msgstr ""
+
+msgctxt "#30213"
+msgid "Full resync will start when playback stops"
+msgstr ""

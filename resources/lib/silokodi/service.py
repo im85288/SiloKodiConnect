@@ -159,7 +159,7 @@ class Player(xbmc.Player):
             # Continue Watching at once (the next episode, or this one's new
             # place): on its own thread, as the worker may be busy with what
             # waited for playback to stop (a 6 s details check held it 7 s).
-            cards = threading.Thread(target=self.service.publish_home_cards, name='silokodi-cards')
+            cards = threading.Thread(target=self.service.publish_home_cards_safely, name='silokodi-cards')
             cards.daemon = True
             cards.start()
 
@@ -251,6 +251,9 @@ class Service(object):
         # queue of syncs. (priority, sequence, task); None stops the worker.
         self.tasks = queue.PriorityQueue()
         self.task_number = itertools.count()
+        self.queued = set()  # tasks waiting in self.tasks: each waits there once
+        self.queued_lock = threading.Lock()
+        self.tick_error = ('', 0)  # the main loop's last error, and when it was logged
         self.listener = None
         self.recently_played = {}
         self.subtitle_pick = None  # (stored subtitle id, position) to apply when Search online's restart starts
@@ -323,60 +326,10 @@ class Service(object):
         ticks = 0
         while not self.monitor.waitForAbort(1):
             ticks += 1
-            if ticks % 10 == 0:  # the skin may have changed
-                self.sync_keymap()
-            if ticks % 30 == 0:  # Live TV's playlist, rewritten by its add-on now and then
-                try:
-                    self.catchup.check(self.playing())
-                except Exception as error:  # never let it stop the service
-                    kodi.log_warning('Catch-up rewrite: %s' % error)
-            if self.store.changed_on_disk():
-                self.store.reload()
-            self.publish_signed_in()
-            if not self.store.signed_in:
-                self.stop_listener()
-                continue
-            self.start_listener()
-            now = time.time()
-            if now >= self.next_sync:
-                self.next_sync = now + 60 * max(5, kodi.setting_int('sync_interval') or 60)
-                self.enqueue('sync')
-            if now >= self.next_progress:
-                connected = self.listener and self.listener.connected
-                self.next_progress = now + (PROGRESS_POLL if connected else PROGRESS_POLL_OFFLINE)
-                self.enqueue('progress')
-            self.player.tick()
-            self.theme.tick()
-            self.note_viewed_page()
-            self.note_refresh()
-            if self.native_recheck and self.layout and not self.playing():
-                # A library change may have filled a Kodi row held back as empty.
-                self.native_recheck = False
-                self.native_counts.clear()
-                self.apply_layout()
-            if self.home_cards_due and now >= self.home_cards_due and self.store.signed_in:
-                self.home_cards_due = 0
-                self.enqueue('homecards')
-            self.end_loading()
-            if self.next_recheck and now >= self.next_recheck and not self.playing():
-                self.next_recheck = None
-                self.enqueue('recheck')
-            if now >= self.next_save and self.details.dirty:
-                self.next_save = now + DETAILS_SAVE_INTERVAL
-                self.save_details()
-            for task in self.library_events.due() + self.item_events.due():
-                self.enqueue(task)
-            if self.personal_events.due():
-                self.personal_due = True
-            if self.personal_due and not self.playing():
-                self.personal_due = False
-                self.personal.refresh_soon()
-            if self.deferred and not self.playing():
-                for task in self.deferred:
-                    self.enqueue(task)
-                self.deferred = []
-            if self.library_update_pending and self.tasks.empty():
-                self.library_update_pending = not kodi.refresh_library_views(refresh_list=False)
+            try:
+                self.tick(ticks)
+            except Exception as error:  # one bad second must not end the service
+                self.tick_failed(error)
         kodi.log('Stopping SiloKodiConnect')
         self.save_details()
         self.playback.on_stopped(self.player.last_time)
@@ -385,6 +338,71 @@ class Service(object):
         self.tasks.put((-1, next(self.task_number), None))
         worker.join(10)
         self.db.close()
+
+    def tick(self, ticks):
+        """The main loop's second: what's due now."""
+        if ticks % 10 == 0:  # the skin may have changed
+            self.sync_keymap()
+        if ticks % 30 == 0:  # Live TV's playlist, rewritten by its add-on now and then
+            try:
+                self.catchup.check(self.playing())
+            except Exception as error:  # never let it stop the service
+                kodi.log_warning('Catch-up rewrite: %s' % error)
+        if self.store.changed_on_disk():
+            self.store.reload()
+        self.publish_signed_in()
+        if not self.store.signed_in:
+            self.stop_listener()
+            return
+        self.start_listener()
+        now = time.time()
+        if now >= self.next_sync:
+            self.next_sync = now + 60 * max(5, kodi.setting_int('sync_interval') or 60)
+            self.enqueue('sync')
+        if now >= self.next_progress:
+            connected = self.listener and self.listener.connected
+            self.next_progress = now + (PROGRESS_POLL if connected else PROGRESS_POLL_OFFLINE)
+            self.enqueue('progress')
+        self.player.tick()
+        self.theme.tick()
+        self.note_viewed_page()
+        self.note_refresh()
+        if self.native_recheck and self.layout and not self.playing():
+            # A library change may have filled a Kodi row held back as empty.
+            self.native_recheck = False
+            self.native_counts.clear()
+            self.apply_layout()
+        if self.home_cards_due and now >= self.home_cards_due and self.store.signed_in:
+            self.home_cards_due = 0
+            self.enqueue('homecards')
+        self.end_loading()
+        if self.next_recheck and now >= self.next_recheck and not self.playing():
+            self.next_recheck = None
+            self.enqueue('recheck')
+        if now >= self.next_save and self.details.dirty:
+            self.next_save = now + DETAILS_SAVE_INTERVAL
+            self.save_details()
+        for task in self.library_events.due() + self.item_events.due():
+            self.enqueue(task)
+        if self.personal_events.due():
+            self.personal_due = True
+        if self.personal_due and not self.playing():
+            self.personal_due = False
+            self.personal.refresh_soon()
+        if self.deferred and not self.playing():
+            for task in self.deferred:
+                self.enqueue(task)
+            self.deferred = []
+        if self.library_update_pending and self.tasks.empty():
+            self.library_update_pending = not kodi.refresh_library_views(refresh_list=False)
+
+    def tick_failed(self, error):
+        """Log a failed second, once a minute while it keeps failing the same way."""
+        message = '%s: %s' % (type(error).__name__, error)
+        now = time.time()
+        if message != self.tick_error[0] or now - self.tick_error[1] >= 60:
+            kodi.log_error('Main loop: %s' % message)
+            self.tick_error = (message, now)
 
     def sync_keymap(self):
         """The Silo Skyline skin's keymaps: Live TV's and the player's (keymap.py)."""
@@ -439,12 +457,22 @@ class Service(object):
             self.listener = None
 
     def enqueue(self, task):
+        """Queue a task, unless the same one is already waiting: while a
+        long task runs (a 150 s resync, or anything held for a film) the
+        progress checks and row refreshes queued meanwhile ran one after
+        another, each asking Silo the same again."""
+        with self.queued_lock:
+            if task in self.queued:
+                return
+            self.queued.add(task)
         self.tasks.put((0 if kind_of(task) in URGENT_TASKS else 1, next(self.task_number), task))
 
     def work(self):
         """One worker, so Kodi database writes never overlap."""
         while True:
             task = self.tasks.get()[2]
+            with self.queued_lock:
+                self.queued.discard(task)  # running: the same task may queue again
             if task is None or self.monitor.abortRequested():
                 return
             try:
@@ -1094,6 +1122,14 @@ class Service(object):
         """Publish Home's cards in a moment: changes come in bursts."""
         if not self.home_cards_due:
             self.home_cards_due = time.time() + delay
+
+    def publish_home_cards_safely(self):
+        """publish_home_cards off the worker (a stopped player's thread):
+        logged, not lost with the thread, when it fails."""
+        try:
+            self.publish_home_cards()
+        except Exception as error:
+            kodi.log_warning('Could not publish Home\'s cards: %s' % error)
 
     def publish_home_cards(self):
         """Home's and Requests' rows, in Silo's order, as Home window

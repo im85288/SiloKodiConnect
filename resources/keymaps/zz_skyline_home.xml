@@ -6,7 +6,8 @@
        anything else, Kodi's own. A skin's card isn't a library item, so
        Kodi has no context menu for it.
      And on Skyline's YouTube page (custom window 1198, which Kodi numbers
-     11198): Play, or Play choosing the video's quality. -->
+     11198): Play, or Play choosing the video's quality; and Back closes a
+     search's results (else Back as usual). -->
 <keymap>
   <home>
     <keyboard>
@@ -22,24 +23,30 @@
   </home>
   <window11198>
     <keyboard>
+      <backspace>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubeback)</backspace>
+      <browser_back>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubeback)</browser_back>
       <c>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</c>
       <menu>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</menu>
       <return mod="longpress">RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</return>
       <enter mod="longpress">RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</enter>
     </keyboard>
     <remote>
+      <back>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubeback)</back>
       <menu>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</menu>
       <title>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</title>
     </remote>
   </window11198>
   <window1198>
     <keyboard>
+      <backspace>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubeback)</backspace>
+      <browser_back>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubeback)</browser_back>
       <c>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</c>
       <menu>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</menu>
       <return mod="longpress">RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</return>
       <enter mod="longpress">RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</enter>
     </keyboard>
     <remote>
+      <back>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubeback)</back>
       <menu>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</menu>
       <title>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</title>
     </remote>

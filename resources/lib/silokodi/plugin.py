@@ -55,6 +55,14 @@ def run(argv):
     mode = params.get('mode')
     if mode == 'play':
         return play(handle, params, len(argv) > 3 and argv[3] == 'resume:true')
+    if mode == 'youtubeback':
+        # Back on Skyline's YouTube page.
+        from .context import youtube_back
+        return youtube_back()
+    if mode == 'youtubesearch':
+        # Skyline's YouTube page's search box.
+        from .context import youtube_search
+        return youtube_search()
     if mode == 'youtubemenu':
         # Skyline's YouTube page's context menu key (zz_skyline_home.xml).
         from .context import youtube_menu

@@ -45,6 +45,41 @@ def youtube_menu():
         xbmc.executebuiltin('PlayMedia(%s%sask_for_quality=true)' % (path, '&' if '?' in path else '?'))
 
 
+YOUTUBE_SEARCH = ('plugin://plugin.video.youtube/kodion/search/query/'
+                  '?q=%s&hide_folders=true&hide_next_page=true')
+
+
+def youtube_search():
+    """Skyline's YouTube page's search box: the keyboard, then the page shows
+    the YouTube add-on's results for it (Window(Home) silo.youtube.query, the
+    words, and silo.youtube.search, their list's path). Kodi's own <content>
+    can't URL-encode what's typed, so it's done here."""
+    from urllib.parse import quote_plus
+    home = xbmcgui.Window(10000)
+    keyboard = xbmc.Keyboard(home.getProperty('silo.youtube.query'), kodi.string(30216))
+    keyboard.doModal()
+    words = keyboard.getText().strip() if keyboard.isConfirmed() else ''
+    if not words:
+        return
+    home.setProperty('silo.youtube.query', words)
+    home.setProperty('silo.youtube.search', YOUTUBE_SEARCH % quote_plus(words))
+    home.setProperty('silo.youtube.section', 'search')
+
+
+def youtube_back():
+    """Back on Skyline's YouTube page (zz_skyline_home.xml): a search's
+    results close, and the page's Home shows again (its first row focused,
+    as the app's); otherwise Back as usual. A keymap has no conditions, and
+    the page's own controls never see this Back, so it's done here."""
+    home = xbmcgui.Window(10000)
+    if not home.getProperty('silo.youtube.query'):
+        xbmc.executebuiltin('Action(Back)')
+        return
+    for key in ('search', 'section', 'query'):
+        home.clearProperty('silo.youtube.' + key)
+    xbmc.executebuiltin('SetFocus(301)')
+
+
 def library_menu(listitem):
     """Kodi's context menu's "Silo" on a library title (Browse, a page's rails)."""
     tag = listitem.getVideoInfoTag()

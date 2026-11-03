@@ -64,6 +64,7 @@ def youtube_search():
     home.setProperty('silo.youtube.query', words)
     home.setProperty('silo.youtube.search', YOUTUBE_SEARCH % quote_plus(words))
     home.setProperty('silo.youtube.section', 'search')
+    xbmc.executebuiltin('SetFocus(610)')  # the results, from the side menu
 
 
 def youtube_back():
@@ -72,6 +73,10 @@ def youtube_back():
     as the app's); otherwise Back as usual. A keymap has no conditions, and
     the page's own controls never see this Back, so it's done here."""
     home = xbmcgui.Window(10000)
+    if xbmc.getCondVisibility('Control.HasFocus(100)'):
+        # The page's side menu: closed, back to its section (the menu's Right).
+        xbmc.executebuiltin('Action(Right)')
+        return
     if not home.getProperty('silo.youtube.query'):
         xbmc.executebuiltin('Action(Back)')
         return

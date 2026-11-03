@@ -186,6 +186,15 @@ Android, in the `python:3.8` image), 3.11 (Kodi 21) and 3.14. Kodi's embedded Py
 
 ## Changes
 
+### v0.12.1 (2026-11-03)
+- **Artwork after Kodi starts:** the artwork relay's port opens first thing, so a title Kodi hadn't
+  cached yet (newly added) no longer stays blank until the next restart.
+- **Continue Watching** follows a finished or stopped episode in about 2 s (was up to 7 s): Home's rows
+  are fetched together, straight after playback stops.
+- **Full resync** says it started (or that it waits for playback to stop), shows its progress, and
+  fetches Silo's artwork again.
+- **Remove and re-add every Silo item** (was "Remove all Silo items"): the library comes back at once.
+
 ### v0.12.0 (2026-11-02)
 - **Remembered subtitles:** an episode starts with its show's subtitle choice, as Silo's apps keep it
   (subtitle-prefs), and a change you make is saved for the next episode, here or in Silo's apps.

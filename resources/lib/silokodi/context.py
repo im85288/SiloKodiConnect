@@ -27,6 +27,24 @@ def home_menu():
               bool(xbmc.getInfoLabel('ListItem.Property(home.dismiss)')))
 
 
+YOUTUBE_PLAY = 'plugin://plugin.video.youtube/play/'
+
+
+def youtube_menu():
+    """Skyline's YouTube page's context menu key (zz_skyline_home.xml): a video
+    plays as OK plays it, or after the YouTube add-on's list of its qualities,
+    as the YouTube app's menu offers; anything else gets Kodi's own menu."""
+    path = xbmc.getInfoLabel('ListItem.FileNameAndPath')
+    if not path.startswith(YOUTUBE_PLAY):
+        xbmc.executebuiltin('Action(ContextMenu)')
+        return
+    choice = xbmcgui.Dialog().contextmenu([kodi.string(30214), kodi.string(30215)])
+    if choice == 0:
+        xbmc.executebuiltin('PlayMedia(%s)' % path)
+    elif choice == 1:
+        xbmc.executebuiltin('PlayMedia(%s%sask_for_quality=true)' % (path, '&' if '?' in path else '?'))
+
+
 def library_menu(listitem):
     """Kodi's context menu's "Silo" on a library title (Browse, a page's rails)."""
     tag = listitem.getVideoInfoTag()

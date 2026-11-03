@@ -4,7 +4,9 @@
        the context menu (C, Menu, a long OK) on Home: on a Continue Watching
        or Next Up card, Silo's menu (Remove from Continue Watching); on
        anything else, Kodi's own. A skin's card isn't a library item, so
-       Kodi has no context menu for it. -->
+       Kodi has no context menu for it.
+     And on Skyline's YouTube page (custom window 1198, which Kodi numbers
+     11198): Play, or Play choosing the video's quality. -->
 <keymap>
   <home>
     <keyboard>
@@ -18,4 +20,28 @@
       <title>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=homemenu)</title>
     </remote>
   </home>
+  <window11198>
+    <keyboard>
+      <c>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</c>
+      <menu>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</menu>
+      <return mod="longpress">RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</return>
+      <enter mod="longpress">RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</enter>
+    </keyboard>
+    <remote>
+      <menu>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</menu>
+      <title>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</title>
+    </remote>
+  </window11198>
+  <window1198>
+    <keyboard>
+      <c>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</c>
+      <menu>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</menu>
+      <return mod="longpress">RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</return>
+      <enter mod="longpress">RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</enter>
+    </keyboard>
+    <remote>
+      <menu>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</menu>
+      <title>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</title>
+    </remote>
+  </window1198>
 </keymap>

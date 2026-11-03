@@ -463,3 +463,11 @@ msgstr ""
 msgctxt "#30213"
 msgid "Full resync will start when playback stops"
 msgstr ""
+
+msgctxt "#30214"
+msgid "Play"
+msgstr ""
+
+msgctxt "#30215"
+msgid "Play, choosing quality"
+msgstr ""

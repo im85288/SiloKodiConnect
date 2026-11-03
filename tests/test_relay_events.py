@@ -308,3 +308,33 @@ def test_a_long_biography_is_cut_at_a_word_with_an_ellipsis():
     cut = mapping.fitted(text.strip(), 52)
     assert cut == 'word word word word word word word word word word…' and len(cut) <= 53
     assert mapping.fitted('Born in Honolulu, she moved to Sydney, and then', 36) == 'Born in Honolulu, she moved to…'
+
+
+def test_an_image_asked_for_before_the_relay_starts_waits_for_it(tmp_path):
+    """quickstart opens the port as Kodi starts; Home's first images, asked
+    for before the relay is ready, are answered once it is, not refused."""
+    import threading
+    import time
+    from resources.lib.silokodi import quickstart
+    port = free_port()
+    assert quickstart.listen_early(port)
+    db = SyncDB(str(tmp_path))
+    db.set_art('movie-1', {'poster': '/api/v2/artwork/fresh.webp'})
+    server = Relay(Client(), db, lambda content_id: None, lambda q: {}, lambda n, q: {}, port=port)
+
+    class FakeSession(object):
+        def get(self, url, headers=None, stream=None, timeout=None):
+            return Image(200, b'fresh')
+    server.session = FakeSession()
+    answers = []
+    asking = threading.Thread(target=lambda: answers.append(get(server, '/art/movie-1/poster')))
+    asking.start()
+    time.sleep(0.3)  # the add-on still loading
+    assert answers == []
+    server.start()
+    try:
+        asking.join(5)
+        assert answers == [(200, b'fresh')]
+        assert port not in quickstart.LISTENING
+    finally:
+        server.stop()

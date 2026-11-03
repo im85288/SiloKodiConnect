@@ -32,6 +32,7 @@ except ImportError:  # pragma: no cover
 
 import requests
 
+from . import quickstart
 from .mapping import RELAY_PORT as DEFAULT_PORT
 CHUNK = 64 * 1024
 MEDIA_CHUNK = 1024 * 1024
@@ -217,7 +218,15 @@ class Relay(object):
         self._thread = None
 
     def start(self):
-        self._server = ThreadingServer(('127.0.0.1', self.port), Handler)
+        early = quickstart.LISTENING.pop(self.port, None)
+        if early:
+            # The port quickstart opened, with Kodi's first requests waiting on it.
+            self._server = ThreadingServer(('127.0.0.1', self.port), Handler, bind_and_activate=False)
+            self._server.socket.close()
+            self._server.socket = early
+            self._server.server_name, self._server.server_port = '127.0.0.1', self.port
+        else:
+            self._server = ThreadingServer(('127.0.0.1', self.port), Handler)
         self._server.relay = self
         self._thread = threading.Thread(target=self._server.serve_forever, name='silokodi-relay')
         self._thread.daemon = True

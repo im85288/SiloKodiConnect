@@ -43,7 +43,7 @@ msgid "Rewrite every item (full resync)"
 msgstr ""
 
 msgctxt "#30016"
-msgid "Remove all Silo items from the Kodi library"
+msgid "Remove and re-add every Silo item"
 msgstr ""
 
 msgctxt "#30017"
@@ -143,7 +143,7 @@ msgid "Sign out of Silo? Your Silo items stay in the Kodi library."
 msgstr ""
 
 msgctxt "#30109"
-msgid "Remove every Silo movie and TV show from the Kodi library?"
+msgid "Remove every Silo movie and TV show from Kodi's library and add them back from Silo? This takes a few minutes."
 msgstr ""
 
 msgctxt "#30110"
@@ -195,7 +195,7 @@ msgid "Sign out"
 msgstr ""
 
 msgctxt "#30135"
-msgid "Remove all Silo items from the Kodi library"
+msgid "Remove and re-add every Silo item"
 msgstr ""
 
 msgctxt "#30136"
@@ -243,7 +243,7 @@ msgid "Sign this device out of Silo"
 msgstr ""
 
 msgctxt "#30156"
-msgid "Take everything SiloKodiConnect added out of Kodi's library"
+msgid "Take everything SiloKodiConnect added out of Kodi's library, then add it back from Silo"
 msgstr ""
 
 msgctxt "#30157"

@@ -1189,3 +1189,21 @@ def test_a_full_resync_asked_for_during_playback_says_it_waits():
                                    'playing': lambda self: True})()
     assert commands.handle(service, 'fullsync', {}) == {'waiting': True}
     assert queued == ['fullsync']
+
+
+def test_removing_everything_adds_it_back_at_once_with_fresh_images(monkeypatch):
+    from resources.lib.silokodi import kodi
+    from resources.lib.silokodi import service as service_module
+    calls, removed, queued, cleared = [], [], [], []
+    monkeypatch.setattr(kodi, 'jsonrpc', lambda method, **params: calls.append(method) or {})
+    service = service_module.Service.__new__(service_module.Service)
+    service.store = type('Store', (), {'signed_in': True})()
+    service.db = type('Db', (), {'libraries': lambda self: ['1', '2'],
+                                 'clear': lambda self: cleared.append(True)})()
+    service.syncer = type('Syncer', (), {'remove_library': lambda self, library_id: removed.append(library_id)})()
+    service.port = 57578
+    service.enqueue = queued.append
+    service.do('reset')
+    assert removed == ['1', '2'] and cleared == [True]
+    assert calls == ['Textures.GetTextures'] and queued == ['sync']
+

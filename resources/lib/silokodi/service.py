@@ -482,8 +482,7 @@ class Service(object):
         if kind in ('sync', 'fullsync'):
             if kind == 'fullsync':
                 self.db.forget_fingerprints()
-                kodi.log('Full resync: %d of Silo\'s images dropped from Kodi\'s cache'
-                         % kodi.forget_textures_under('http://127.0.0.1:%d/art/' % self.port))
+                self.drop_cached_art('Full resync')
             self.run_sync(show=kind == 'fullsync')
         elif kind == 'progress':
             self.poll_progress()
@@ -511,6 +510,18 @@ class Service(object):
             for library_id in self.db.libraries():
                 self.syncer.remove_library(library_id)
             self.db.clear()
+            self.drop_cached_art('Reset')
+            self.enqueue('sync')  # added back at once, as a first sync (with its progress)
+
+    def art_prefix(self):
+        return 'http://127.0.0.1:%d/art/' % self.port
+
+    def drop_cached_art(self, why):
+        """Every Silo image out of Kodi's texture cache: the library is
+        rewritten under the same local addresses, so an image cached broken
+        would otherwise stay."""
+        kodi.log('%s: %d of Silo\'s images dropped from Kodi\'s cache'
+                 % (why, kodi.forget_textures_under(self.art_prefix())))
 
     def watch_trailers(self):
         """A trailer from a Silo-style skin's info page (silokodi.trailer_playing)

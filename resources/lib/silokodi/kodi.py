@@ -116,12 +116,17 @@ def forget_textures(urls):
     return dropped
 
 
+def textures_under(prefix):
+    """Kodi's cached images whose address starts with prefix: [{'textureid', 'url'}]."""
+    found = jsonrpc('Textures.GetTextures', properties=['url'],
+                    filter={'field': 'url', 'operator': 'startswith', 'value': prefix}) or {}
+    return found.get('textures') or []
+
+
 def forget_textures_under(prefix):
     """Drop every cached image whose address starts with prefix (a full
     resync: an image cached broken would otherwise stay). Returns how many."""
-    found = jsonrpc('Textures.GetTextures', properties=['url'],
-                    filter={'field': 'url', 'operator': 'startswith', 'value': prefix}) or {}
-    textures = found.get('textures') or []
+    textures = textures_under(prefix)
     for texture in textures:
         jsonrpc('Textures.RemoveTexture', textureid=texture['textureid'])
     return len(textures)

@@ -924,7 +924,8 @@ def test_home_publishes_cards_for_its_first_rows_only(monkeypatch):
             pass
     monkeypatch.setattr(service_module.xbmcgui, 'Window', Window)
     service = service_module.Service.__new__(service_module.Service)
-    service.db, service.home_cards = Db(), {}
+    import threading
+    service.db, service.home_cards, service.cards_lock = Db(), {}, threading.Lock()
     service.page_sources = {'home': [('row%d' % n, None) for n in range(1, 8)], 'requests': []}
     service.layout = {'silo.home.%d.title' % n: 'Row %d' % n for n in range(1, 8)}
     # Silo renamed row 6, which loads from its path: its title follows.
@@ -936,7 +937,7 @@ def test_home_publishes_cards_for_its_first_rows_only(monkeypatch):
         return [{'type': 'movie', 'label': row_id}]
     service.page_cards = page_cards
     service.publish_home_cards()
-    assert asked == ['row1', 'row2', 'row3', 'row4']
+    assert sorted(asked) == ['row1', 'row2', 'row3', 'row4']  # asked for together, in any order
     assert props['silo.home.4.cards'] == '1' and 'silo.home.5.cards' not in props
     assert props['silo.home.6.title'] == 'Because You Watched Heat'
 

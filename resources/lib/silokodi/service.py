@@ -10,6 +10,7 @@ import os
 import queue
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 import xbmc
@@ -26,7 +27,7 @@ from .store import Store
 from . import rows as home_cards
 from .library import DetailsCache
 from .personal import PersonalLists
-from .sync import MAX_ROWS, MOVIE_LIBRARY_TYPES, NEXT_EPISODE_SECTIONS, SHOW_LIBRARY_TYPES, Stopped, Syncer, collection_cards, home_row_items, page_of, skin_layout
+from .sync import FETCH_WORKERS, MAX_ROWS, MOVIE_LIBRARY_TYPES, NEXT_EPISODE_SECTIONS, SHOW_LIBRARY_TYPES, Stopped, Syncer, collection_cards, home_row_items, page_of, skin_layout
 from .syncdb import SyncDB
 
 PROGRESS_POLL = 300          # seconds between resume-point checks while the socket is up
@@ -155,6 +156,12 @@ class Player(xbmc.Player):
             self.service.recently_played[session.content_id] = time.time()
             # Silo has the new watch state now; pull it in shortly.
             self.service.enqueue(('state', session.content_id))
+            # Continue Watching at once (the next episode, or this one's new
+            # place): on its own thread, as the worker may be busy with what
+            # waited for playback to stop (a 6 s details check held it 7 s).
+            cards = threading.Thread(target=self.service.publish_home_cards, name='silokodi-cards')
+            cards.daemon = True
+            cards.start()
 
     def tick(self):
         if not self.service.playback.active:
@@ -261,6 +268,7 @@ class Service(object):
         self.page_sources = {}  # page -> [(row id, library id)], from the layout
         self.row_titles = {}  # (library id, row id) -> the title Silo last gave it with its items
         self.home_cards_due = 0  # when to publish them again (0: not due)
+        self.cards_lock = threading.Lock()
         self.native_counts = {}  # (Kodi library row path, refresh token) -> has items
         self.native_recheck = False  # set by a library change while a row is held back
         self.next_recheck = None  # when to confirm the details loaded from disk
@@ -1093,19 +1101,32 @@ class Service(object):
         values are set."""
         if not self.page_sources:
             return
+        with self.cards_lock:  # the worker's and a stopped player's never overlap
+            self._publish_home_cards()
+
+    def _publish_home_cards(self):
+        started = time.time()
         props = {}
         home = xbmcgui.Window(10000)
         retitled = False
+
+        def fetch(job):
+            page, row_id, library_id = job
+            try:
+                return self.page_cards(page, row_id, library_id)
+            except (ApiError, requests.RequestException) as error:
+                kodi.log_warning('%s row %s: %s' % (page, row_id, error))
+                return None
         # Not Movies and Series: the rows Kodi can order load natively, and
         # every published slot costs the skin load time (see the skin).
         for page, count in PUBLISHED_PAGES.items():
             sources = self.page_sources.get(page, [])
-            for row, (row_id, library_id) in enumerate(sources[:PUBLISHED_ROWS[page]], 1):
-                try:
-                    cards = self.page_cards(page, row_id, library_id)
-                except (ApiError, requests.RequestException) as error:
-                    kodi.log_warning('%s row %s: %s' % (page, row_id, error))
-                    cards = None
+            # A row at a time took seconds (a request to Silo each), and
+            # Continue Watching waited on them all after an episode ended.
+            with ThreadPoolExecutor(FETCH_WORKERS) as pool:
+                fetched = list(pool.map(fetch, [(page, row_id, library_id)
+                                                for row_id, library_id in sources[:PUBLISHED_ROWS[page]]]))
+            for row, cards in enumerate(fetched, 1):
                 if cards is None:  # keep what the row showed
                     prefix = 'silo.%s.%d.' % (page, row)
                     props.update({key: value for key, value in self.home_cards.items() if key.startswith(prefix)})
@@ -1131,7 +1152,7 @@ class Service(object):
             home.clearProperty(key)
         self.home_cards = props
         self.db.set_meta('home_cards', props)
-        kodi.log('Rows published (%d values changed)' % changed)
+        kodi.log('Rows published (%d values changed) in %.1f s' % (changed, time.time() - started))
 
     def page_cards(self, page, row_id, library_id):
         """One row's cards: library titles with their cached details; on the

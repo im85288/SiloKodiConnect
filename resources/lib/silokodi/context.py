@@ -64,7 +64,36 @@ def youtube_search():
     home.setProperty('silo.youtube.query', words)
     home.setProperty('silo.youtube.search', YOUTUBE_SEARCH % quote_plus(words))
     home.setProperty('silo.youtube.section', 'search')
-    xbmc.executebuiltin('SetFocus(610)')  # the results, from the side menu
+    youtube_focus('search', [610])  # the results, from the side menu
+
+
+YOUTUBE_FOCUS_WAIT = 15  # seconds the YouTube add-on gets to fill a row
+YOUTUBE_EMPTY_GRACE = 2  # seconds before an empty row counts as empty, not yet loading
+
+
+def youtube_focus(section, ids):
+    """Focus the first of a section's rows (Skyline's YouTube page, control
+    ids in order) once the YouTube add-on has filled it. Kodi can't focus
+    an empty list, so a SetFocus as the section is chosen comes too soon;
+    a row that loads empty is passed over. Gives up when the page or its
+    section changes, or the user has moved on into the section."""
+    home = xbmcgui.Window(10000)
+    monitor = xbmc.Monitor()
+    for tick in range(YOUTUBE_FOCUS_WAIT * 10):
+        if monitor.abortRequested():
+            return
+        if (home.getProperty('silo.youtube.section') != section
+                or not xbmc.getCondVisibility('Window.IsActive(1198)')
+                or any(xbmc.getCondVisibility('Control.HasFocus(%d)' % i) for i in ids)):
+            return
+        for list_id in ids:
+            if xbmc.getCondVisibility('Integer.IsGreater(Container(%d).NumItems,0)' % list_id):
+                xbmc.executebuiltin('SetFocus(%d)' % list_id)
+                return
+            if (tick < YOUTUBE_EMPTY_GRACE * 10
+                    or xbmc.getCondVisibility('Container(%d).IsUpdating' % list_id)):
+                break  # this row may still come; the rows after it wait
+        monitor.waitForAbort(0.1)
 
 
 def youtube_back():

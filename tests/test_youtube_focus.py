@@ -78,6 +78,26 @@ def test_gives_up_when_the_section_changes(monkeypatch):
     assert page.focused is None
 
 
+def test_focuses_a_control_once_it_shows(monkeypatch):
+    page = FakePage({}, section='subscriptions')
+    run(monkeypatch, page)  # installs the fakes (it waits for the library section, not shown)
+    page.polls, page.focused = 0, None
+    plain = page.cond
+    monkeypatch.setattr(xbmc, 'getCondVisibility', lambda condition: (
+        page.polls >= 3 if condition == 'Control.IsVisible(401)' else plain(condition)))
+    context.youtube_focus('subscriptions', [], [401])
+    assert page.focused == 401
+    assert page.polls == 3
+
+
+def test_home_is_the_section_while_none_is_chosen(monkeypatch):
+    page = FakePage({301: (2, 15)}, section='')
+    run(monkeypatch, page)  # installs the fakes
+    page.polls, page.focused = 0, None
+    context.youtube_focus('home', [301])
+    assert page.focused == 301
+
+
 def test_gives_up_when_nothing_loads(monkeypatch):
     page = FakePage({511: None, 512: None, 513: None})
     run(monkeypatch, page)

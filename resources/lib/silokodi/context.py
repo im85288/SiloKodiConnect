@@ -49,43 +49,75 @@ YOUTUBE_SEARCH = ('plugin://plugin.video.youtube/kodion/search/query/'
                   '?q=%s&hide_folders=true&hide_next_page=true')
 
 
+YOUTUBE_HISTORY = 620  # Skyline's YouTube page: Search's history list
+YOUTUBE_RESULTS = 610  # and its results grid
+YOUTUBE_ROW_PARAMS = 'hide_folders=true&hide_next_page=true'
+
+
 def youtube_search():
-    """Skyline's YouTube page's search box: the keyboard, then the page shows
+    """Skyline's YouTube page's New search: the keyboard, then the page shows
     the YouTube add-on's results for it (Window(Home) silo.youtube.query, the
     words, and silo.youtube.search, their list's path). Kodi's own <content>
     can't URL-encode what's typed, so it's done here."""
     from urllib.parse import quote_plus
-    home = xbmcgui.Window(10000)
-    keyboard = xbmc.Keyboard(home.getProperty('silo.youtube.query'), kodi.string(30216))
+    keyboard = xbmc.Keyboard('', kodi.string(30216))
     keyboard.doModal()
     words = keyboard.getText().strip() if keyboard.isConfirmed() else ''
     if not words:
         return
+    _youtube_show_search(words, YOUTUBE_SEARCH % quote_plus(words))
+
+
+def youtube_pick():
+    """OK on Search's history list (the YouTube add-on's own): its New search
+    opens the keyboard; a past search shows its results."""
+    path = xbmc.getInfoLabel('Container(%d).ListItem.FolderPath' % YOUTUBE_HISTORY)
+    if '/search/query' not in path:
+        youtube_search()
+        return
+    words = xbmc.getInfoLabel('Container(%d).ListItem.Label' % YOUTUBE_HISTORY)
+    _youtube_show_search(words, '%s%s%s' % (path, '&' if '?' in path else '?', YOUTUBE_ROW_PARAMS))
+
+
+def _youtube_show_search(words, path):
+    import time
+    home = xbmcgui.Window(10000)
     home.setProperty('silo.youtube.query', words)
-    home.setProperty('silo.youtube.search', YOUTUBE_SEARCH % quote_plus(words))
+    home.setProperty('silo.youtube.search', path)
     home.setProperty('silo.youtube.section', 'search')
-    youtube_focus('search', [610])  # the results, from the side menu
+    youtube_focus('search', [YOUTUBE_RESULTS])
+    # The add-on saves a search in its history as it runs it (the results
+    # have loaded by now): a new token changes the history list's path, so
+    # Kodi reloads it.
+    home.setProperty('silo.youtube.history', str(int(time.time())))
 
 
 YOUTUBE_FOCUS_WAIT = 15  # seconds the YouTube add-on gets to fill a row
 YOUTUBE_EMPTY_GRACE = 2  # seconds before an empty row counts as empty, not yet loading
 
 
-def youtube_focus(section, ids):
+def youtube_focus(section, ids, controls=()):
     """Focus the first of a section's rows (Skyline's YouTube page, control
-    ids in order) once the YouTube add-on has filled it. Kodi can't focus
-    an empty list, so a SetFocus as the section is chosen comes too soon;
-    a row that loads empty is passed over. Gives up when the page or its
-    section changes, or the user has moved on into the section."""
+    ids in order) once the YouTube add-on has filled it, or a plain control
+    (controls) once it shows. Kodi can't focus an empty list or a control
+    not showing yet, and a SetFocus it can't do drops focus altogether, so
+    the page leaves it to this; a row that loads empty is passed over. Gives
+    up when the page or its section changes, or the user has moved on into
+    the section."""
     home = xbmcgui.Window(10000)
     monitor = xbmc.Monitor()
     for tick in range(YOUTUBE_FOCUS_WAIT * 10):
         if monitor.abortRequested():
             return
-        if (home.getProperty('silo.youtube.section') != section
+        # Home's section is empty as the page opens.
+        if ((home.getProperty('silo.youtube.section') or 'home') != section
                 or not xbmc.getCondVisibility('Window.IsActive(1198)')
-                or any(xbmc.getCondVisibility('Control.HasFocus(%d)' % i) for i in ids)):
+                or any(xbmc.getCondVisibility('Control.HasFocus(%d)' % i) for i in list(ids) + list(controls))):
             return
+        for control in controls:
+            if xbmc.getCondVisibility('Control.IsVisible(%d)' % control):
+                xbmc.executebuiltin('SetFocus(%d)' % control)
+                return
         for list_id in ids:
             if xbmc.getCondVisibility('Integer.IsGreater(Container(%d).NumItems,0)' % list_id):
                 xbmc.executebuiltin('SetFocus(%d)' % list_id)
@@ -97,17 +129,21 @@ def youtube_focus(section, ids):
 
 
 def youtube_back():
-    """Back on Skyline's YouTube page (zz_skyline_home.xml): a search's
-    results close, and the page's Home shows again (its first row focused,
-    as the app's); otherwise Back as usual. A keymap has no conditions, and
-    the page's own controls never see this Back, so it's done here."""
+    """Back on Skyline's YouTube page (zz_skyline_home.xml): from Search's
+    results to its history, and from the history to the page's Home (its
+    first row focused, as the app's); otherwise Back as usual. A keymap has
+    no conditions, and the page's own controls never see this Back, so it's
+    done here."""
     home = xbmcgui.Window(10000)
     if xbmc.getCondVisibility('Control.HasFocus(100)'):
         # The page's side menu: closed, back to its section (the menu's Right).
         xbmc.executebuiltin('Action(Right)')
         return
-    if not home.getProperty('silo.youtube.query'):
+    if home.getProperty('silo.youtube.section') != 'search':
         xbmc.executebuiltin('Action(Back)')
+        return
+    if xbmc.getCondVisibility('Control.HasFocus(%d)' % YOUTUBE_RESULTS):
+        xbmc.executebuiltin('SetFocus(%d)' % YOUTUBE_HISTORY)
         return
     for key in ('search', 'section', 'query'):
         home.clearProperty('silo.youtube.' + key)

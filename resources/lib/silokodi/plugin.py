@@ -63,11 +63,16 @@ def run(argv):
         # Skyline's YouTube page's search box.
         from .context import youtube_search
         return youtube_search()
+    if mode == 'youtubepick':
+        # Skyline's YouTube page: OK on Search's history list.
+        from .context import youtube_pick
+        return youtube_pick()
     if mode == 'youtubefocus':
         # Skyline's YouTube page: a section's first row once it has loaded.
         from .context import youtube_focus
         ids = [int(i) for i in params.get('ids', '').split(',') if i.isdigit()]
-        return youtube_focus(params.get('section', ''), ids)
+        controls = [int(i) for i in params.get('controls', '').split(',') if i.isdigit()]
+        return youtube_focus(params.get('section', ''), ids, controls)
     if mode == 'youtubemenu':
         # Skyline's YouTube page's context menu key (zz_skyline_home.xml).
         from .context import youtube_menu

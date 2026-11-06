@@ -186,7 +186,7 @@ Android, in the `python:3.8` image), 3.11 (Kodi 21) and 3.14. Kodi's embedded Py
 
 ## Changes
 
-### v0.13.0 (unreleased)
+### v0.13.0 (2026-11-06)
 - **Renamed:** SiloKodiConnect is now KodiConnectForSilo (`plugin.video.kodiconnectforsilo`), following
   [Silo's naming policy](https://github.com/Silo-Server/siloserver.org/blob/main/TRADEMARK.md). Kodi installs it
   as a new add-on. On its first start it turns the old one off, copies its sign-in, settings and sync records,
@@ -195,6 +195,8 @@ Android, in the `python:3.8` image), 3.11 (Kodi 21) and 3.14. Kodi's embedded Py
 - **Syncing again:** Silo took its list of box sets out of its API on 3 November, which stopped each sync
   after Movies, before TV. Box sets are now found through their films, a few hundred films per sync, and a box
   set problem can no longer stop a sync.
+- **Skyline's YouTube page:** Search lists your past searches and Back steps through them, and a section's
+  first row takes focus once it has loaded.
 
 ### v0.12.3 (2026-11-03)
 - **Skyline's YouTube page:** its search box opens the keyboard and the page shows the YouTube add-on's

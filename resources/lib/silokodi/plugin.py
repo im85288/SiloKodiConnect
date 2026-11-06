@@ -73,6 +73,10 @@ def run(argv):
         ids = [int(i) for i in params.get('ids', '').split(',') if i.isdigit()]
         controls = [int(i) for i in params.get('controls', '').split(',') if i.isdigit()]
         return youtube_focus(params.get('section', ''), ids, controls)
+    if mode == 'personmenu':
+        # Skyline's person page's context menu key (zz_skyline_home.xml).
+        from .context import person_menu
+        return person_menu()
     if mode == 'youtubemenu':
         # Skyline's YouTube page's context menu key (zz_skyline_home.xml).
         from .context import youtube_menu
@@ -113,6 +117,8 @@ def run(argv):
         return toggle_watchlist(params.get('id') or '', params.get('add') == '1')
     if mode == 'sections':
         return sections(base, handle, params.get('type'))
+    if mode == 'widget' and params.get('type') == 'missing':
+        return person_missing(base, handle, params.get('tmdb'))
     if mode == 'widget':
         return widget(handle, params.get('section') or 'continue_watching', params.get('library'),
                       params.get('collection'), params.get('title'), raw_tail(argv, 'exclude_show'),
@@ -397,10 +403,20 @@ def person_page(content_id, name):
         kodi.notify('No details for %s' % name if answer['error'] == 'not found' else answer['error'])
         return
     home = xbmcgui.Window(10000)
-    for key in ('id', 'name', 'bio', 'born', 'age', 'died', 'place', 'photo'):
+    for key in ('id', 'tmdb', 'name', 'bio', 'born', 'age', 'died', 'place', 'photo'):
         home.setProperty('silo.person.%s' % key, answer.get(key) or '')
     home.setProperty('silo.person.type', '')  # All
     xbmc.executebuiltin('ActivateWindow(1195)')
+
+
+def person_missing(base, handle, tmdb_id):
+    """The person page's Not on server: titles to request (credits.py)."""
+    from . import credits
+    for card in credits.missing(tmdb_id):
+        url = '%s?%s' % (base, urlencode({'mode': 'request', 'type': card['type'], 'tmdb': card['tmdb']}))
+        xbmcplugin.addDirectoryItem(handle, url, request_listitem(card), isFolder=False)
+    xbmcplugin.setContent(handle, 'videos')
+    xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
 
 
 def raw_tail(argv, key):

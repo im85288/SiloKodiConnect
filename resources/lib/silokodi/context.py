@@ -45,6 +45,26 @@ def youtube_menu():
         xbmc.executebuiltin('PlayMedia(%s%sask_for_quality=true)' % (path, '&' if '?' in path else '?'))
 
 
+PERSON_GRID = 5301  # Skyline's person page's titles
+
+
+def person_menu():
+    """Skyline's person page's context menu key: a title Not on server offers
+    Request (which still asks first) or its Details, as OK opens; anything else
+    gets Kodi's own menu."""
+    item = 'Container(%d).ListItem.Property(silo.request.%%s)' % PERSON_GRID
+    tmdb = xbmc.getInfoLabel(item % 'tmdb')
+    if not tmdb or not xbmc.getCondVisibility('Control.HasFocus(%d)' % PERSON_GRID):
+        xbmc.executebuiltin('Action(ContextMenu)')
+        return
+    choice = xbmcgui.Dialog().contextmenu([kodi.string(30219), kodi.string(30220)])
+    if choice == 0:
+        xbmc.executebuiltin('RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=request&type=%s&tmdb=%s)'
+                            % (xbmc.getInfoLabel(item % 'type'), tmdb))
+    elif choice == 1:
+        xbmc.executebuiltin('Action(Select)')
+
+
 YOUTUBE_SEARCH = ('plugin://plugin.video.youtube/kodion/search/query/'
                   '?q=%s&hide_folders=true&hide_next_page=true')
 

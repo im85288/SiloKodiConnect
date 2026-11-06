@@ -483,3 +483,11 @@ msgstr ""
 msgctxt "#30218"
 msgid "Library sync keeps failing, so new titles may be missing: %s"
 msgstr ""
+
+msgctxt "#30219"
+msgid "Request"
+msgstr ""
+
+msgctxt "#30220"
+msgid "Details"
+msgstr ""

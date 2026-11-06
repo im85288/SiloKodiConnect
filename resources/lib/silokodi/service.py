@@ -943,7 +943,7 @@ class Service(object):
         facts = mapping.person_facts(person)
         photo = person.get('photo_url') or ''
         # Silo signs the photo link but gives it relative to the server.
-        facts.update(id=str(person_id), photo=self.client.server_url.rstrip('/') + photo if photo.startswith('/') else photo)
+        facts.update(id=str(person_id), tmdb=str(person.get('tmdb_id') or ''), photo=self.client.server_url.rstrip('/') + photo if photo.startswith('/') else photo)
         return facts
 
     def person_items(self, person_id, kind=None):

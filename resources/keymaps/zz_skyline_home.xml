@@ -7,7 +7,8 @@
        Kodi has no context menu for it.
      And on Skyline's YouTube page (custom window 1198, which Kodi numbers
      11198): Play, or Play choosing the video's quality; and Back closes a
-     search's results (else Back as usual). -->
+     search's results (else Back as usual). And on its person page (1195,
+     11195): a title Not on server offers Request. -->
 <keymap>
   <home>
     <keyboard>
@@ -51,4 +52,28 @@
       <title>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=youtubemenu)</title>
     </remote>
   </window1198>
+  <window11195>
+    <keyboard>
+      <c>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=personmenu)</c>
+      <menu>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=personmenu)</menu>
+      <return mod="longpress">RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=personmenu)</return>
+      <enter mod="longpress">RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=personmenu)</enter>
+    </keyboard>
+    <remote>
+      <menu>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=personmenu)</menu>
+      <title>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=personmenu)</title>
+    </remote>
+  </window11195>
+  <window1195>
+    <keyboard>
+      <c>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=personmenu)</c>
+      <menu>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=personmenu)</menu>
+      <return mod="longpress">RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=personmenu)</return>
+      <enter mod="longpress">RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=personmenu)</enter>
+    </keyboard>
+    <remote>
+      <menu>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=personmenu)</menu>
+      <title>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=personmenu)</title>
+    </remote>
+  </window1195>
 </keymap>

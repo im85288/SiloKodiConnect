@@ -67,16 +67,26 @@ class SyncDB(object):
 
     @contextmanager
     def batch(self):
-        """Writes inside commit together when it ends (nested batches, once)."""
+        """Writes inside commit together when it ends (nested batches, once).
+        If it ends in an error they're undone, as Kodi's database undoes its
+        half of a sync's batch: rows kept for titles Kodi no longer has would
+        hand their Kodi ids to the next titles, which then overwrite each other."""
         with self._lock:
             self._batching += 1
+        failed = False
         try:
             yield self
+        except BaseException:
+            failed = True
+            raise
         finally:
             with self._lock:
                 self._batching -= 1
                 if not self._batching:
-                    self._conn.commit()
+                    if failed:
+                        self._conn.rollback()
+                    else:
+                        self._conn.commit()
 
     def close(self):
         with self._lock:
@@ -165,6 +175,10 @@ class SyncDB(object):
             self._commit()
         return [kind for kind, url in urls.items()
                 if before.get(kind) and unsigned(before[kind]) != unsigned(url)]
+
+    def forget_kodi_row(self, content_id):
+        """A title with no Kodi row of its own: the next sync writes it, with a new one."""
+        self._write('UPDATE items SET kodi_id = NULL, fingerprint = NULL WHERE content_id = ?', (content_id,))
 
     def forget_titles(self):
         """Clear films' and shows' fingerprints (not episodes'), so the next

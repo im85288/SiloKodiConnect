@@ -186,6 +186,11 @@ Android, in the `python:3.8` image), 3.11 (Kodi 21) and 3.14. Kodi's embedded Py
 
 ## Changes
 
+### Unreleased
+- **Missing films:** a sync that failed part way could leave records of films Kodi no longer had, and later
+  films then overwrote each other's library rows. That can't happen now, and each sync restores any film it
+  affected.
+
 ### v0.13.0 (2026-11-06)
 - **Renamed:** SiloKodiConnect is now KodiConnectForSilo (`plugin.video.kodiconnectforsilo`), following
   [Silo's naming policy](https://github.com/Silo-Server/siloserver.org/blob/main/TRADEMARK.md). Kodi installs it

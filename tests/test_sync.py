@@ -858,6 +858,36 @@ def test_a_films_home_card_has_its_info_line_in_parts():
     assert (film['rating.imdb'], film['rating.tmdb']) == ('8.3', '7.9')
 
 
+def test_a_failed_batch_leaves_no_records_kodi_has_undone(silo, syncer, query):
+    with pytest.raises(RuntimeError):
+        with syncer.writing() as kodi:
+            syncer.write_movie(kodi, silo.movies['movie-1'], {'id': '1', 'name': 'Movies'})
+            raise RuntimeError('killed part way')
+    assert query('SELECT COUNT(*) FROM movie') == [(0,)]
+    assert syncer.db.get('movie-1') is None
+
+
+def test_films_sharing_a_kodi_row_get_their_own_again(silo, syncer, query, open_kodi):
+    syncer.sync()
+    heat, thief = syncer.db.get('movie-1'), syncer.db.get('movie-2')
+    with open_kodi() as kodi:  # Thief's row was overwritten by Heat's, as a failed batch used to cause
+        kodi.cursor.execute('DELETE FROM movie WHERE idMovie = ?', (thief['kodi_id'],))
+    syncer.db.put(**dict(thief, kodi_id=heat['kodi_id']))
+    logged = []
+    syncer.log = logged.append
+    silo.calls = []
+    assert syncer.sync() is True
+    assert sorted(r[0] for r in query('SELECT c00 FROM movie')) == ['Heat', 'Thief']
+    assert len(query('SELECT DISTINCT idFile FROM movie')) == 2
+    assert syncer.db.get('movie-1')['kodi_id'] == heat['kodi_id']  # the film that kept the row is untouched
+    assert syncer.db.get('movie-2')['kodi_id'] != heat['kodi_id']
+    assert ('item', 'movie-1') not in silo.calls
+    assert any('Thief' in line for line in logged)
+    silo.calls = []
+    syncer.sync()  # repaired: nothing left to do
+    assert ('item', 'movie-2') not in silo.calls
+
+
 def test_writes_inside_a_batch_commit_together(tmp_path):
     import sqlite3
     db = SyncDB(str(tmp_path))

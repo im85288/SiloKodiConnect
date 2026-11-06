@@ -258,6 +258,8 @@ class Syncer(object):
         self.household = False
         # (content id, fingerprint) of rows saved with the old fingerprint.
         self.upgraded = []
+        # Films this sync is writing again because their Kodi row was lost.
+        self.repairing = set()
         # Local art addresses whose image changed in Silo (see _save_art).
         self.art_changed = set()
         # {content id: Silo's ambient tint}, from the cards each sync lists.
@@ -396,6 +398,7 @@ class Syncer(object):
 
     def sync_movies(self, library):
         library_id = str(library['id'])
+        self._repair_movies(library_id)
         # Read a page at a time and keep only ids and fingerprints: on a 2 GB
         # SHIELD every MB the sync holds is one Kodi lacks when a film starts.
         seen, fetch, states = set(), [], []
@@ -429,6 +432,21 @@ class Syncer(object):
             with self.writing() as kodi:
                 for row in batch:
                     self._remove_movie(kodi, row)
+
+    def _repair_movies(self, library_id):
+        """Films Kodi has no row for, though this add-on's records say it has:
+        forgotten, so this sync writes them again with a row of their own. A
+        batch that failed used to leave such records (SyncDB.batch), and the
+        next films then took the same Kodi ids and overwrote them."""
+        rows = self.db.items('movie', library_id)
+        with self.open_kodi() as kodi:
+            kodi.cursor.execute('SELECT idMovie, idFile FROM movie')
+            files = dict(kodi.cursor.fetchall())
+        for row in rows:
+            if row['kodi_id'] is not None and files.get(row['kodi_id']) != row['kodi_file_id']:
+                self.log('Repairing %s: Kodi row %s holds another title' % (row['content_id'], row['kodi_id']))
+                self.db.forget_kodi_row(row['content_id'])
+                self.repairing.add(row['content_id'])
 
     def write_movie(self, kodi, item, library, fingerprint=None):
         content_id = item['content_id']
@@ -467,6 +485,9 @@ class Syncer(object):
         self._save_person_art(item)
         self.changed = True
         self.touched.add(('movie', kodi_id))
+        if content_id in self.repairing:
+            self.repairing.discard(content_id)
+            self.log('Repaired %s: %s is back in Kodi as row %s' % (content_id, fields['title'], kodi_id))
 
     def _remove_movie(self, kodi, row):
         if row.get('kodi_id'):

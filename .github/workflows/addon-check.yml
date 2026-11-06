@@ -12,10 +12,10 @@ jobs:
         kodi-branch: [nexus, omega]
     steps:
     # The checker wants the folder named after the add-on id.
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
       with:
         path: plugin.video.kodiconnectforsilo
-    - uses: actions/setup-python@v5
+    - uses: actions/setup-python@v7
       with:
         python-version: '3.12'
     - name: Install kodi-addon-checker

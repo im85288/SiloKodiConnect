@@ -12,8 +12,8 @@ jobs:
         # 3.11 is Kodi 21.
         python-version: ['3.11', '3.14']
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-python@v5
+    - uses: actions/checkout@v7
+    - uses: actions/setup-python@v7
       with:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     container: python:3.8  # with git: checkout needs it in a container
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     - name: Install dependencies
       run: pip install -r requirements-dev.txt
     - name: Lint

@@ -186,7 +186,9 @@ Android, in the `python:3.8` image), 3.11 (Kodi 21) and 3.14. Kodi's embedded Py
 
 ## Changes
 
-### Unreleased
+### v0.13.1 (2026-11-06)
+- **Sync problems show:** when syncs keep failing because of something Silo or the add-on did, Kodi now says so,
+  at most once a day, rather than only writing it to the log.
 - **Missing films:** a sync that failed part way could leave records of films Kodi no longer had, and later
   films then overwrote each other's library rows. That can't happen now, and each sync restores any film it
   affected.

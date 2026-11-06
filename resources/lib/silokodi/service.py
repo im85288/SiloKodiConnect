@@ -96,6 +96,26 @@ BRAND_ROWS = {'studios': 'studio', 'networks': 'network', 'genres': 'genre'}
 BRAND_PICTURE_FOR = 24 * 3600
 
 
+SYNC_FAILURES_BEFORE_NOTICE = 3
+SYNC_NOTICE_EVERY = 24 * 3600  # seconds
+
+
+def sync_failure_notice(state, error, now):
+    """(new state, whether to tell the user) after a sync failed. A failure
+    Silo or the add-on is the cause of counts: an answer Silo refuses, a crash.
+    Silo or the network being down doesn't: that passes by itself, and isn't
+    worth a message on a TV each time."""
+    state = dict(state or {})
+    status = getattr(error, 'status', None)
+    if isinstance(error, requests.RequestException) or (status is not None and not 400 <= status < 500):
+        return state, False
+    state['count'] = state.get('count', 0) + 1
+    if state['count'] < SYNC_FAILURES_BEFORE_NOTICE or now - state.get('told', 0) < SYNC_NOTICE_EVERY:
+        return state, False
+    state['told'] = now
+    return state, True
+
+
 class Player(xbmc.Player):
     def __init__(self, service):
         xbmc.Player.__init__(self)
@@ -483,8 +503,10 @@ class Service(object):
                 self.signed_out()
             except (ApiError, requests.RequestException) as error:
                 kodi.log_warning('Task %s failed: %s' % (task, error))
+                self.sync_failed(task, error)
             except Exception as error:
                 kodi.log_error('Task %s crashed: %s' % (task, error))
+                self.sync_failed(task, error)
             if kind_of(task) in ('sync', 'fullsync', 'library'):
                 release_memory()
             if self.tasks.empty() and self.syncer.art_changed:
@@ -645,6 +667,18 @@ class Service(object):
         if first:
             self.db.set_meta('first_sync_done', True)
             kodi.notify(kodi.string(30141))
+        if self.db.meta('sync_failures'):
+            self.db.set_meta('sync_failures', None)
+
+    def sync_failed(self, task, error):
+        """Syncs that keep failing only show in Kodi's log, and the library
+        quietly goes out of date: say so (see sync_failure_notice)."""
+        if kind_of(task) not in ('sync', 'fullsync'):
+            return
+        state, notify = sync_failure_notice(self.db.meta('sync_failures'), error, time.time())
+        self.db.set_meta('sync_failures', state)
+        if notify:
+            kodi.notify(kodi.string(30218) % str(error)[:80], time=15000)
 
     def publish_library_facts(self):
         """A Silo-style skin's facts line: what the library holds."""

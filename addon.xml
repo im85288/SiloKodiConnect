@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="plugin.video.kodiconnectforsilo" name="KodiConnectForSilo" version="0.13.0" provider-name="im85288">
+<addon id="plugin.video.kodiconnectforsilo" name="KodiConnectForSilo" version="0.13.1" provider-name="im85288">
   <requires>
     <import addon="xbmc.python" version="3.0.1"/>
     <import addon="script.module.requests" version="2.22.0"/>
@@ -33,7 +33,9 @@
     <assets>
       <icon>icon.png</icon>
     </assets>
-    <news>0.13.0: SiloKodiConnect is now KodiConnectForSilo, to follow Silo's naming policy. Your sign-in, settings and library move across by themselves; you can then uninstall the old add-on. Syncing works again with Silo's latest version, which had stopped each sync after Movies.
+    <news>0.13.1: restores films that had lost their library row to another film, and stops that happening. Kodi now says when syncs keep failing.
+
+0.13.0: SiloKodiConnect is now KodiConnectForSilo, to follow Silo's naming policy. Your sign-in, settings and library move across by themselves; you can then uninstall the old add-on. Syncing works again with Silo's latest version, which had stopped each sync after Movies.
 
 0.12.3: for Skyline's YouTube page: search from its box, Back closes the results, and the menu key offers Play or Play choosing the video's quality.
 

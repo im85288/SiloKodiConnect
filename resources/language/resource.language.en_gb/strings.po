@@ -479,3 +479,7 @@ msgstr ""
 msgctxt "#30217"
 msgid "Moved from SiloKodiConnect. You can uninstall the old add-on."
 msgstr ""
+
+msgctxt "#30218"
+msgid "Library sync keeps failing, so new titles may be missing: %s"
+msgstr ""

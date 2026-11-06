@@ -1,4 +1,4 @@
-"""Draw SiloKodiConnect's 512x512 icon in the Skyline skin's look: Skyline's
+"""Draw KodiConnectForSilo's 512x512 icon in the Skyline skin's look: Skyline's
 dark splash, its purple-to-pink disc, and the add-on's own silo with a play
 symbol in place of the skyline, over the name "Connect".
 

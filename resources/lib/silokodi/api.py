@@ -11,7 +11,7 @@ import time
 import requests
 
 API_PREFIX = '/api/v2'
-CLIENT_NAME = 'SiloKodiConnect'
+CLIENT_NAME = 'KodiConnectForSilo'
 TIMEOUT = 30
 # Smaller pages keep the sync's peak memory down on 2 GB devices.
 PAGE_SIZE = 100

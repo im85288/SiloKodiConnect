@@ -14,7 +14,7 @@ jobs:
     # The checker wants the folder named after the add-on id.
     - uses: actions/checkout@v4
       with:
-        path: plugin.video.silokodiconnect
+        path: plugin.video.kodiconnectforsilo
     - uses: actions/setup-python@v5
       with:
         python-version: '3.12'
@@ -22,6 +22,6 @@ jobs:
       run: pip install kodi-addon-checker
     - name: Remove files not shipped in the add-on
       run: awk '/export-ignore/ { print $1 }' .gitattributes | xargs rm -rf --
-      working-directory: plugin.video.silokodiconnect
+      working-directory: plugin.video.kodiconnectforsilo
     - name: Run kodi-addon-checker
-      run: kodi-addon-checker --branch=${{ matrix.kodi-branch }} plugin.video.silokodiconnect/
+      run: kodi-addon-checker --branch=${{ matrix.kodi-branch }} plugin.video.kodiconnectforsilo/

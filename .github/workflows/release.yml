@@ -34,7 +34,7 @@ jobs:
         [ "v$version" = "$TAG" ] || { echo "addon.xml says $version, the tag is $TAG"; exit 1; }
     - name: Build the zip
       working-directory: release
-      run: git archive --prefix=plugin.video.silokodiconnect/ -o "../plugin.video.silokodiconnect-${TAG#v}.zip" "$TAG"
+      run: git archive --prefix=plugin.video.kodiconnectforsilo/ -o "../plugin.video.kodiconnectforsilo-${TAG#v}.zip" "$TAG"
     - name: Notes
       working-directory: release
       run: python3 ../.github/release_notes.py "${TAG#v}" > ../notes.md
@@ -42,9 +42,9 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
-        zip="plugin.video.silokodiconnect-${TAG#v}.zip"
+        zip="plugin.video.kodiconnectforsilo-${TAG#v}.zip"
         if gh release view "$TAG" >/dev/null 2>&1; then
           gh release upload "$TAG" "$zip" --clobber
         else
-          gh release create "$TAG" "$zip" --title "SiloKodiConnect ${TAG#v}" --notes-file notes.md --latest
+          gh release create "$TAG" "$zip" --title "KodiConnectForSilo ${TAG#v}" --notes-file notes.md --latest
         fi

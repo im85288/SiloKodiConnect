@@ -11,5 +11,5 @@ found = re.search(r'^### v%s\b.*?\n(.*?)(?=^### |^## |\Z)' % re.escape(version),
 if not found:
     sys.exit('README.md has no "### v%s" section' % version)
 print(found.group(1).strip())
-print('\n**Install:** download `plugin.video.silokodiconnect-%s.zip` below and use Kodi\'s *Add-ons → Install from '
+print('\n**Install:** download `plugin.video.kodiconnectforsilo-%s.zip` below and use Kodi\'s *Add-ons → Install from '
       'zip file* (installs over earlier versions). Requires Kodi 20 or newer.' % version)

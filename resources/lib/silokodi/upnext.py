@@ -10,7 +10,7 @@ and watched state stay linked.
 import base64
 import json
 
-ADDON_ID = 'plugin.video.silokodiconnect'
+ADDON_ID = 'plugin.video.kodiconnectforsilo'
 SENDER = ADDON_ID + '.SIGNAL'
 PLAY_ACTION = ADDON_ID + '_play_action'
 # What Up Next shows in its popup.

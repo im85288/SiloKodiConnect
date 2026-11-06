@@ -377,7 +377,7 @@ def test_skin_layout_follows_silo_home_and_libraries():
     assert layout['silo.pages'] == 'home,movies,series'
     assert layout['silo.home.count'] == '2'
     assert layout['silo.home.1.style'] == 'landscape' and layout['silo.home.2.style'] == 'poster'
-    assert layout['silo.home.2.path'] == 'plugin://plugin.video.silokodiconnect/?mode=widget&section=abc%201'
+    assert layout['silo.home.2.path'] == 'plugin://plugin.video.kodiconnectforsilo/?mode=widget&section=abc%201'
     # Recently Added is a row Kodi's library can list in Silo's order: native.
     assert layout['silo.movies.1.path'] == sync_module.native_path(
         {'section_type': 'recently_added'}, libraries[0])
@@ -452,7 +452,7 @@ def test_skin_layout_links_each_page_to_its_collections():
     from resources.lib.silokodi.sync import skin_layout
     props = skin_layout([], [{'id': 1, 'type': 'movies'}, {'id': 4, 'type': 'movies'}], {})
     assert props['silo.movies.collections'] == \
-        'plugin://plugin.video.silokodiconnect/?mode=collections&libraries=1%2C4'
+        'plugin://plugin.video.kodiconnectforsilo/?mode=collections&libraries=1%2C4'
     assert props['silo.series.collections'] == ''
 
 
@@ -521,7 +521,7 @@ def test_skin_layout_adds_a_requests_page_when_the_profile_can_request():
                                      ('trending_movies', 'Trending Movies')])
     assert props['silo.pages'] == 'home,requests' and props['silo.requests.count'] == '2'
     assert props['silo.requests.2.title'] == 'Trending Movies'
-    assert props['silo.requests.2.path'] == 'plugin://plugin.video.silokodiconnect/?mode=requests&row=trending_movies'
+    assert props['silo.requests.2.path'] == 'plugin://plugin.video.kodiconnectforsilo/?mode=requests&row=trending_movies'
     # Which pill shows the row: Yours, or Discover (none).
     assert props['silo.requests.1.section'] == 'yours' and props['silo.requests.2.section'] == ''
     assert 'requests' not in skin_layout([], [], {})['silo.pages']

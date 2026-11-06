@@ -12,7 +12,7 @@ import xbmcaddon
 import xbmcgui
 import xbmcvfs
 
-ADDON_ID = 'plugin.video.silokodiconnect'
+ADDON_ID = 'plugin.video.kodiconnectforsilo'
 HOME = xbmcgui.Window(10000)
 
 
@@ -76,7 +76,7 @@ def log_error(message):
     log(message, xbmc.LOGERROR)
 
 
-def notify(message, heading='SiloKodiConnect', time=5000):
+def notify(message, heading='KodiConnectForSilo', time=5000):
     xbmcgui.Dialog().notification(heading, message, addon().getAddonInfo('icon'), time)
 
 

@@ -63,7 +63,7 @@ def newest_unwatched_aired(tvshowid, details):
 
 class DetailsCache(object):
     """details_of, remembered until Kodi reports the title changed (forget)
-    or SiloKodiConnect writes the library (clear)."""
+    or KodiConnectForSilo writes the library (clear)."""
 
     VERSION = 3  # 2: shows carry ratings; 3: and their newest unwatched episode's air date
 

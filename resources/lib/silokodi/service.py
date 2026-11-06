@@ -16,7 +16,7 @@ import requests
 import xbmc
 import xbmcgui
 
-from . import catchup, jump, kodi, kodidb, mapping, quick, tracks, upnext, keymap
+from . import catchup, jump, kodi, kodidb, mapping, migrate, quick, tracks, upnext, keymap
 from . import commands, playersubs, theme
 from .theme import ThemePlayer
 from .api import ApiError, SignedOut, SiloClient
@@ -146,7 +146,7 @@ class Player(xbmc.Player):
         if trailer_from:
             kodi.clear_property('trailer_return')
             kind, _, dbid = trailer_from.partition('|')
-            xbmc.executebuiltin('RunPlugin(plugin://plugin.video.silokodiconnect/?mode=info&type=%s&dbid=%s)'
+            xbmc.executebuiltin('RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=info&type=%s&dbid=%s)'
                                 % (kind, dbid))
             timer = threading.Timer(TRAILER_COVER_MAX, kodi.clear_property, ['trailer_playing'])
             timer.daemon = True
@@ -304,7 +304,7 @@ class Service(object):
     # ----- main loop -----
 
     def run(self):
-        kodi.log('Starting SiloKodiConnect %s' % self.version)
+        kodi.log('Starting KodiConnectForSilo %s' % self.version)
         kodi.set_property('relay_token', self.relay.token)  # the plugin's key to /play and /command
         try:
             self.relay.start()
@@ -330,7 +330,7 @@ class Service(object):
                 self.tick(ticks)
             except Exception as error:  # one bad second must not end the service
                 self.tick_failed(error)
-        kodi.log('Stopping SiloKodiConnect')
+        kodi.log('Stopping KodiConnectForSilo')
         self.save_details()
         self.playback.on_stopped(self.player.last_time)
         self.stop_listener()
@@ -595,7 +595,7 @@ class Service(object):
         if trailer_from:
             kodi.clear_property('trailer_return')
             kind, _, dbid = trailer_from.partition('|')
-            xbmc.executebuiltin('RunPlugin(plugin://plugin.video.silokodiconnect/?mode=info&type=%s&dbid=%s)'
+            xbmc.executebuiltin('RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=info&type=%s&dbid=%s)'
                                 % (kind, dbid))
         timer = threading.Timer(TRAILER_COVER_MAX, kodi.clear_property, ['trailer_playing'])
         timer.daemon = True
@@ -628,7 +628,7 @@ class Service(object):
         show = show or first or kodi.setting_bool('show_sync_progress')
         if show:
             self.progress_dialog = xbmcgui.DialogProgressBG()
-            self.progress_dialog.create('SiloKodiConnect', kodi.string(30140))
+            self.progress_dialog.create('KodiConnectForSilo', kodi.string(30140))
         started = time.time()
         # The skin's rows first: they only need Silo, not the sync.
         self.publish_layout_safely()
@@ -654,7 +654,7 @@ class Service(object):
 
     def sync_progress(self, percent, message):
         if self.progress_dialog:
-            self.progress_dialog.update(percent, 'SiloKodiConnect', message)
+            self.progress_dialog.update(percent, 'KodiConnectForSilo', message)
 
     def poll_progress(self):
         """Resume points set by other Silo apps, newest first, since the last check."""
@@ -1068,7 +1068,7 @@ class Service(object):
                 # A row's path is empty until its page is viewed, so Kodi
                 # waits instead of failing (a list that failed to load never
                 # retries), and carries the refresh token so rows reload when
-                # SiloKodiConnect writes the library.
+                # KodiConnectForSilo writes the library.
                 value = '%s&refresh=%s' % (value, self.refresh_token) \
                     if value and row_page in self.viewed_pages else ''
             if value.startswith('videodb://') and not self.native_has_items(value.split('&refresh=')[0]):
@@ -1416,4 +1416,5 @@ class Service(object):
 
 
 def run():
+    migrate.run()  # before anything reads the add-on's data
     Service().run()

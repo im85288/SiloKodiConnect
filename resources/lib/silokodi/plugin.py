@@ -45,7 +45,7 @@ def ask_service(path, timeout=75, **query):
         with urlopen(url, timeout=timeout) as response:
             return json.loads(response.read().decode('utf-8'))
     except Exception as error:
-        kodi.log_error('SiloKodiConnect service did not answer: %s' % error)
+        kodi.log_error('KodiConnectForSilo service did not answer: %s' % error)
         return {'error': kodi.string(30120)}
 
 
@@ -205,13 +205,13 @@ def switch_profile():
 
 
 def sign_out():
-    if not xbmcgui.Dialog().yesno('SiloKodiConnect', kodi.string(30108)):
+    if not xbmcgui.Dialog().yesno('KodiConnectForSilo', kodi.string(30108)):
         return
     ask_service('command/signout', timeout=20)
 
 
 def command(name):
-    if name == 'reset' and not xbmcgui.Dialog().yesno('SiloKodiConnect', kodi.string(30109)):
+    if name == 'reset' and not xbmcgui.Dialog().yesno('KodiConnectForSilo', kodi.string(30109)):
         return
     if name == 'libraries':
         return choose_libraries()
@@ -721,7 +721,7 @@ def info(kind, dbid):
         content_id = mapping.content_id_from_path(url)
         if not content_id and kind == 'tvshow':
             # A show opens from its library path (videodb://), which has no
-            # Silo id; its folder in Kodi (SiloKodiConnect's) has.
+            # Silo id; its folder in Kodi (KodiConnectForSilo's) has.
             show = (kodi.jsonrpc('VideoLibrary.GetTVShowDetails', tvshowid=int(dbid), properties=['file'])
                     or {}).get('tvshowdetails') or {}
             content_id = mapping.content_id_from_path(show.get('file') or '')

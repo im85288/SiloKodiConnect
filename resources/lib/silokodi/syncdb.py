@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""SiloKodiConnect's own bookkeeping: which Silo item became which Kodi row,
+"""KodiConnectForSilo's own bookkeeping: which Silo item became which Kodi row,
 what each looked like when last written, and the current artwork URLs."""
 import json
 import os

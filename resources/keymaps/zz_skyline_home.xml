@@ -11,44 +11,44 @@
 <keymap>
   <home>
     <keyboard>
-      <c>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=homemenu)</c>
-      <menu>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=homemenu)</menu>
-      <return mod="longpress">RunPlugin(plugin://plugin.video.silokodiconnect/?mode=homemenu)</return>
-      <enter mod="longpress">RunPlugin(plugin://plugin.video.silokodiconnect/?mode=homemenu)</enter>
+      <c>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=homemenu)</c>
+      <menu>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=homemenu)</menu>
+      <return mod="longpress">RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=homemenu)</return>
+      <enter mod="longpress">RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=homemenu)</enter>
     </keyboard>
     <remote>
-      <menu>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=homemenu)</menu>
-      <title>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=homemenu)</title>
+      <menu>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=homemenu)</menu>
+      <title>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=homemenu)</title>
     </remote>
   </home>
   <window11198>
     <keyboard>
-      <backspace>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubeback)</backspace>
-      <browser_back>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubeback)</browser_back>
-      <c>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</c>
-      <menu>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</menu>
-      <return mod="longpress">RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</return>
-      <enter mod="longpress">RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</enter>
+      <backspace>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=youtubeback)</backspace>
+      <browser_back>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=youtubeback)</browser_back>
+      <c>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=youtubemenu)</c>
+      <menu>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=youtubemenu)</menu>
+      <return mod="longpress">RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=youtubemenu)</return>
+      <enter mod="longpress">RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=youtubemenu)</enter>
     </keyboard>
     <remote>
-      <back>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubeback)</back>
-      <menu>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</menu>
-      <title>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</title>
+      <back>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=youtubeback)</back>
+      <menu>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=youtubemenu)</menu>
+      <title>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=youtubemenu)</title>
     </remote>
   </window11198>
   <window1198>
     <keyboard>
-      <backspace>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubeback)</backspace>
-      <browser_back>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubeback)</browser_back>
-      <c>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</c>
-      <menu>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</menu>
-      <return mod="longpress">RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</return>
-      <enter mod="longpress">RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</enter>
+      <backspace>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=youtubeback)</backspace>
+      <browser_back>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=youtubeback)</browser_back>
+      <c>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=youtubemenu)</c>
+      <menu>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=youtubemenu)</menu>
+      <return mod="longpress">RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=youtubemenu)</return>
+      <enter mod="longpress">RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=youtubemenu)</enter>
     </keyboard>
     <remote>
-      <back>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubeback)</back>
-      <menu>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</menu>
-      <title>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=youtubemenu)</title>
+      <back>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=youtubeback)</back>
+      <menu>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=youtubemenu)</menu>
+      <title>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=youtubemenu)</title>
     </remote>
   </window1198>
 </keymap>

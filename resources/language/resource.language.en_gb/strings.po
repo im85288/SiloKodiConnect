@@ -1,6 +1,6 @@
 # Kodi Media Center language file
-# Addon Name: SiloKodiConnect
-# Addon id: plugin.video.silokodiconnect
+# Addon Name: KodiConnectForSilo
+# Addon id: plugin.video.kodiconnectforsilo
 msgid ""
 msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -155,7 +155,7 @@ msgid "Libraries to sync"
 msgstr ""
 
 msgctxt "#30120"
-msgid "The SiloKodiConnect service is not running. Restart Kodi."
+msgid "The KodiConnectForSilo service is not running. Restart Kodi."
 msgstr ""
 
 msgctxt "#30121"
@@ -243,7 +243,7 @@ msgid "Sign this device out of Silo"
 msgstr ""
 
 msgctxt "#30156"
-msgid "Take everything SiloKodiConnect added out of Kodi's library, then add it back from Silo"
+msgid "Take everything KodiConnectForSilo added out of Kodi's library, then add it back from Silo"
 msgstr ""
 
 msgctxt "#30157"
@@ -277,11 +277,11 @@ msgid "See all"
 msgstr ""
 
 msgctxt "#30166"
-msgid "Live TV keys as TiviMate (Silo Skyline)"
+msgid "Live TV keys as TiviMate (Skyline)"
 msgstr ""
 
 msgctxt "#30167"
-msgid "While Live TV plays in the Silo Skyline skin: OK shows recent channels, Left the quick guide, Up and Down change channel."
+msgid "While Live TV plays in the Skyline skin: OK shows recent channels, Left the quick guide, Up and Down change channel."
 msgstr ""
 
 msgctxt "#30168"
@@ -474,4 +474,8 @@ msgstr ""
 
 msgctxt "#30216"
 msgid "Search YouTube"
+msgstr ""
+
+msgctxt "#30217"
+msgid "Moved from SiloKodiConnect. You can uninstall the old add-on."
 msgstr ""

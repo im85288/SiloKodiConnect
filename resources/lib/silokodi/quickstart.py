@@ -24,7 +24,7 @@ import xbmcvfs
 
 from .mapping import RELAY_PORT
 
-ADDON_ID = 'plugin.video.silokodiconnect'
+ADDON_ID = 'plugin.video.kodiconnectforsilo'
 ROW_STYLES = ('poster', 'landscape')
 LISTENING = {}  # port: the socket opened here, for the relay to take over
 

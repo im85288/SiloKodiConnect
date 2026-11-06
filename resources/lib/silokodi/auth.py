@@ -40,7 +40,7 @@ def sign_in(store):
     """Interactive sign-in. Returns True when signed in with a profile chosen."""
     # A background note, not Kodi's busy spinner: two spinners at once make Kodi quit.
     note = xbmcgui.DialogProgressBG()
-    note.create('SiloKodiConnect', kodi.string(30175))
+    note.create('KodiConnectForSilo', kodi.string(30175))
     try:
         found = discovery.servers()
     finally:
@@ -58,7 +58,7 @@ def sign_in(store):
     try:
         request = client.device_start()
     except (ApiError, requests.RequestException) as error:
-        xbmcgui.Dialog().ok('SiloKodiConnect', kodi.string(30101) % (server, error))
+        xbmcgui.Dialog().ok('KodiConnectForSilo', kodi.string(30101) % (server, error))
         return False
     if not wait_for_approval(client, request):
         return False
@@ -124,13 +124,13 @@ def sign_in_with_phone(store, client):
     session = pairing.Session(name, pairing.device_id(store),
                               lambda: pairing.Receiver(name, pairing.device_id(store), sign_in_at, on_status))
     if not session.address:
-        xbmcgui.Dialog().ok('SiloKodiConnect', kodi.string(30174))
+        xbmcgui.Dialog().ok('KodiConnectForSilo', kodi.string(30174))
         return False
     try:
         session.start()
     except OSError as error:
         kodi.log_warning('Pairing could not start: %s' % error)
-        xbmcgui.Dialog().ok('SiloKodiConnect', kodi.string(30174))
+        xbmcgui.Dialog().ok('KodiConnectForSilo', kodi.string(30174))
         return False
     window.show()
     monitor = xbmc.Monitor()
@@ -188,7 +188,7 @@ def wait_for_approval(client, request):
     shown = '%s-%s' % (code[:4], code[4:]) if len(code) == 8 and code.isdigit() else code
     text = kodi.string(30102) % (request.get('verification_uri') or client.server_url + '/activate', shown)
     dialog = xbmcgui.DialogProgress()
-    dialog.create('SiloKodiConnect', text)
+    dialog.create('KodiConnectForSilo', text)
     started, length = time.time(), request.get('expires_in') or 900
 
     def stop():
@@ -199,7 +199,7 @@ def wait_for_approval(client, request):
     finally:
         dialog.close()
     if result in ('denied', 'expired'):
-        xbmcgui.Dialog().ok('SiloKodiConnect', kodi.string(30103))
+        xbmcgui.Dialog().ok('KodiConnectForSilo', kodi.string(30103))
     return result == 'approved'
 
 
@@ -239,6 +239,6 @@ def choose_profile(store, client, switching=False):
             if answer.get('valid'):
                 token = answer.get('profile_token')
                 break
-            xbmcgui.Dialog().ok('SiloKodiConnect', kodi.string(30106))
+            xbmcgui.Dialog().ok('KodiConnectForSilo', kodi.string(30106))
     store.update(profile_id=chosen['id'], profile_name=chosen.get('name'), profile_token=token)
     return True

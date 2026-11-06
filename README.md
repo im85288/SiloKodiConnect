@@ -1,4 +1,4 @@
-# SiloKodiConnect
+# KodiConnectForSilo
 
 A Kodi add-on that syncs the movies and TV shows on a [Silo](https://github.com/Silo-Server/silo-server)
 server into Kodi's own video library, the way PlexKodiConnect does for Plex. Every skin, widget and
@@ -33,7 +33,7 @@ Community project: not made or endorsed by the Silo team. Requires Kodi 20 (Nexu
   title are tagged `Silo box set member`, so a skin's grid can hide them and show the first as the box set
   (Kodi groups sets only in its own Videos window); its set art carries `silocount` ("8 films"), `siloyears`
   ("2001 – 2011") and `silooverview` as text. `mode=info&type=set&dbid=<set>` opens a box set's page.
-- **A screensaver** of your library's backdrops and logos, slowly zooming: choose SiloKodiConnect in
+- **A screensaver** of your library's backdrops and logos, slowly zooming: choose KodiConnectForSilo in
   Settings > Interface > Screensaver.
 - **Your ratings.** Rate a film or series from one to five stars (Love it ... Not for me), which Silo's
   recommendations learn from; Kodi's info page shows the current stars.
@@ -48,13 +48,13 @@ Community project: not made or endorsed by the Silo team. Requires Kodi 20 (Nexu
 Build a zip and use Kodi's **Add-ons -> Install from zip file**:
 
 ```bash
-git archive --format=zip --prefix=plugin.video.silokodiconnect/ -o plugin.video.silokodiconnect.zip HEAD
+git archive --format=zip --prefix=plugin.video.kodiconnectforsilo/ -o plugin.video.kodiconnectforsilo.zip HEAD
 ```
 
 Kodi installs `script.module.requests` and `script.module.websocket` from its official repository.
 `inputstream.adaptive` is optional and used for converted (HLS) streams when present.
 
-Then open **Add-ons -> Video add-ons -> SiloKodiConnect -> Sign in to Silo**.
+Then open **Add-ons -> Video add-ons -> KodiConnectForSilo -> Sign in to Silo**.
 
 ## Up Next and skipping intros
 
@@ -69,10 +69,10 @@ no markers for keep Up Next's normal timing.
 Kodi's own "In progress TV shows" lists every show with some but not all episodes watched. To see Silo's
 rows instead, point skin widgets at the add-on:
 
-- **Continue Watching (as in Silo)**: `plugin://plugin.video.silokodiconnect/?mode=widget`
+- **Continue Watching (as in Silo)**: `plugin://plugin.video.kodiconnectforsilo/?mode=widget`
 - **Silo home rows**: every row on the profile's Silo home screen (Popular on IMDb, Recently added,
   collections, recommendations...), each a folder usable as a widget
-  (`plugin://plugin.video.silokodiconnect/?mode=widget&section=<row id>`).
+  (`plugin://plugin.video.kodiconnectforsilo/?mode=widget&section=<row id>`).
 - **Watchlist, Favourites and History**, kept between visits so they open at once.
 - **Coming Soon** (`section=comingsoon`): Silo's calendar for the next 14 days, each show you've started once
   with its next episode, soonest first, captioned "Tomorrow · S2 E5".
@@ -83,9 +83,9 @@ hides it (an episode's whole show) until it is played again.
 Rows list the matching Kodi library items, so art, resume points and play behave as usual. In "what to watch
 next" rows a show stands for its next episode; elsewhere for the show. Titles not synced to Kodi are skipped.
 
-## Silo Skyline skin
+## Skyline skin
 
-[Silo Skyline](https://github.com/im85288/SiloSkyline) lays Kodi out like the Silo TV apps, and the add-on
+[Skyline](https://github.com/im85288/Skyline) lays Kodi out like the Silo TV apps, and the add-on
 gives it what to show, as Home window properties a skin reads without running the plugin. Other skins can use
 the same properties.
 
@@ -144,7 +144,7 @@ the same properties.
 | Live TV: recent channels, quick guide, catch-up | `channels.py`, `quick.py`, `catchup.py` |
 | Skyline's keymaps; context menu items | `keymap.py`, `context.py` |
 
-Items are written with add-on paths (`plugin://plugin.video.silokodiconnect/movies/?mode=play&id=...`), so
+Items are written with add-on paths (`plugin://plugin.video.kodiconnectforsilo/movies/?mode=play&id=...`), so
 playing one asks the add-on, which starts a Silo session and hands Kodi the stream.
 
 Silo's artwork URLs are signed and change daily, so Kodi's art table holds stable local addresses
@@ -185,6 +185,13 @@ Android, in the `python:3.8` image), 3.11 (Kodi 21) and 3.14. Kodi's embedded Py
 `datetime.strptime` after its first use, so dates are parsed by hand.
 
 ## Changes
+
+### v0.13.0 (unreleased)
+- **Renamed:** SiloKodiConnect is now KodiConnectForSilo (`plugin.video.kodiconnectforsilo`), following
+  [Silo's naming policy](https://github.com/Silo-Server/siloserver.org/blob/main/TRADEMARK.md). Kodi installs it
+  as a new add-on. On its first start it turns the old one off, copies its sign-in, settings and sync records,
+  and updates the library's paths, so nothing needs signing in or syncing again. You can then uninstall the
+  old add-on.
 
 ### v0.12.3 (2026-11-03)
 - **Skyline's YouTube page:** its search box opens the keyboard and the page shows the YouTube add-on's
@@ -228,7 +235,7 @@ Android, in the `python:3.8` image), 3.11 (Kodi 21) and 3.14. Kodi's embedded Py
   (`siloaired`), so a skin writes every date one way whatever Kodi's region.
 
 ### v0.11.0 (2026-11-01)
-For [Silo Skyline](https://github.com/im85288/SiloSkyline) 0.4.0, tested on an NVIDIA SHIELD (Kodi 21).
+For [Skyline](https://github.com/im85288/Skyline) 0.4.0, tested on an NVIDIA SHIELD (Kodi 21).
 - **Box sets:** Silo's box sets (a TMDB collection's films, in a library with box sets on) become Kodi movie
   sets, with Silo's name, overview and art; a skin's grid can show one card per box set, and a box set opens
   its own page.
@@ -242,7 +249,7 @@ For [Silo Skyline](https://github.com/im85288/SiloSkyline) 0.4.0, tested on an N
 - Plugin rows no longer reload whenever something starts or stops playing (a theme tune made pages lag).
 
 ### v0.10.0 (2026-11-01)
-For [Silo Skyline](https://github.com/im85288/SiloSkyline) 0.3.0, tested on an NVIDIA SHIELD (Kodi 21).
+For [Skyline](https://github.com/im85288/Skyline) 0.3.0, tested on an NVIDIA SHIELD (Kodi 21).
 - **Requests:** Silo's Discover and Yours rows, a full info page, season choice and search.
 - **Faster Home:** rows published as cards in Silo's order (no plugin per row), far rows loaded later, a cache
   of titles' details, and Home drawn from last time's copy while the service starts.
@@ -257,7 +264,7 @@ For [Silo Skyline](https://github.com/im85288/SiloSkyline) 0.3.0, tested on an N
   are marked in plugin rows; the relay's commands need a per-start token.
 
 ### v0.9.3 (2026-10-25)
-- For the [Silo Skyline](https://github.com/im85288/SiloSkyline) skin: the profile's name and avatar (DiceBear
+- For the [Skyline](https://github.com/im85288/Skyline) skin: the profile's name and avatar (DiceBear
   pictures fetched as PNG; the sign-in token never goes to an outside image host), each title's ambient tint,
   More Like This, an episode's show and season paths, each library's collections with Silo's posters and
   counts, and a `mode=info` route that opens a title's info page.
@@ -266,7 +273,7 @@ For [Silo Skyline](https://github.com/im85288/SiloSkyline) 0.3.0, tested on an N
 
 ### v0.9.2 (2026-10-25)
 - Publishes Silo's pages and rows, and whether you are signed in, for the
-  [Silo Skyline](https://github.com/im85288/SiloSkyline) skin.
+  [Skyline](https://github.com/im85288/Skyline) skin.
 - Widget items carry the hero's details (episode code, air date, age rating, genre, IMDb rating, cast,
   quality badges) and their cast, directors and studios, so info pages list the cast.
 - Asks Kodi for a library update only when titles are added or removed: skin helpers rescan on every update.

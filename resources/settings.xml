@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <settings version="1">
-  <section id="plugin.video.silokodiconnect">
+  <section id="plugin.video.kodiconnectforsilo">
     <category id="account" label="30000">
       <group id="1">
         <setting id="signin" type="action" label="30001">
           <level>0</level>
-          <data>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=signin)</data>
+          <data>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=signin)</data>
           <constraints><allowempty>true</allowempty></constraints>
           <control type="button" format="action"><close>true</close></control>
         </setting>
         <setting id="signout" type="action" label="30002">
           <level>0</level>
-          <data>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=signout)</data>
+          <data>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=signout)</data>
           <constraints><allowempty>true</allowempty></constraints>
           <control type="button" format="action"><close>true</close></control>
         </setting>
@@ -40,25 +40,25 @@
       <group id="2">
         <setting id="sync_now" type="action" label="30014">
           <level>0</level>
-          <data>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=sync)</data>
+          <data>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=sync)</data>
           <constraints><allowempty>true</allowempty></constraints>
           <control type="button" format="action"><close>true</close></control>
         </setting>
         <setting id="choose_libraries" type="action" label="30013">
           <level>0</level>
-          <data>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=libraries)</data>
+          <data>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=libraries)</data>
           <constraints><allowempty>true</allowempty></constraints>
           <control type="button" format="action"><close>true</close></control>
         </setting>
         <setting id="full_sync" type="action" label="30015">
           <level>1</level>
-          <data>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=fullsync)</data>
+          <data>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=fullsync)</data>
           <constraints><allowempty>true</allowempty></constraints>
           <control type="button" format="action"><close>true</close></control>
         </setting>
         <setting id="reset" type="action" label="30016">
           <level>2</level>
-          <data>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=reset)</data>
+          <data>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=reset)</data>
           <constraints><allowempty>true</allowempty></constraints>
           <control type="button" format="action"><close>true</close></control>
         </setting>
@@ -99,7 +99,7 @@
         </setting>
         <setting id="choose_top10" type="action" label="30182" help="30184">
           <level>0</level>
-          <data>RunPlugin(plugin://plugin.video.silokodiconnect/?mode=top10)</data>
+          <data>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=top10)</data>
           <constraints><allowempty>true</allowempty></constraints>
           <control type="button" format="action"><close>true</close></control>
         </setting>

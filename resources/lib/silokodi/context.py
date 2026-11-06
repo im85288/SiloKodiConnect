@@ -166,7 +166,7 @@ def card_menu(kind, dbid, watched, dismissable):
     if title.get('error'):
         kodi.notify(title['error'])
         return
-    content_id, plugin = title['content_id'], 'plugin://plugin.video.silokodiconnect/'
+    content_id, plugin = title['content_id'], 'plugin://plugin.video.kodiconnectforsilo/'
     entries = []
     if dismissable:
         entries.append((kodi.string(30180), lambda: _dismiss(kind, dbid)))

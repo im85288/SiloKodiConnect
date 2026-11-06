@@ -15,7 +15,7 @@ except ImportError:  # pragma: no cover
     from urllib import quote, unquote, urlencode
     from urlparse import parse_qsl
 
-ADDON_ID = 'plugin.video.silokodiconnect'
+ADDON_ID = 'plugin.video.kodiconnectforsilo'
 # The service's loopback relay; Kodi's art URLs include it.
 RELAY_PORT = 57578
 PLUGIN_ROOT = 'plugin://%s/' % ADDON_ID
@@ -55,7 +55,7 @@ CARD_FIELDS = ('title', 'overview', 'tagline', 'sort_title', 'original_title', '
 # ----- identity and paths -----
 
 def content_id_from_path(path):
-    """The Silo content id in a Kodi path SiloKodiConnect wrote: a play URL's
+    """The Silo content id in a Kodi path KodiConnectForSilo wrote: a play URL's
     id, or a show folder's last segment; None for anything else."""
     if not path.startswith(PLUGIN_ROOT):
         return None

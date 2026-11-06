@@ -31,6 +31,7 @@ def folders(tmp_path, monkeypatch, kodi_db_path):
     monkeypatch.setattr(kodi, 'database_dir', lambda: os.path.dirname(kodi_db_path))
     monkeypatch.setattr(kodi, 'string', lambda number: 'moved')
     monkeypatch.setattr(xbmc, 'Monitor', lambda: type('M', (), {'waitForAbort': lambda self, seconds: False})())
+    monkeypatch.setattr(kodi, 'log_error', lambda message: None)
     return old, new
 
 
@@ -51,7 +52,7 @@ def test_copies_the_data_and_rewrites_the_library(folders, open_kodi, query, mon
     old, new = folders
     add_rows(open_kodi)
     migrate.run()
-    assert calls == [('Addons.SetAddonEnabled', {'addonid': migrate.OLD_ID, 'enabled': False})]
+    assert calls[0] == ('Addons.SetAddonEnabled', {'addonid': migrate.OLD_ID, 'enabled': False})
     assert json.loads((new / 'account.json').read_text()) == {'server': 'old'}
     assert (new / 'themes' / 'a.mp3').read_text() == 'tune'
     assert (old / 'account.json').exists()  # the old add-on's data stays
@@ -74,7 +75,7 @@ def test_runs_once(folders, open_kodi, query, monkeypatch):
     migrate.run()
     add_rows(open_kodi)  # rows only the old add-on could have written, after the move
     migrate.run()
-    assert len(calls) == 1
+    assert calls.count('Addons.SetAddonEnabled') == 1
     assert query('SELECT strPath FROM path WHERE idPath = 1') == [(OLD + 'movies/',)]
 
 
@@ -111,3 +112,52 @@ def test_a_failure_is_retried_at_the_next_start(folders, open_kodi, query, monke
     migrate.run()
     assert (new / migrate.DONE).exists()
     assert query('SELECT strPath FROM path WHERE idPath = 1') == [(NEW + 'movies/',)]
+
+
+def test_a_file_vanishing_as_the_old_service_closes_is_no_failure(folders, open_kodi, monkeypatch):
+    """Seen on a SHIELD: SQLite removed its -wal between the listing and the copy."""
+    monkeypatch.setattr(kodi, 'jsonrpc', lambda method, **params: None)
+    old, new = folders
+    (old / 'silokodi.db-wal').write_text('log')
+    real = migrate.shutil.copy2
+
+    def copy(source, target):
+        if source.endswith('-wal'):
+            raise FileNotFoundError(source)
+        return real(source, target)
+    monkeypatch.setattr(migrate.shutil, 'copy2', copy)
+    monkeypatch.setattr(migrate, 'STOP_SECONDS', 0)
+    migrate.run()
+    assert (new / migrate.DONE).exists()
+    assert (new / 'account.json').exists()
+    assert not (new / 'silokodi.db-wal').exists()
+
+
+def test_a_failed_try_leaves_no_sign_in_and_no_stale_sqlite_files(folders, open_kodi, monkeypatch):
+    monkeypatch.setattr(kodi, 'jsonrpc', lambda method, **params: None)
+    _, new = folders
+    real = kodidb.open_video_db
+
+    def locked(path, version):
+        raise OSError('database is locked')
+    monkeypatch.setattr(kodidb, 'open_video_db', locked)
+    migrate.run()
+    assert not (new / 'account.json').exists()  # so the service can't sync meanwhile
+    (new / 'silokodi.db-wal').write_text('from the service, on the partial copy')
+    (new / 'silokodi.db-shm').write_text('and its index')
+    monkeypatch.setattr(kodidb, 'open_video_db', real)
+    migrate.run()
+    assert (new / 'account.json').exists()
+    assert not (new / 'silokodi.db-wal').exists()
+    assert not (new / 'silokodi.db-shm').exists()
+
+
+def test_moves_the_screensaver_setting(folders, monkeypatch):
+    calls = []
+
+    def jsonrpc(method, **params):
+        calls.append((method, params))
+        return {'value': migrate.OLD_ID} if method == 'Settings.GetSettingValue' else None
+    monkeypatch.setattr(kodi, 'jsonrpc', jsonrpc)
+    migrate.run()
+    assert ('Settings.SetSettingValue', {'setting': 'screensaver.mode', 'value': mapping.ADDON_ID}) in calls

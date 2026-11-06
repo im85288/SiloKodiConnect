@@ -18,7 +18,7 @@ OLD_ROOT = 'plugin://%s/' % OLD_ID
 DONE = 'migrated_from_silokodiconnect'
 SIGN_IN = 'account.json'
 SYNC_DB = 'silokodi.db'
-STOP_SECONDS = 5  # for the old add-on's service to stop and close its database
+STOP_SECONDS = 30  # at most, for the old add-on's service to stop and close its database
 # Where Kodi's library keeps a plugin path: (table, column).
 LIBRARY_PATHS = (('path', 'strPath'), ('files', 'strFilename'), ('movie', 'c22'), ('episode', 'c18'))
 
@@ -35,41 +35,71 @@ def _migrate(old, new):
     marker = os.path.join(new, DONE)
     if os.path.exists(marker) or not os.path.isdir(old):
         return
-    _stop_old()
+    _stop_old(old)
+    # The sign-in comes last: until it's there the service doesn't sync, so a
+    # step that fails can't leave it writing a second copy of the library.
     copied = copy_data(old, new)
     rewrite_saved(new)
     path, version = kodidb.find_video_db(kodi.database_dir())
     if path:
         with kodidb.open_video_db(path, version) as db:
             rewrite_library(db.cursor)
+    if copied:
+        _copy_file(os.path.join(old, SIGN_IN), os.path.join(new, SIGN_IN))
+    _move_screensaver()
     with open(marker, 'w') as handle:
         handle.write(OLD_ID)
     kodi.log('Moved from %s (data copied: %s)' % (OLD_ID, copied))
     kodi.notify(kodi.string(30217))
 
 
-def _stop_old():
+def _stop_old(old):
     try:
         kodi.jsonrpc('Addons.SetAddonEnabled', addonid=OLD_ID, enabled=False)
     except Exception as error:  # pylint: disable=broad-except
         kodi.log_warning('Could not turn off %s: %s' % (OLD_ID, error))  # not installed any more
         return
-    xbmc.Monitor().waitForAbort(STOP_SECONDS)
+    # SQLite removes its write-ahead log when the last connection closes: the
+    # old service's closing, a moment after it's told to stop.
+    monitor = xbmc.Monitor()
+    for _ in range(STOP_SECONDS * 2):
+        if not os.path.exists(os.path.join(old, SYNC_DB + '-wal')):
+            return
+        if monitor.waitForAbort(0.5):
+            return
+
+
+def _copy_file(source, target):
+    try:
+        shutil.copy2(source, target)
+    except FileNotFoundError:
+        pass  # gone since it was listed: SQLite's own files, as the old service closes
 
 
 def copy_data(old, new):
-    """A copy of the old add-on's data, unless this add-on already has a sign-in
-    of its own. Returns whether it copied."""
+    """A copy of the old add-on's data, all but its sign-in, unless this add-on
+    already has a sign-in of its own. Returns whether it copied."""
     if os.path.exists(os.path.join(new, SIGN_IN)):
         return False
+    # Left by a try that failed: with a different database they'd corrupt it.
+    for name in (SYNC_DB + '-wal', SYNC_DB + '-shm'):
+        if os.path.exists(os.path.join(new, name)):
+            os.remove(os.path.join(new, name))
     for folder, _, names in os.walk(old):
         target = os.path.normpath(os.path.join(new, os.path.relpath(folder, old)))
         if not os.path.isdir(target):
             os.makedirs(target)
-        # The sign-in last: it's what says the copy finished (see above).
-        for name in sorted(names, key=lambda n: n == SIGN_IN):
-            shutil.copy2(os.path.join(folder, name), os.path.join(target, name))
+        for name in names:
+            if not (folder == old and name == SIGN_IN):
+                _copy_file(os.path.join(folder, name), os.path.join(target, name))
     return True
+
+
+def _move_screensaver():
+    """Kodi's screensaver setting, if it names the old add-on's."""
+    answer = kodi.jsonrpc('Settings.GetSettingValue', setting='screensaver.mode')
+    if (answer or {}).get('value') == OLD_ID:
+        kodi.jsonrpc('Settings.SetSettingValue', setting='screensaver.mode', value=mapping.ADDON_ID)
 
 
 def rewrite_saved(folder):

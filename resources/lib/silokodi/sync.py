@@ -8,19 +8,22 @@ unchanged but whose watch state moved only updates Kodi's playcount and
 resume point. Titles that left Silo are removed from Kodi.
 """
 import json
+import time
 from collections import OrderedDict
 from contextlib import contextmanager
 from urllib.parse import quote, urlencode
 from concurrent.futures import ThreadPoolExecutor
 
 from . import mapping
-from .api import ApiError
+from .api import ApiError, SignedOut
 
 MOVIE_LIBRARY_TYPES = ('movies', 'mixed')
 SHOW_LIBRARY_TYPES = ('series', 'tv', 'tvshows', 'mixed')
 # Titles, and seasons, written per transaction: each commit to Kodi's
 # database cost the SHIELD about a third of a second, so fewer is faster.
 BATCH = 50
+BOX_SET_CHECKS = 400  # films a sync asks Silo about, at most
+BOX_SET_RECHECK = 24 * 3600  # seconds until a film is asked about again
 SEASON_BATCH = 50
 FETCH_WORKERS = 4
 
@@ -483,27 +486,7 @@ class Syncer(object):
         art_version = 2  # what a set's art holds (2: its overview too); a change rewrites every set's
         stored = self.db.meta('box_sets') or {}
         known = stored.get(library_id) or {}
-        current = {}
-        if library.get('box_sets_enabled'):
-            for card in self.client.box_set_cards(library_id):
-                info = card.get('box_set') or {}
-                box_id = str(info.get('id') or (card.get('content_id') or '').partition(':')[2])
-                if not box_id:
-                    continue
-                fingerprint = mapping.box_set_fingerprint(card)
-                entry = known.get(box_id) or {}
-                if entry.get('fingerprint') != fingerprint:
-                    detail = self.client.box_set(box_id, library_id)
-                    count, years = mapping.box_set_facts(info)
-                    entry = {'kodi_id': entry.get('kodi_id'), 'fingerprint': fingerprint,
-                             'title': card.get('title') or detail.get('title') or '',
-                             'overview': card.get('overview') or detail.get('overview') or '',
-                             'count': count, 'years': years,
-                             'members': [m['content_id'] for m in detail.get('items') or [] if m.get('content_id')]}
-                    self._save_art('box_set:' + box_id, {kind: url for kind, url in (
-                        ('poster', card.get('poster_url')), ('fanart', card.get('backdrop_url')))
-                        if url and mapping.drawable(url)})
-                current[box_id] = entry
+        current = self._box_sets_of(library_id, known) if library.get('box_sets_enabled') else {}
         changed = 0
         with self.writing() as kodi:
             for box_id, entry in current.items():
@@ -533,6 +516,71 @@ class Syncer(object):
         if changed:
             self.log('Box sets: %d in %s, %d changes' % (len(current), library.get('name') or library_id, changed))
             self.changed = True
+
+    def _box_sets_of(self, library_id, known):
+        """A library's box sets, found through their movies: Silo answers which
+        box set a movie is in, with the set's movies, but has no list of them.
+        Each sync asks about movies it never has, then those asked longest ago,
+        BOX_SET_CHECKS at most; an answer also settles the set's other movies.
+        A set stays until none of its movies is still in it. A request that
+        fails leaves the rest for the next sync: box sets never stop a sync."""
+        stored = self.db.meta('box_set_movies') or {}
+        movies = [row['content_id'] for row in self.db.items('movie', library_id)]
+        checked = {content_id: when for content_id, when in (stored.get(library_id) or {}).items()
+                   if content_id in movies}  # content id -> [box set id or None, when asked]
+        for box_id, entry in known.items():
+            for content_id in entry.get('members') or []:
+                if content_id in movies:
+                    checked.setdefault(content_id, [box_id, 0])
+        boxes = dict(known)
+        now = int(time.time())
+        due = sorted((c for c in movies if c not in checked or checked[c][1] < now - BOX_SET_RECHECK),
+                     key=lambda c: checked[c][1] if c in checked else -1)
+        try:
+            asked = 0
+            for content_id in due:
+                self.check_stop()
+                if content_id in checked and checked[content_id][1] == now:
+                    continue  # an earlier answer this sync covered it
+                if asked == BOX_SET_CHECKS:
+                    break
+                asked += 1
+                try:
+                    detail = self.client.item_box_set(content_id, library_id)
+                except SignedOut:
+                    raise
+                except ApiError as error:
+                    if error.status != 404:
+                        self.log('Box sets: stopped for this sync: %s' % error)
+                        break
+                    detail = None
+                checked[content_id] = [None, now]
+                if detail and detail.get('id') is not None:
+                    box_id = str(detail['id'])
+                    boxes[box_id] = self._box_set_entry(box_id, detail, boxes.get(box_id) or {})
+                    for member in boxes[box_id]['members']:
+                        checked[member] = [box_id, now]
+        finally:
+            stored[library_id] = checked
+            self.db.set_meta('box_set_movies', stored)
+        current = {}
+        for box_id, entry in boxes.items():
+            members = [c for c in entry.get('members') or [] if checked.get(c, [None])[0] == box_id]
+            if members:
+                current[box_id] = dict(entry, members=members)
+        return current
+
+    def _box_set_entry(self, box_id, detail, entry):
+        members = [m['content_id'] for m in detail.get('items') or [] if m.get('content_id')]
+        fingerprint = mapping.box_set_fingerprint(detail)
+        if entry.get('fingerprint') == fingerprint:
+            return dict(entry, members=members)
+        count, years = mapping.box_set_facts(detail)
+        self._save_art('box_set:' + box_id, {kind: url for kind, url in (
+            ('poster', detail.get('poster_url')), ('fanart', detail.get('backdrop_url')))
+            if url and mapping.drawable(url)})
+        return {'kodi_id': entry.get('kodi_id'), 'fingerprint': fingerprint, 'title': detail.get('title') or '',
+                'overview': detail.get('overview') or '', 'count': count, 'years': years, 'members': members}
 
     # ----- TV -----
 

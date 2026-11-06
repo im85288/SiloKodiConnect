@@ -192,6 +192,9 @@ Android, in the `python:3.8` image), 3.11 (Kodi 21) and 3.14. Kodi's embedded Py
   as a new add-on. On its first start it turns the old one off, copies its sign-in, settings and sync records,
   and updates the library's paths, so nothing needs signing in or syncing again. You can then uninstall the
   old add-on.
+- **Syncing again:** Silo took its list of box sets out of its API on 3 November, which stopped each sync
+  after Movies, before TV. Box sets are now found through their films, a few hundred films per sync, and a box
+  set problem can no longer stop a sync.
 
 ### v0.12.3 (2026-11-03)
 - **Skyline's YouTube page:** its search box opens the keyboard and the page shows the YouTube add-on's

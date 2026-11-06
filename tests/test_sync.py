@@ -4,6 +4,7 @@ import pytest
 from resources.lib.silokodi import mapping
 from resources.lib.silokodi import rows as rows_module
 from resources.lib.silokodi import sync as sync_module
+from resources.lib.silokodi.api import ApiError
 from resources.lib.silokodi.sync import Syncer
 from resources.lib.silokodi.syncdb import SyncDB
 
@@ -1123,15 +1124,16 @@ def test_box_sets_become_kodi_movie_sets(silo, syncer, query):
     art = dict(query("SELECT type, url FROM art WHERE media_type = 'set' AND media_id = ?", (set_id,)))
     assert art == {'poster': mapping.art_url(PORT, 'box_set:86', 'poster'), 'silocount': '2 films',
                    'siloyears': '1981 – 1995', 'silooverview': 'Two films.'}
-    # Unchanged: no box set is fetched again, and a rewritten film stays in its set.
+    # Asked about recently: no box set is fetched again, and a rewritten film stays in its set.
     silo.calls = []
     silo.movies['movie-1']['title'] = 'Heat (1995)'
     syncer.sync()
     assert [c for c in silo.calls if c[0] == 'box_set'] == []
     assert query('SELECT COUNT(*) FROM movie WHERE idSet = ?', (set_id,)) == [(2,)]
     assert query(member) == [('Thief',)]  # the rewrite kept the tag
-    # A film joins: the set is fetched again and takes it in.
+    # A film joins: the next time its films are asked about, the set takes it in.
     silo.box_sets['86']['members'].append('movie-3')
+    ask_again(syncer)
     syncer.sync()
     assert query('SELECT COUNT(*) FROM movie WHERE idSet = ?', (set_id,)) == [(3,)]
     # Box sets turned off: the set goes and its films are free.
@@ -1140,6 +1142,59 @@ def test_box_sets_become_kodi_movie_sets(silo, syncer, query):
     assert query('SELECT COUNT(*) FROM sets') == [(0,)]
     assert query('SELECT COUNT(*) FROM movie WHERE idSet IS NOT NULL') == [(0,)]
     assert query(member) == []
+
+
+def ask_again(syncer):
+    """As if a day has gone by since the last box set answers."""
+    stored = syncer.db.meta('box_set_movies')
+    syncer.db.set_meta('box_set_movies', {library: {c: [box, 0] for c, (box, _) in movies.items()}
+                                          for library, movies in stored.items()})
+
+
+def test_an_answer_settles_a_box_sets_other_films(silo, syncer):
+    silo.libraries_list[0]['box_sets_enabled'] = True
+    silo.box_sets['86'] = {'id': '86', 'title': 'Set', 'members': ['movie-1', 'movie-2']}
+    silo.calls = []
+    syncer.sync()
+    assert len([c for c in silo.calls if c[0] == 'box_set']) == 1
+
+
+def test_a_box_set_goes_when_silo_stops_listing_its_films(silo, syncer, query):
+    silo.libraries_list[0]['box_sets_enabled'] = True
+    silo.box_sets['86'] = {'id': '86', 'title': 'Set', 'members': ['movie-1', 'movie-2']}
+    syncer.sync()
+    assert query('SELECT COUNT(*) FROM sets') == [(1,)]
+    del silo.box_sets['86']
+    ask_again(syncer)
+    syncer.sync()
+    assert query('SELECT COUNT(*) FROM sets') == [(0,)]
+    assert query('SELECT COUNT(*) FROM movie WHERE idSet IS NOT NULL') == [(0,)]
+
+
+def test_a_box_set_error_keeps_the_sets_and_doesnt_stop_the_sync(silo, syncer, query):
+    silo.libraries_list[0]['box_sets_enabled'] = True
+    silo.box_sets['86'] = {'id': '86', 'title': 'Set', 'members': ['movie-1', 'movie-2']}
+    syncer.sync()
+    ask_again(syncer)
+    silo.box_set_error = ApiError(422, 'validation_failed', 'The request did not pass validation')
+    silo.add_movie(movie('movie-3', 'Collateral'))
+    syncer.sync()  # doesn't raise: Silo's validation error stayed in the box sets
+    assert query('SELECT COUNT(*) FROM sets') == [(1,)]
+    assert query('SELECT COUNT(*) FROM movie') == [(3,)]
+
+
+def test_a_sync_asks_about_a_limited_number_of_films(silo, syncer, monkeypatch):
+    monkeypatch.setattr(sync_module, 'BOX_SET_CHECKS', 1)
+    silo.libraries_list[0]['box_sets_enabled'] = True
+    silo.calls = []
+    syncer.sync()
+    assert len([c for c in silo.calls if c[0] == 'box_set']) == 1
+    silo.calls = []
+    syncer.sync()  # the film it didn't reach
+    assert len([c for c in silo.calls if c[0] == 'box_set']) == 1
+    silo.calls = []
+    syncer.sync()  # every film asked about recently
+    assert [c for c in silo.calls if c[0] == 'box_set'] == []
 
 
 def test_box_set_facts_read_as_silos():

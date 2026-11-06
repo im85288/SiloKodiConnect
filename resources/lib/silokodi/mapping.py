@@ -95,13 +95,12 @@ def _hash(card, keys):
     return hashlib.sha1(json.dumps(data, sort_keys=True).encode('utf-8')).hexdigest()
 
 
-def box_set_fingerprint(card):
-    """Hash of what a box set card puts in Kodi: its name, overview, art and
-    movie count (a changed count means its movies changed)."""
-    info = card.get('box_set') or {}
-    return hashlib.sha1(json.dumps([card.get('title'), card.get('overview'), unsigned(card.get('poster_url')),
-                                    unsigned(card.get('backdrop_url')), info.get('movie_count'),
-                                    info.get('first_year'), info.get('last_year')]).encode('utf-8')).hexdigest()
+def box_set_fingerprint(box_set):
+    """Hash of what a box set puts in Kodi: its name, overview, art and movie
+    count (a changed count means its movies changed)."""
+    return hashlib.sha1(json.dumps([box_set.get('title'), box_set.get('overview'), unsigned(box_set.get('poster_url')),
+                                    unsigned(box_set.get('backdrop_url')), box_set.get('movie_count'),
+                                    box_set.get('first_year'), box_set.get('last_year')]).encode('utf-8')).hexdigest()
 
 
 def box_set_facts(info):

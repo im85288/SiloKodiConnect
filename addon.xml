@@ -33,7 +33,7 @@
     <assets>
       <icon>icon.png</icon>
     </assets>
-    <news>0.13.0: SiloKodiConnect is now KodiConnectForSilo, to follow Silo's naming policy. Your sign-in, settings and library move across by themselves; you can then uninstall the old add-on.
+    <news>0.13.0: SiloKodiConnect is now KodiConnectForSilo, to follow Silo's naming policy. Your sign-in, settings and library move across by themselves; you can then uninstall the old add-on. Syncing works again with Silo's latest version, which had stopped each sync after Movies.
 
 0.12.3: for Skyline's YouTube page: search from its box, Back closes the results, and the menu key offers Play or Play choosing the video's quality.
 

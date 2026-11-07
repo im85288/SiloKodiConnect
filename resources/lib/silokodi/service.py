@@ -17,7 +17,7 @@ import xbmc
 import xbmcgui
 
 from . import catchup, jump, kodi, kodidb, mapping, migrate, quick, tracks, upnext, keymap
-from . import commands, playersubs, theme
+from . import commands, playeraudio, playersubs, theme
 from .theme import ThemePlayer
 from .api import ApiError, SignedOut, SiloClient
 from .events import Debouncer, EventListener
@@ -130,6 +130,7 @@ class Player(xbmc.Player):
             self.service.tell_upnext(session)
             self.show_markers(session)
             self.service.publish_playing(session.content_id)
+            playeraudio.apply(session)
             if not playersubs.apply_pick(self.service, self, session):
                 playersubs.apply_pref(self.service, session)
 

@@ -112,6 +112,11 @@ class Session(object):
         self.subtitles = []
         self.series_id = None
         self.subtitle_state = None  # (enabled, track index) as last applied or saved
+        # The audio track Silo picks for the profile (playeraudio): an ordinal
+        # into the file's audio tracks, for direct play only.
+        self.audio_track = None
+        self.audio_count = 0
+        self.audio_language = ''
 
     def source_position(self, player_seconds):
         return max(0.0, self.origin + float(player_seconds or 0))
@@ -240,7 +245,14 @@ class PlaybackManager(object):
         # An episode's series: its remembered subtitle choice (subtitleprefs).
         session.series_id = item.get('series_id') if item.get('type') == 'episode' else None
         # Intro, recap and credits ranges, for Up Next's Skip button and popup.
-        session.markers = upnext.markers(self._played_version(item, plan, version), item)
+        played = self._played_version(item, plan, version)
+        session.markers = upnext.markers(played, item)
+        # The audio track Silo picks for this profile, which Kodi puts on as
+        # it starts (a converted stream already carries it).
+        if plan.get('delivery') == 'original_http' and isinstance(played.get('effective_audio_track_index'), int):
+            session.audio_track = played['effective_audio_track_index']
+            session.audio_count = len(played.get('audio_tracks') or [])
+            session.audio_language = played.get('effective_audio_language') or ''
         with self._lock:
             if self.pending:
                 self._safe_stop(self.pending)

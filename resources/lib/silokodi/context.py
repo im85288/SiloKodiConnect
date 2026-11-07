@@ -27,6 +27,46 @@ def home_menu():
               bool(xbmc.getInfoLabel('ListItem.Property(home.dismiss)')))
 
 
+HERO_BUTTONS = (4801, 4802)  # Skyline's hero Play and More info (Home, Movies, Series)
+LIBRARY_TYPES = ('movie', 'tvshow', 'episode')
+
+
+def home_title():
+    """The library title Skyline's Home, Movies or Series has focused, as
+    (type, dbid): the focused card of a row, or the hero's (whose buttons act
+    on the card of the row last focused); else (None, None). A card Skyline
+    publishes carries home.type and home.dbid; one of Kodi's own lists, its
+    DBType and DBID. A title Silo can request has neither."""
+    row = xbmc.getInfoLabel('Window(Home).Property(silo.row)')
+    if not row.isdigit():
+        return None, None
+    on_row = xbmc.getCondVisibility('Control.HasFocus(%s)' % row)
+    if not on_row and not any(xbmc.getCondVisibility('Control.HasFocus(%d)' % b) for b in HERO_BUTTONS):
+        return None, None
+    item = 'Container(%s).ListItem.%%s' % row
+    if xbmc.getInfoLabel(item % 'Property(home.request.tmdb)'):
+        return None, None
+    kind, dbid = xbmc.getInfoLabel(item % 'Property(home.type)'), xbmc.getInfoLabel(item % 'Property(home.dbid)')
+    if not kind:
+        kind, dbid = xbmc.getInfoLabel(item % 'DBType'), xbmc.getInfoLabel(item % 'DBID')
+    if kind in LIBRARY_TYPES and dbid.isdigit() and int(dbid) > 0:
+        return kind, dbid
+    return None, None
+
+
+def home_play():
+    """Skyline's Play/Pause key on Home, Movies and Series (zz_skyline_home.xml):
+    a library title's card plays as the hero's Play plays it (a film from where
+    it was left, a show at its next episode), so any row can play without the
+    hero; anywhere else the key does what it always does."""
+    kind, dbid = home_title()
+    if not kind:
+        xbmc.executebuiltin('Action(PlayPause)')
+        return
+    from .plugin import play_item
+    play_item(kind, dbid)
+
+
 YOUTUBE_PLAY = 'plugin://plugin.video.youtube/play/'
 
 

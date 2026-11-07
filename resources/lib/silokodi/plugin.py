@@ -81,6 +81,10 @@ def run(argv):
         # Skyline's YouTube page's context menu key (zz_skyline_home.xml).
         from .context import youtube_menu
         return youtube_menu()
+    if mode == 'homeplay':
+        # Skyline's Play/Pause key on Home, Movies and Series (zz_skyline_home.xml).
+        from .context import home_play
+        return home_play()
     if mode == 'homemenu':
         # Home's context menu key (zz_skyline_home.xml).
         from .context import home_menu

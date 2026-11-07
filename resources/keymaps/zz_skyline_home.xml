@@ -5,6 +5,8 @@
        or Next Up card, Silo's menu (Remove from Continue Watching); on
        anything else, Kodi's own. A skin's card isn't a library item, so
        Kodi has no context menu for it.
+       Play/Pause on Home, Movies and Series: a library title's card plays (a
+       show at its next episode), as the hero's Play; elsewhere, as usual.
      And on Skyline's YouTube page (custom window 1198, which Kodi numbers
      11198): Play, or Play choosing the video's quality; and Back closes a
      search's results (else Back as usual). And on its person page (1195,
@@ -16,10 +18,12 @@
       <menu>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=homemenu)</menu>
       <return mod="longpress">RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=homemenu)</return>
       <enter mod="longpress">RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=homemenu)</enter>
+      <play_pause>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=homeplay)</play_pause>
     </keyboard>
     <remote>
       <menu>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=homemenu)</menu>
       <title>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=homemenu)</title>
+      <play>RunPlugin(plugin://plugin.video.kodiconnectforsilo/?mode=homeplay)</play>
     </remote>
   </home>
   <window11198>

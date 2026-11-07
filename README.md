@@ -192,6 +192,8 @@ Android, in the `python:3.8` image), 3.11 (Kodi 21) and 3.14. Kodi's embedded Py
   still asks first. Their most popular credits come first; talk and news shows and titles with no year are left out.
 - **No stuck sessions:** if Kodi is closed or crashes during playback, the next start ends that session on Silo,
   which otherwise listed it as playing (or paused, for 30 minutes) in its Activity page.
+- **Play key:** under Skyline, the remote's Play/Pause on a library title's card in any row of Home, Movies or
+  Series plays it, as the hero's Play does (a film from where it was left, a show at its next episode).
 
 ### v0.13.1 (2026-11-06)
 - **Sync problems show:** when syncs keep failing because of something Silo or the add-on did, Kodi now says so,

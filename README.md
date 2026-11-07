@@ -186,6 +186,10 @@ Android, in the `python:3.8` image), 3.11 (Kodi 21) and 3.14. Kodi's embedded Py
 
 ## Changes
 
+### Unreleased
+- **Back in Skyline's TV guide:** returns to what's playing, and twice in a row leaves Live TV (needs Skyline's
+  window 1189); with nothing playing, it goes from the timeline up to the channel groups.
+
 ### v0.14.1 (2026-11-07)
 - **Your audio language:** Kodi plays the audio track Silo picks for your profile (its audio language for the
   series, library, device or profile), as Silo's apps do. A file with another language first, such as a MULTi

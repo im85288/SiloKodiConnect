@@ -3,7 +3,11 @@
      other keymaps, which it overrides only for this key):
        Back       in the video window, Skyline's window 1188: Kodi's own Back
                   (leave the video for the menus), unless Skyline's pause
-                  screen is up, which Back only dismisses, as Netflix's -->
+                  screen is up, which Back only dismisses, as Netflix's
+       Back       in the TV guide, Skyline's window 1189: to what's playing;
+                  with nothing playing, from the timeline up to the channel
+                  groups, and from there Kodi's own Back (leave the guide).
+                  Kodi's guide takes Back before the skin's controls see it. -->
 <keymap>
   <FullscreenVideo>
     <keyboard>
@@ -14,4 +18,13 @@
       <back>ActivateWindow(1188)</back>
     </remote>
   </FullscreenVideo>
+  <tvguide>
+    <keyboard>
+      <backspace>ActivateWindow(1189)</backspace>
+      <browser_back>ActivateWindow(1189)</browser_back>
+    </keyboard>
+    <remote>
+      <back>ActivateWindow(1189)</back>
+    </remote>
+  </tvguide>
 </keymap>

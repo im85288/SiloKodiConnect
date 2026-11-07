@@ -186,7 +186,7 @@ Android, in the `python:3.8` image), 3.11 (Kodi 21) and 3.14. Kodi's embedded Py
 
 ## Changes
 
-### Unreleased
+### v0.14.0 (2026-11-07)
 - **Not on server:** with the TMDb Helper add-on installed, Skyline's person page lists the person's titles that
   aren't in the library. OK opens a title's request page; the menu key or a long OK offers Request directly, which
   still asks first. Their most popular credits come first; talk and news shows and titles with no year are left out.

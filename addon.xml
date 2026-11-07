@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="plugin.video.kodiconnectforsilo" name="KodiConnectForSilo" version="0.13.1" provider-name="im85288">
+<addon id="plugin.video.kodiconnectforsilo" name="KodiConnectForSilo" version="0.14.0" provider-name="im85288">
   <requires>
     <import addon="xbmc.python" version="3.0.1"/>
     <import addon="script.module.requests" version="2.22.0"/>
@@ -33,7 +33,9 @@
     <assets>
       <icon>icon.png</icon>
     </assets>
-    <news>0.13.1: restores films that had lost their library row to another film, and stops that happening. Kodi now says when syncs keep failing.
+    <news>0.14.0: for Skyline: a person's titles not on your server, to request (needs TMDb Helper), and the remote's Play/Pause plays a title's card from any row. A session left open when Kodi closes or crashes during playback is ended on Silo at the next start.
+
+0.13.1: restores films that had lost their library row to another film, and stops that happening. Kodi now says when syncs keep failing.
 
 0.13.0: SiloKodiConnect is now KodiConnectForSilo, to follow Silo's naming policy. Your sign-in, settings and library move across by themselves; you can then uninstall the old add-on. Syncing works again with Silo's latest version, which had stopped each sync after Movies.
 
@@ -43,8 +45,6 @@
 
 0.12.1: new titles' artwork no longer stays blank after Kodi starts, Continue Watching follows a finished episode in about 2 s, a full resync shows its progress and fetches artwork again, and "Remove and re-add every Silo item" rebuilds at once.
 
-0.12.0: a show's subtitle choice remembered (as Silo's apps keep it), a card menu with Not interested, Shuffle, Play for a skin's hero, a time-left label for Resume, and a screensaver of the library's artwork.
-
-0.11.2: subtitles downloaded through Silo reach Kodi, and a skin's Search online finds and downloads subtitles from Silo's providers.</news>
+0.12.0: a show's subtitle choice remembered (as Silo's apps keep it), a card menu with Not interested, Shuffle, Play for a skin's hero, a time-left label for Resume, and a screensaver of the library's artwork.</news>
   </extension>
 </addon>

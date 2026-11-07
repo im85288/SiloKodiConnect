@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="plugin.video.kodiconnectforsilo" name="KodiConnectForSilo" version="0.14.1" provider-name="im85288">
+<addon id="plugin.video.kodiconnectforsilo" name="KodiConnectForSilo" version="0.14.2" provider-name="im85288">
   <requires>
     <import addon="xbmc.python" version="3.0.1"/>
     <import addon="script.module.requests" version="2.22.0"/>
@@ -33,7 +33,9 @@
     <assets>
       <icon>icon.png</icon>
     </assets>
-    <news>0.14.1: plays the audio track Silo picks for your profile, so a file with another language first (a MULTi release) plays in your language.
+    <news>0.14.2: for Skyline's TV guide: Back returns to what's playing, and Back twice leaves Live TV.
+
+0.14.1: plays the audio track Silo picks for your profile, so a file with another language first (a MULTi release) plays in your language.
 
 0.14.0: for Skyline: a person's titles not on your server, to request (needs TMDb Helper), and the remote's Play/Pause plays a title's card from any row. A session left open when Kodi closes or crashes during playback is ended on Silo at the next start.
 

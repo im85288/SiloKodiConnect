@@ -6,6 +6,8 @@ progress while Kodi plays and stops the session when Kodi does. Silo's media
 routes need the sign-in header, so Kodi opens them through the service's
 loopback relay, which adds a fresh token to each request.
 """
+import json
+import os
 import platform
 import threading
 import time
@@ -154,10 +156,13 @@ class Session(object):
 
 
 class PlaybackManager(object):
-    def __init__(self, client, version, settings, log=None, media_url=None):
+    def __init__(self, client, version, settings, log=None, media_url=None, ledger=None):
         """settings: callable returning {'max_resolution', 'dynamic_range', 'quality'}.
-        media_url: maps a Silo media URL to the address Kodi should open."""
+        media_url: maps a Silo media URL to the address Kodi should open.
+        ledger: a file naming the sessions still open, so the next start can
+        end the ones Kodi was killed or crashed holding (close_leftovers)."""
         self.client = client
+        self.ledger = ledger
         self.media_url = media_url or (lambda url: url)
         self.version = version
         self.settings = settings
@@ -240,6 +245,7 @@ class PlaybackManager(object):
             if self.pending:
                 self._safe_stop(self.pending)
             self.pending = session
+            self._remember()
         timeline = plan.get('timeline') or {}
         # Text sidecars: the file's own and ones downloaded through Silo (its apps' or this add-on's).
         subtitles = [self.media_url(self.client.url(entry['url'])) for entry in (plan.get('subtitle') or {}).get('inventory') or []
@@ -283,6 +289,7 @@ class PlaybackManager(object):
             if self.active:
                 self._safe_stop(self.active)
             self.active, self.pending = self.pending, None
+            self._remember()
         return self.active
 
     def on_tick(self, player_seconds, paused):
@@ -300,6 +307,8 @@ class PlaybackManager(object):
             session, self.active = self.active, None
         if session:
             self._safe_stop(session, player_seconds)
+            with self._lock:
+                self._remember()
         return session
 
     def _safe_stop(self, session, player_seconds=None):
@@ -307,3 +316,39 @@ class PlaybackManager(object):
             session.stop(player_seconds)
         except Exception as error:  # never let a failed stop break the player loop
             self.log('Stopping Silo session %s failed: %s' % (session.session_id, error))
+
+    # ----- sessions left open by a Kodi that was killed or crashed -----
+
+    def _remember(self):
+        """Write the open sessions to the ledger (under self._lock)."""
+        if not self.ledger:
+            return
+        sessions = [[s.installation_id, s.session_id] for s in (self.pending, self.active)
+                    if s and s.session_id and not s.stopped]
+        try:
+            with open(self.ledger + '.tmp', 'w') as handle:
+                json.dump(sessions, handle)
+            os.replace(self.ledger + '.tmp', self.ledger)
+        except (OSError, ValueError) as error:
+            self.log('Could not note the open Silo session: %s' % error)
+
+    def leftovers(self):
+        """The sessions the ledger names that this run didn't start: the last
+        run's, if Kodi stopped without ending them. Read before any playback."""
+        try:
+            with open(self.ledger) as handle:
+                sessions = json.load(handle)
+        except (OSError, TypeError, ValueError):
+            return []
+        mine = set(self.session_ids())
+        return [(installation_id, session_id) for installation_id, session_id in sessions
+                if session_id and session_id not in mine]
+
+    def close_leftovers(self, sessions):
+        """End them on Silo, which would otherwise list them as playing (or
+        paused) until its own timeout, 30 minutes for a paused one."""
+        for installation_id, session_id in sessions:
+            self.log('Ending Silo session %s, left open when Kodi last stopped' % session_id)
+            self._release(installation_id, session_id)
+        with self._lock:
+            self._remember()

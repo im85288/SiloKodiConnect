@@ -269,3 +269,43 @@ def test_watchlist_membership_add_and_remove(store):
     client.remove_from_watchlist('movie-1')
     assert [(method, url.rsplit('/', 1)[1]) for method, url, *_ in client.session.sent] == [
         ('GET', 'movie-1'), ('GET', 'movie-2'), ('PUT', 'movie-2'), ('DELETE', 'movie-1')]
+
+
+# ----- sessions left open when Kodi was killed or crashed -----
+
+def test_the_ledger_names_the_open_session_until_it_stops(store, tmp_path):
+    mgr, _ = manager(store, [('GET', '/api/v2/catalog/items/movie-1', Response(200, movie())),
+                             ('GET', '/api/v2/playback/capabilities', Response(200, CAPABILITY)),
+                             ('POST', '/api/v2/playback/start', Response(201, plan())),
+                             ('DELETE', '/api/v2/playback/s1', Response(200, {'outcome': 'stopped'}))])
+    mgr.ledger = str(tmp_path / 'open_sessions.json')
+    mgr.start('movie-1')
+    assert json.load(open(mgr.ledger)) == [['inst-1', 's1']]
+    mgr.on_started()
+    assert json.load(open(mgr.ledger)) == [['inst-1', 's1']]
+    mgr.on_stopped(10)
+    assert json.load(open(mgr.ledger)) == []
+
+
+def test_a_killed_runs_sessions_are_ended_at_the_next_start(store, tmp_path):
+    ledger = tmp_path / 'open_sessions.json'
+    ledger.write_text(json.dumps([['inst-1', 'old-1'], ['inst-1', 'old-2']]))
+    mgr, client = manager(store, [('DELETE', '/api/v2/playback/old-1', Response(200, {'outcome': 'stopped'})),
+                                  ('DELETE', '/api/v2/playback/old-2', Response(404, {'status': 404}))])
+    mgr.ledger = str(ledger)
+    leftovers = mgr.leftovers()
+    assert leftovers == [('inst-1', 'old-1'), ('inst-1', 'old-2')]
+    mgr.close_leftovers(leftovers)  # one Silo already ended: no error
+    stops = [s for s in client.session.sent if s[0] == 'DELETE']
+    assert [s[1].rsplit('/', 1)[1] for s in stops] == ['old-1', 'old-2']
+    assert stops[0][2]['installation_id'] == 'inst-1'
+    assert json.load(open(mgr.ledger)) == []
+
+
+def test_no_ledger_or_a_damaged_one_has_no_leftovers(store, tmp_path):
+    mgr, _ = manager(store, [])
+    assert mgr.leftovers() == []  # no ledger at all
+    mgr.ledger = str(tmp_path / 'open_sessions.json')
+    assert mgr.leftovers() == []  # not written yet
+    (tmp_path / 'open_sessions.json').write_text('{not json')
+    assert mgr.leftovers() == []

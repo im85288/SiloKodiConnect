@@ -259,7 +259,8 @@ class Service(object):
         self.relay = Relay(self.client, self.db, self.refresh_art, self.play, self.command, self.port, log=kodi.log,
                            media_allowed=self.media_allowed)
         self.playback = PlaybackManager(self.client, self.version, self.playback_settings, log=kodi.log,
-                                        media_url=self.relay.media_url)
+                                        media_url=self.relay.media_url,
+                                        ledger=os.path.join(kodi.profile_dir(), 'open_sessions.json'))
         self.player = Player(self)
         # On in the add-on's settings and, under Skyline, its own skin setting (off: SkylineNoThemeMusic).
         self.theme = ThemePlayer(lambda: kodi.setting_bool('theme_music')
@@ -313,6 +314,18 @@ class Service(object):
         self.personal_events = Debouncer(quiet=PERSONAL_QUIET, limit=PERSONAL_WAIT)
         self.personal_due = True
 
+    def close_leftover_sessions(self):
+        """Silo sessions the last run left open (Kodi killed or crashed while
+        playing), ended in the background. Not while a video plays: the
+        service restarted under it, and its session is still in use."""
+        leftovers = self.playback.leftovers()
+        if not leftovers or xbmc.Player().isPlayingVideo():
+            return
+        closer = threading.Thread(target=self.playback.close_leftovers, args=(leftovers,),
+                                  name='silokodi-leftover-sessions')
+        closer.daemon = True
+        closer.start()
+
     # ----- Kodi's database -----
 
     def open_kodi(self):
@@ -331,6 +344,7 @@ class Service(object):
         except OSError as error:
             kodi.log_error('Cannot listen on 127.0.0.1:%d: %s' % (self.port, error))
             kodi.notify(kodi.string(30121) % self.port)
+        self.close_leftover_sessions()
         self.start_quickly()
         self.sync_keymap()
         worker = threading.Thread(target=self.work, name='silokodi-worker')

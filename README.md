@@ -186,6 +186,11 @@ Android, in the `python:3.8` image), 3.11 (Kodi 21) and 3.14. Kodi's embedded Py
 
 ## Changes
 
+### v0.14.1 (2026-11-07)
+- **Your audio language:** Kodi plays the audio track Silo picks for your profile (its audio language for the
+  series, library, device or profile), as Silo's apps do. A file with another language first, such as a MULTi
+  release with French as its default track, no longer plays in that language.
+
 ### v0.14.0 (2026-11-07)
 - **Not on server:** with the TMDb Helper add-on installed, Skyline's person page lists the person's titles that
   aren't in the library. OK opens a title's request page; the menu key or a long OK offers Request directly, which
